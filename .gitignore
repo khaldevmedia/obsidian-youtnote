@@ -1,0 +1,55 @@
+# -------------------------
+# OS FILES
+# -------------------------
+
+# Linux
+*~
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+__MACOSX/
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+Desktop.ini
+
+# -------------------------
+# BUILD
+# -------------------------
+/main.js
+/styles.css
+
+# -------------------------
+# EDITORS / IDEs
+# -------------------------
+
+# VS Code
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+
+# -------------------------
+# NODE
+# -------------------------
+node_modules/
+
+
+# -------------------------
+# LOGS / TEMP
+# -------------------------
+
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+lerna-debug.log*
+*.pid
+*.seed
+*.pid.lock
+tmp/
+temp/

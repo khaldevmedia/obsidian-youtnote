@@ -1,0 +1,14 @@
+{
+    "id": "obsidian-youtnote",
+    "name": "Youtnote",
+    "version": "1.0.0",
+    "minAppVersion": "1.10.3",
+    "description": "Embed multiple YouTube videos inside a single Obsidian note, take timestamped Markdown notes with live preview editing.",
+    "author": "Khaldevmedia",
+    "authorUrl": "https://khaldevmedia.com",
+    "isDesktopOnly": false,
+    "fundingUrl": {
+        "Ko-fi": "https://ko-fi.com/khaldevmedia",
+        "GitHub Sponsors": "https://github.com/sponsors/khaldevmedia"
+    }
+}

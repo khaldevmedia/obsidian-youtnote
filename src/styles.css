@@ -1,0 +1,920 @@
+/* Youtnote Plugin Styles */
+/* Our classes are prefixed with youtnote-plugin__
+to avoid conflicts with other plugins */
+
+
+/* Scope view-content overrides to our view type.
+   When Obsidian adds is-mobile-editing to view-content on mobile, it changes the
+   layout to prioritize the CM editor. These rules ensure our plugin-container
+   still fills view-content correctly regardless of is-mobile-editing state. */
+.workspace-leaf-content[data-type='youtnote-view'] {
+    .view-content {
+        padding: 0;
+        display: flex !important;
+        flex-direction: column !important;
+        overflow: hidden !important;
+    }
+
+    .view-content > .youtnote-plugin__plugin-container {
+        flex: 1 1 auto !important;
+        min-height: 0 !important;
+    }
+
+    > .view-header {
+        display: flex !important;
+    }
+}
+
+.youtnote-plugin__plugin-container {
+    contain: content;
+    display: flex;
+    flex-direction: row;
+    height: 100%;
+    width: 100%;
+    gap: 0;
+    overflow: hidden;
+    padding: 16px;
+    box-sizing: border-box;
+    position: relative;
+}
+
+.is-mobile .youtnote-plugin__plugin-container {
+    padding: 8px;
+}
+
+.youtnote-plugin__plugin-container.youtnote-plugin__disabled {
+    pointer-events: none;
+    opacity: 0.6;
+    cursor: wait;
+}
+
+.youtnote-plugin__plugin-container.youtnote-plugin__disabled .youtnote-plugin__loading-container {
+    pointer-events: auto;
+    cursor: default;
+}
+
+.youtnote-plugin__plugin-container.youtnote-plugin__is-resizing {
+    cursor: col-resize;
+    user-select: none;
+}
+
+.youtnote-plugin__plugin-container.youtnote-plugin__is-resizing * {
+    cursor: col-resize !important;
+    user-select: none;
+}
+
+.is-mobile .youtnote-plugin__plugin-container {
+    flex-direction: column;
+    overflow-y: auto;
+}
+
+/* Left Pane (Videos + Player) */
+.youtnote-plugin__video-pane {
+    flex: 0 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    min-width: 300px;
+    padding-right: 8px;
+}
+
+.is-mobile .youtnote-plugin__video-pane {
+    width: 100% !important;
+    max-width: 100%;
+    flex: none;
+    padding: 0;
+}
+
+
+.is-mobile .youtnote-plugin__plugin-container.youtnote-plugin__iframe-sticky .youtnote-plugin__player-container {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background-color: var(--background-primary);
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--background-modifier-border);
+}
+
+/* Keep sticky active while scrolling across both videos and notes by
+   flattening the video-pane boundary on mobile sticky mode. */
+.is-mobile .youtnote-plugin__plugin-container.youtnote-plugin__iframe-sticky .youtnote-plugin__video-pane {
+    display: contents;
+}
+
+.youtnote-plugin__player-container {
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    background-color: var(--background-secondary);
+    border-radius: 8px;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--background-modifier-border);
+    flex-shrink: 0;
+    position: relative;
+}
+
+.youtnote-plugin__iframe {
+    width: 100%;
+    height: 100%;
+    border: none;
+}
+
+.youtnote-plugin__iframe-hidden {
+    display: none;
+}
+
+.youtnote-plugin__empty-state {
+    color: var(--text-muted);
+    font-size: 14px;
+    text-align: center;
+}
+
+/* Video and Note List Headers */
+.youtnote-plugin__video-list-header,
+.youtnote-plugin__note-list-header {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-muted);
+    letter-spacing: 0.5px;
+    padding: 8px 12px;
+    margin-bottom: 8px;
+    border-bottom: 1px solid var(--background-modifier-border);
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+/* Counter numbers */
+.youtnote-plugin__video-list-header span,
+.youtnote-plugin__note-list-header span {
+    font-weight: bold;
+}
+
+
+.youtnote-plugin__note-list-header-content,
+.youtnote-plugin__video-list-header-content {
+    flex: 1;
+}
+
+/* Export and Merge buttons in note list header */
+.youtnote-plugin__note-list-action-btns-container {
+    display: flex;
+    gap: 8px;
+}
+
+.youtnote-plugin__export-btn,
+.youtnote-plugin__merge-notes-btn {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s ease;
+    flex-shrink: 0;
+}
+
+.youtnote-plugin__export-btn:hover,
+.youtnote-plugin__merge-notes-btn:hover {
+    color: var(--text-normal);
+    background-color: var(--background-modifier-hover);
+}
+
+.is-mobile .youtnote-plugin__video-list-header .youtnote-plugin__export-btn{
+    display: none;
+}
+
+/* Video List */
+.youtnote-plugin__video-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    overflow-y: auto;
+    flex: 0 1 auto;
+    max-height: 100%;
+    padding-right: 8px; /* For scrollbar */
+}
+
+.youtnote-plugin__video-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 12px;
+    background-color: var(--background-secondary);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.youtnote-plugin__video-item:hover {
+    background-color: var(--background-modifier-hover);
+}
+
+.youtnote-plugin__video-item.youtnote-plugin__active {
+    background-color: var(--background-modifier-active-hover);
+    border-color: var(--interactive-accent);
+}
+
+.youtnote-plugin__video-item img {
+    width: 64px;
+    height: 40px;
+    border-radius: 4px;
+    object-fit: cover;
+    background-color: var(--background-primary);
+}
+
+.youtnote-plugin__video-item span {
+    font-size: 14px;
+    color: var(--text-normal);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.youtnote-plugin__drag-handle:hover {
+    cursor: grab;
+}
+
+.youtnote-plugin__drag-handle:active {
+    cursor: grabbing;
+}
+
+.youtnote-plugin__video-title {
+    flex: 1;
+}
+
+.youtnote-plugin__video-copy-btn,
+.youtnote-plugin__video-delete-btn {
+    opacity: 0;
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s ease;
+}
+
+.youtnote-plugin__video-item:hover .youtnote-plugin__video-copy-btn,
+.youtnote-plugin__video-item:hover .youtnote-plugin__video-delete-btn {
+    opacity: 1;
+}
+
+/* Video Copy and Delete buttons */
+.youtnote-plugin__video-copy-btn:hover,
+.youtnote-plugin__video-delete-btn:hover {
+    color: var(--text-normal);
+    background-color: var(--background-modifier-hover);
+}
+
+.is-mobile .youtnote-plugin__video-copy-btn,
+.is-mobile .youtnote-plugin__video-delete-btn {
+    display: none;
+}
+
+/* Resize Handle */
+.youtnote-plugin__resize-handle {
+    flex: 0 0 auto;
+    width: 8px;
+    cursor: col-resize;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10;
+}
+
+.youtnote-plugin__resize-handle-line {
+    width: 1px;
+    height: 100%;
+    background-color: var(--background-modifier-border);
+    transition: background-color 0.15s ease, width 0.15s ease;
+}
+
+.youtnote-plugin__resize-handle:hover .youtnote-plugin__resize-handle-line {
+    background-color: var(--interactive-accent);
+    width: 3px;
+}
+
+.youtnote-plugin__plugin-container.youtnote-plugin__is-resizing .youtnote-plugin__resize-handle-line {
+    background-color: var(--interactive-accent);
+    width: 3px;
+}
+
+.is-mobile .youtnote-plugin__resize-handle {
+    display: none;
+}
+
+
+/* Right Pane (Notes) */
+.youtnote-plugin__notes-pane {
+    flex: 0 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    min-width: 300px;
+    max-height: 100%;
+    overflow: hidden;
+    padding-left: 8px;
+}
+
+.is-mobile .youtnote-plugin__notes-pane {
+    width: 100% !important;
+    padding: 0;
+    max-height: none;
+    overflow: visible;
+    margin-top: 35px;
+}
+
+.is-mobile .youtnote-plugin__video-list {
+    overflow-y: visible;
+    max-height: none;
+    padding: 0px;
+}
+
+.is-mobile .youtnote-plugin__notes-list {
+    overflow-y: visible;
+    max-height: none;
+    padding: 0px;
+}
+
+.youtnote-plugin__notes-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    overflow-y: auto;
+    flex: 0 1 auto;
+    max-height: 100%;
+    padding-right: 8px; /* For scrollbar */
+}
+
+.youtnote-plugin__note-card {
+    display: flex;
+    flex-direction: column;
+    padding: 12px;
+    background-color: var(--background-secondary);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.youtnote-plugin__note-card:hover {
+    background-color: var(--background-modifier-hover);
+}
+
+.youtnote-plugin__note-card.youtnote-plugin__active-note {
+    border-color: var(--interactive-accent);
+}
+
+.youtnote-plugin__note-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text-normal);
+}
+
+.youtnote-plugin__note-header-icon {
+    display: flex;
+    align-items: center;
+    color: var(--text-muted);
+}
+
+.youtnote-plugin__note-card:hover .youtnote-plugin__note-header-icon {
+    color: var(--text-normal);
+}
+
+.youtnote-plugin__timestamp {
+    background-color: var(--background-primary);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-family: var(--font-monospace);
+    font-size: 14px;
+    border: 1px solid var(--background-modifier-border);
+    cursor: pointer;
+    transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.youtnote-plugin__timestamp:hover {
+    background-color: var(--background-modifier-hover);
+    border-color: var(--interactive-accent);
+}
+
+.youtnote-plugin__note-body {
+    font-size: 14px;
+    color: var(--text-muted);
+    line-height: 1.5;
+    white-space: pre-wrap;
+    background-color: var(--background-primary);
+    padding: 8px;
+    border-radius: 6px;
+    /* Collapsed state by default */
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.youtnote-plugin__note-card.expanded .youtnote-plugin__note-body {
+    display: block;
+    color: var(--text-normal);
+}
+
+/* Markdown-rendered note body */
+.youtnote-plugin__markdown-note-body {
+    font-size: 14px;
+    color: var(--text-muted);
+    line-height: 1.5;
+    background-color: var(--background-primary);
+    padding-block: 4px;
+    padding-inline: 8px;
+    border-radius: 6px;
+    /* Collapsed state by default - reserves space for 2 lines */
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    cursor: pointer;
+    /* Min height = 2 lines * line-height (1.5) * font-size (14px) = 42px */
+    min-height: 42px;
+    /* Handle very long words that would overflow */
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+}
+
+.youtnote-plugin__note-card.expanded .youtnote-plugin__markdown-note-body {
+    display: block;
+    color: var(--text-normal);
+    overflow: visible;
+    cursor: default;
+    /* Keep same min-height to prevent shrinking on single-line notes */
+    min-height: 42px;
+    /* Handle very long words that would overflow */
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+}
+
+/* Scale down markdown elements to match note context */
+.youtnote-plugin__markdown-note-body h1 {
+    font-size: 1.3em;
+    margin: 0.5em 0;
+}
+
+.youtnote-plugin__markdown-note-body h2 {
+    font-size: 1.2em;
+    margin: 0.5em 0;
+}
+
+.youtnote-plugin__markdown-note-body h3 {
+    font-size: 1.15em;
+    margin: 0.5em 0;
+}
+
+.youtnote-plugin__markdown-note-body h4 {
+    font-size: 1.1em;
+    margin: 0.5em 0;
+}
+
+.youtnote-plugin__markdown-note-body h5 {
+    font-size: 1.05em;
+    margin: 0.5em 0;
+}
+
+.youtnote-plugin__markdown-note-body h6 {
+    font-size: 1em;
+    margin: 0.5em 0;
+}
+
+.youtnote-plugin__markdown-note-body p {
+    margin: 0.5em 0;
+}
+
+.youtnote-plugin__markdown-note-body ul,
+.youtnote-plugin__markdown-note-body ol {
+    padding-left: 1.5em;
+    margin: 0.5em 0;
+}
+
+.youtnote-plugin__markdown-note-body blockquote {
+    margin: 0.5em 0;
+    padding-left: 1em;
+    border-left: 3px solid var(--background-modifier-border);
+}
+
+.youtnote-plugin__markdown-note-body code {
+    font-family: var(--font-monospace);
+    font-size: 0.9em;
+    background-color: var(--background-secondary);
+    padding: 0.1em 0.3em;
+    border-radius: 3px;
+}
+
+.youtnote-plugin__markdown-note-body pre {
+    background-color: var(--background-secondary);
+    padding: 8px;
+    border-radius: 4px;
+    overflow-x: auto;
+}
+
+.youtnote-plugin__markdown-note-body pre code {
+    background-color: transparent;
+    padding: 0;
+}
+
+.youtnote-plugin__note-editor-container {
+    width: 100%;
+    margin-top: 0;
+    border: 1px solid var(--interactive-accent);
+    border-radius: 6px;
+    background-color: var(--background-primary);
+    overflow: hidden;
+    padding: 8px;
+    position: relative;
+}
+
+.youtnote-plugin__mobile-note-save-btn {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    background-color: var(--interactive-accent);
+    color: var(--text-on-accent);
+    border: none;
+    border-radius: 4px;
+    padding: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    z-index: 10;
+    line-height: 1;
+}
+
+.youtnote-plugin__obsidian-editor-container {
+    width: 100%;
+    min-height: 26px;
+    border-radius: 0;
+    background-color: transparent;
+    padding: 0;
+    --embed-border-start: 0px;
+}
+
+.youtnote-plugin__obsidian-editor-container .markdown-source-view {
+    height: 100%;
+    min-height: 26px;
+}
+
+.youtnote-plugin__obsidian-editor-container .cm-scroller {
+    padding: 0;
+    font-family: var(--font-text);
+    font-size: 14px;
+    line-height: 1.5;
+}
+
+.youtnote-plugin__obsidian-editor-container .cm-content {
+    min-height: 100%;
+}
+
+/* Override CodeMirror's default borders and outlines */
+.youtnote-plugin__obsidian-editor-container .cm-editor,
+.youtnote-plugin__obsidian-editor-container .cm-editor.cm-focused {
+    outline: none !important;
+    border: none !important;
+    box-shadow: none !important;
+}
+
+/* Force text cursor everywhere inside the editor container */
+.youtnote-plugin__obsidian-editor-container,
+.youtnote-plugin__obsidian-editor-container * {
+    cursor: text !important;
+}
+
+/* Hide the inline title in the embedded editor and remove its padding */
+.youtnote-plugin__obsidian-editor-container .inline-title,
+.youtnote-plugin__obsidian-editor-container .markdown-embed-title,
+.youtnote-plugin__obsidian-editor-container .markdown-embed-link {
+    display: none !important;
+}
+.youtnote-plugin__obsidian-editor-container .cm-sizer {
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
+}
+
+.youtnote-plugin__obsidian-editor-container:focus-within {
+    outline: none;
+}
+
+.youtnote-plugin__note-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 12px;
+    padding-top: 8px;
+    border-top: 1px solid var(--background-modifier-border);
+}
+
+.youtnote-plugin__note-actions button {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s ease;
+}
+
+.youtnote-plugin__note-actions button:hover:not(:disabled) {
+    color: var(--text-normal);
+    background-color: var(--background-modifier-hover);
+}
+
+.youtnote-plugin__note-actions button:disabled {
+    opacity: 0.3;
+    cursor: default;
+    pointer-events: none;
+}
+
+.youtnote-plugin__timestamp-editor {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.youtnote-plugin__timestamp-editing {
+    outline: none;
+    min-width: 60px;
+    display: inline-block;
+    white-space: pre;
+    cursor: text;
+}
+
+.youtnote-plugin__timestamp-editing:focus {
+    border-color: var(--interactive-accent);
+    box-shadow: 0 0 0 2px rgba(var(--interactive-accent-rgb), 0.3);
+}
+
+.youtnote-plugin__timestamp-editing.youtnote-plugin__has-error {
+    border-color: var(--text-error);
+}
+
+.youtnote-plugin__timestamp-error {
+    color: var(--text-error);
+    font-size: 16px;
+    line-height: 1;
+    cursor: help;
+}
+
+/* Add Note Button */
+.youtnote-plugin__add-note-btn {
+    width: 100%;
+}
+
+.is-mobile .youtnote-plugin__add-note-btn {
+    margin-bottom: 90px;
+}
+
+/* URL Input Modal/Row */
+.youtnote-plugin__add-video-form {
+    display: flex;
+    gap: 8px;
+    margin-top: 8px;
+    flex-shrink: 0;
+}
+
+.youtnote-plugin__add-video-input {
+    flex: 1;
+    background-color: var(--background-primary);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 4px;
+    padding: 6px 10px;
+    color: var(--text-normal);
+    transition: border-color 0.15s ease;
+}
+
+.youtnote-plugin__add-video-input:focus,
+.youtnote-plugin__add-video-input:active {
+    border-color: var(--interactive-accent);
+    outline: none;
+}
+
+.youtnote-plugin__add-btn {
+    background-color: var(--background-secondary);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 6px;
+    color: var(--text-muted);
+    padding: 12px;
+    display: flex;
+    cursor: pointer;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s ease;
+    box-shadow: none !important;
+}
+
+.youtnote-plugin__add-btn:hover:not(:disabled) {
+    background-color: var(--background-modifier-hover);
+    color: var(--text-normal);
+}
+
+.youtnote-plugin__add-video-submit:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* Base Modal Styles */
+.youtnote-plugin__base-modal {
+    padding: 8px;
+}
+
+.youtnote-plugin__base-modal-title {
+    margin-bottom: 24px;
+    font-size: var(--font-ui-large);
+    color: var(--text-normal);
+    line-height: 1.5;
+}
+
+.youtnote-plugin__base-modal-message {
+    margin-bottom: 24px;
+    font-size: var(--font-ui-medium);
+    color: var(--text-normal);
+    line-height: 1.5;
+}
+
+.youtnote-plugin__base-modal-buttons {
+    display: flex;
+    justify-content: flex-end;
+}
+
+/* Confirm Modal */
+.youtnote-plugin__confirm-cancel,
+.youtnote-plugin__confirm-confirm {
+    padding: 8px 16px;
+    border-radius: var(--radius-s);
+    font-size: var(--font-ui-small);
+    cursor: pointer;
+    border: none;
+    transition: background-color 0.2s;
+}
+
+.youtnote-plugin__confirm-cancel {
+    background-color: var(--interactive-normal);
+    color: var(--text-normal);
+    margin-right: 8px;
+}
+
+.youtnote-plugin__confirm-cancel:hover {
+    background-color: var(--interactive-hover);
+}
+
+.youtnote-plugin__confirm-confirm {
+    background-color: var(--interactive-accent);
+    color: var(--text-on-accent);
+}
+
+.youtnote-plugin__confirm-confirm:hover {
+    background-color: var(--interactive-accent-hover);
+}
+
+/* Alert Modal */
+.youtnote-plugin__alert-ok {
+    padding: 8px 16px;
+    border-radius: var(--radius-s);
+    font-size: var(--font-ui-small);
+    cursor: pointer;
+    border: none;
+    background-color: var(--interactive-accent);
+    color: var(--text-on-accent);
+    transition: background-color 0.2s;
+}
+
+.youtnote-plugin__alert-ok:hover {
+    background-color: var(--interactive-accent-hover);
+}
+
+
+/* Loading Animation */
+.youtnote-plugin__loading-container {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background-color: var(--background-secondary);
+    gap: 16px;
+    z-index: 10;
+}
+
+.youtnote-plugin__loading-text {
+    color: var(--text-muted);
+    font-size: var(--font-ui-medium);
+}
+
+/**
+ * ==============================================
+ * Dot Pulse Animation
+ * ==============================================
+ */
+.youtnote-plugin__dot-pulse {
+  position: relative;
+  left: -9999px;
+  width: 10px;
+  height: 10px;
+  border-radius: 5px;
+  background-color: var(--text-muted);
+  color: var(--text-muted);
+  box-shadow: 9999px 0 0 -5px;
+  animation: youtnote-plugin__dot-pulse 1.5s infinite linear;
+  animation-delay: 0.25s;
+}
+.youtnote-plugin__dot-pulse::before, .youtnote-plugin__dot-pulse::after {
+  content: "";
+  display: inline-block;
+  position: absolute;
+  top: 0;
+  width: 10px;
+  height: 10px;
+  border-radius: 5px;
+  background-color: var(--text-muted);
+  color: var(--text-muted);
+}
+.youtnote-plugin__dot-pulse::before {
+  box-shadow: 9984px 0 0 -5px;
+  animation: youtnote-plugin__dot-pulse-before 1.5s infinite linear;
+  animation-delay: 0s;
+}
+.youtnote-plugin__dot-pulse::after {
+  box-shadow: 10014px 0 0 -5px;
+  animation: youtnote-plugin__dot-pulse-after 1.5s infinite linear;
+  animation-delay: 0.5s;
+}
+
+@keyframes youtnote-plugin__dot-pulse-before {
+  0% {
+    box-shadow: 9984px 0 0 -5px;
+  }
+  30% {
+    box-shadow: 9984px 0 0 2px;
+  }
+  60%, 100% {
+    box-shadow: 9984px 0 0 -5px;
+  }
+}
+@keyframes youtnote-plugin__dot-pulse {
+  0% {
+    box-shadow: 9999px 0 0 -5px;
+  }
+  30% {
+    box-shadow: 9999px 0 0 2px;
+  }
+  60%, 100% {
+    box-shadow: 9999px 0 0 -5px;
+  }
+}
+@keyframes youtnote-plugin__dot-pulse-after {
+  0% {
+    box-shadow: 10014px 0 0 -5px;
+  }
+  30% {
+    box-shadow: 10014px 0 0 2px;
+  }
+  60%, 100% {
+    box-shadow: 10014px 0 0 -5px;
+  }
+}
+
+
+/* ---------------------------------- */
+/* Special rules and fixes for mobile */
+/* ---------------------------------- */
+
+/* Remove default button height */
+/* Applies to all buttons except add video, add note and submit video url */
+.is-mobile .youtnote-plugin__plugin-container button:not(.youtnote-plugin__add-note-btn):not(.youtnote-plugin__add-video-submit){
+    height: auto;
+}
+
+/* Remove weird excessive padding-top on markdown editor */
+/* appears if <body> has class "is-phone" not "is-mobile" */
+.is-phone .youtnote-plugin__plugin-container .cm-scroller {
+    padding-top: 0px !important; 
+}
