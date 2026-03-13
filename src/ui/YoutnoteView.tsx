@@ -329,7 +329,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
         return () => {
             clearPlayerTimeout();
         };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- Justification: we re-create the adapter only when the active video changes 
     }, [activeVideoId, activeVideoUrl]);
 
     useEffect(() => {
