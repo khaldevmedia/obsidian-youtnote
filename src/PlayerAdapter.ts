@@ -221,39 +221,41 @@ export class YouTubeIframeAdapter implements PlayerAdapter {
             console.error('[PlayerAdapter] Error seeking to timestamp:', err);
         }
     }
-    async getCurrentTime(): Promise<number> {
-        if (!this.isReady()) return 0;
+    getCurrentTime(): Promise<number> {
+        if (!this.isReady()) return Promise.resolve(0);
         try {
-            return this.player.getCurrentTime() || 0;
+            return Promise.resolve(this.player.getCurrentTime() || 0);
         } catch (err) {
             console.warn('Error getting current time:', err);
-            return 0;
+            return Promise.resolve(0);
         }
     }
-    async getDuration(): Promise<number> {
-        if (!this.isReady()) return 0;
+    getDuration(): Promise<number> {
+        if (!this.isReady()) return Promise.resolve(0);
         try {
-            return this.player.getDuration() || 0;
+            return Promise.resolve(this.player.getDuration() || 0);
         } catch (err) {
             console.warn('Error getting duration:', err);
-            return 0;
+            return Promise.resolve(0);
         }
     }
-    async play(): Promise<void> {
-        if (!this.isReady()) return;
+    play(): Promise<void> {
+        if (!this.isReady()) return Promise.resolve();
         try {
             this.player.playVideo();
         } catch (err) {
             console.error('Error playing video:', err);
         }
+        return Promise.resolve();
     }
-    async pause(): Promise<void> {
-        if (!this.isReady()) return;
+    pause(): Promise<void> {
+        if (!this.isReady()) return Promise.resolve();
         try {
             this.player.pauseVideo();
         } catch (err) {
             console.error('Error pausing video:', err);
         }
+        return Promise.resolve();
     }
     async seekAndPause(timestampSec: number): Promise<void> {
         await this.seek(timestampSec);
@@ -285,13 +287,13 @@ export class YouTubeIframeAdapter implements PlayerAdapter {
         this.player.pauseVideo();
     }
     
-    async getPlayerState(): Promise<number> {
-        if (!this.isReady() || typeof this.player.getPlayerState !== 'function') return -1;
+    getPlayerState(): Promise<number> {
+        if (!this.isReady() || typeof this.player.getPlayerState !== 'function') return Promise.resolve(-1);
         try {
-            return this.player.getPlayerState();
+            return Promise.resolve(this.player.getPlayerState());
         } catch (err) {
             console.error('Error getting player state:', err);
-            return -1;
+            return Promise.resolve(-1);
         }
     }
 

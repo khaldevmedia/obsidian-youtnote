@@ -84,7 +84,7 @@ export class YoutnoteView extends TextFileView {
         this.render();
     }
 
-    async onOpen() {
+    onOpen(): Promise<void> {
         this.contentEl.empty();
         this.root = ReactDOM.createRoot(this.contentEl);
         
@@ -110,20 +110,22 @@ export class YoutnoteView extends TextFileView {
         });
 
         this.render();
+        return Promise.resolve();
     }
 
-    async onClose() {
+    onClose(): Promise<void> {
         this.root?.unmount();
+        return Promise.resolve();
     }
 
     // State update handlers
-    handleUpdateVideos = async (newVideos: Video[]) => {
+    handleUpdateVideos = (newVideos: Video[]) => {
         this.videos = newVideos;
         this.render();
         this.requestSave(); // Tell TextFileView to save
     };
 
-    handleUpdateNotes = async (newNotes: Note[]) => {
+    handleUpdateNotes = (newNotes: Note[]) => {
         this.notes = newNotes;
         this.render();
         this.requestSave();
