@@ -435,7 +435,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
         setEditNoteBody('');
     };
 
-    const handleAddVideoSubmit = async (e: React.FormEvent) => {
+    const handleAddVideoSubmit = async (e: React.SubmitEvent<HTMLFormElement>) => {
         e.preventDefault();
         if (!newVideoUrl || isFetchingMetadata) return;
 
