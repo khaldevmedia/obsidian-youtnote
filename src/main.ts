@@ -325,7 +325,7 @@ export default class YoutnotePlugin extends Plugin {
         } as ViewState);
     }
 
-    monkeyPatchLeafSetViewState(): () => void {
+    monkeyPatchLeafSetViewState = (): (() => void) => {
         const originalSetViewState = WorkspaceLeaf.prototype.setViewState;
         const originalDetach = WorkspaceLeaf.prototype.detach;
 
@@ -371,7 +371,7 @@ export default class YoutnotePlugin extends Plugin {
             WorkspaceLeaf.prototype.setViewState = originalSetViewState;
             WorkspaceLeaf.prototype.detach = originalDetach;
         };
-    }
+    };
 
     // Refresh all open Youtnote views (e.g., when settings change)
     refreshAllViews() {
