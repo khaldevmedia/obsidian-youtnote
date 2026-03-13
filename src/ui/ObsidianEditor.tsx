@@ -1,5 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { Platform } from 'obsidian';
+import { Prec } from '@codemirror/state';
+import { EditorView, keymap } from '@codemirror/view';
 import { ObsidianEditorProps } from '../types';
 import { getMarkdownEditorClass } from '../markdownEditor';
 
@@ -75,8 +77,6 @@ export const ObsidianEditor: React.FC<ObsidianEditorProps> = ({ app, view, value
             buildLocalExtensions(): any[] {
                 const extensions = super.buildLocalExtensions();
                 if (!cachedPrec || !cachedEditorView || !cachedKeymap) {
-                    const { Prec } = require('@codemirror/state');
-                    const { EditorView, keymap } = require('@codemirror/view');
                     cachedPrec = Prec;
                     cachedEditorView = EditorView;
                     cachedKeymap = keymap;
