@@ -290,6 +290,7 @@ export class YouTubeIframeAdapter implements PlayerAdapter {
         try {
             return this.player.getPlayerState();
         } catch (e) {
+            console.error('Error getting player state:', e);
             return -1;
         }
     }
@@ -299,8 +300,8 @@ export class YouTubeIframeAdapter implements PlayerAdapter {
             if (this.player && typeof this.player.getPlayerState === 'function') {
                 return this.player.getPlayerState();
             }
-        } catch (_) {
-            // ignore
+        } catch (e) {
+            console.error('Error getting player state:', e);
         }
         return -1;
     }
@@ -331,7 +332,8 @@ export class YouTubeIframeAdapter implements PlayerAdapter {
                         this.player.mute();
                         restoreMute = true;
                     }
-                } catch (_) {
+                } catch (e) {
+                    console.error('Error muting player:', e);
                     restoreMute = false;
                 }
             }

@@ -66,11 +66,12 @@ function parseUrl(value: string): URL | null {
 
     try {
         return new URL(trimmed);
-    } catch (_) {
-        // Support host-only values like "youtube.com/watch?v=..."
+    } catch (e) {
+        console.error("Error parsing URL:", e);
         try {
             return new URL(`https://${trimmed}`);
-        } catch (__ ) {
+        } catch (e) {
+            console.error("Error parsing URL:", e);
             return null;
         }
     }
