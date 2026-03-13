@@ -173,7 +173,7 @@ export class YouTubeIframeAdapter implements PlayerAdapter {
             try {
                 this.player.destroy();
             } catch (err) {
-                console.warn('[PlayerAdapter] Error destroying player:', e);
+                console.warn('[PlayerAdapter] Error destroying player:', err);
             }
         }
         this.player = null;
@@ -218,7 +218,7 @@ export class YouTubeIframeAdapter implements PlayerAdapter {
                 this.player.seekTo(timestampSec, true);
             }
         } catch (err) {
-            console.error('[PlayerAdapter] Error seeking to timestamp:', e);
+            console.error('[PlayerAdapter] Error seeking to timestamp:', err);
         }
     }
     async getCurrentTime(): Promise<number> {
@@ -226,7 +226,7 @@ export class YouTubeIframeAdapter implements PlayerAdapter {
         try {
             return this.player.getCurrentTime() || 0;
         } catch (err) {
-            console.warn('Error getting current time:', e);
+            console.warn('Error getting current time:', err);
             return 0;
         }
     }
@@ -235,7 +235,7 @@ export class YouTubeIframeAdapter implements PlayerAdapter {
         try {
             return this.player.getDuration() || 0;
         } catch (err) {
-            console.warn('Error getting duration:', e);
+            console.warn('Error getting duration:', err);
             return 0;
         }
     }
@@ -244,7 +244,7 @@ export class YouTubeIframeAdapter implements PlayerAdapter {
         try {
             this.player.playVideo();
         } catch (err) {
-            console.error('Error playing video:', e);
+            console.error('Error playing video:', err);
         }
     }
     async pause(): Promise<void> {
@@ -252,7 +252,7 @@ export class YouTubeIframeAdapter implements PlayerAdapter {
         try {
             this.player.pauseVideo();
         } catch (err) {
-            console.error('Error pausing video:', e);
+            console.error('Error pausing video:', err);
         }
     }
     async seekAndPause(timestampSec: number): Promise<void> {
@@ -290,7 +290,7 @@ export class YouTubeIframeAdapter implements PlayerAdapter {
         try {
             return this.player.getPlayerState();
         } catch (err) {
-            console.error('Error getting player state:', e);
+            console.error('Error getting player state:', err);
             return -1;
         }
     }
@@ -301,7 +301,7 @@ export class YouTubeIframeAdapter implements PlayerAdapter {
                 return this.player.getPlayerState();
             }
         } catch (err) {
-            console.error('Error getting player state:', e);
+            console.error('Error getting player state:', err);
         }
         return -1;
     }
@@ -333,7 +333,7 @@ export class YouTubeIframeAdapter implements PlayerAdapter {
                         restoreMute = true;
                     }
                 } catch (err) {
-                    console.error('Error muting player:', e);
+                    console.error('Error muting player:', err);
                     restoreMute = false;
                 }
             }
