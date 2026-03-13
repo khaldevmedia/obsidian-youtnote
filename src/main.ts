@@ -10,12 +10,30 @@ import './styles.css';
 addIcon(
     'youtnote', `<svg width="100" height="100" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" version="1.1" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><rect x="4.1837" y="2.44" width="18.083" height="19.12" rx="3.8512" ry="3.8512" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.9999" style="paint-order:fill markers stroke"/><path d="m10.877 15.591 5.8606-3.5905-5.8606-3.5905z" fill="currentColor" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.9999"/><g stroke-width="2"><path d="m1.7871 17.966h4.2104"/><path d="m1.5894 13.989h4.2104"/><path d="m1.6552 10.012h4.2104"/><path d="m1.7212 6.0346h4.2104"/></g></svg>`);
 
+type WorkspaceLeafWithId = WorkspaceLeaf & { id?: string };
+type ViewStateWithFile = ViewState & { state?: { file?: string } };
+
+const getFilePath = (state: unknown): string | undefined => {
+    if (state && typeof state === 'object' && 'file' in state) {
+        const file = (state as { file?: unknown }).file;
+        if (typeof file === 'string') {
+            return file;
+        }
+    }
+    return undefined;
+};
+
+const getLeafKey = (leaf: WorkspaceLeafWithId, fallback?: string): string | undefined => {
+    return leaf.id ?? fallback;
+};
+
 export default class YoutnotePlugin extends Plugin {
     settings!: PluginSettings;
     MarkdownEditor: any;
     // Track per-leaf view mode: leafId => 'markdown' | VIEW_TYPE
     // Allows users to manually switch to markdown and have that choice respected.
     youtnoteFileModes: Record<string, string> = {};
+    private didFinishOnload = false;
 
     async onload() {
         await this.loadDataState();
@@ -256,6 +274,12 @@ export default class YoutnotePlugin extends Plugin {
         this.addRibbonIcon('youtnote', 'Create new youtnote', () => {
              (this.app as any).commands.executeCommandById(`${this.manifest.id}:create-youtnote-file`);
         });
+
+        this.didFinishOnload = true;
+    }
+
+    onunload(): void {
+        this.didFinishOnload = false;
     }
 
     async loadDataState() {
@@ -302,44 +326,49 @@ export default class YoutnotePlugin extends Plugin {
     }
 
     monkeyPatchLeafSetViewState(): () => void {
-        const self = this;
-        const original = WorkspaceLeaf.prototype.setViewState;
-        
-        WorkspaceLeaf.prototype.setViewState = function (state: ViewState, eState?: any) {
-            if (
-                (self as any)._loaded &&
-                state.type === 'markdown' &&
-                state.state?.file &&
-                // Don't force youtnote mode if the user explicitly chose markdown for this leaf
-                self.youtnoteFileModes[((this as any).id || state.state.file)] !== 'markdown'
-            ) {
-                const cache = self.app.metadataCache.getCache(state.state.file as string);
-                if (cache?.frontmatter && cache.frontmatter['youtnote'] === true) {
-                    // Rewrite the view type in-place before Obsidian processes it
-                    const newState = {
-                        ...state,
-                        type: VIEW_TYPE,
-                    };
-                    self.youtnoteFileModes[state.state.file as string] = VIEW_TYPE;
-                    return original.call(this, newState, eState);
-                }
-            }
-            return original.call(this, state, eState);
-        };
-
-        // Also patch detach to clean up mode tracking when a leaf is closed
+        const originalSetViewState = WorkspaceLeaf.prototype.setViewState;
         const originalDetach = WorkspaceLeaf.prototype.detach;
-        WorkspaceLeaf.prototype.detach = function () {
-            const state = this.view?.getState();
-            if (state?.file && self.youtnoteFileModes[(this as any).id || (state.file as string)]) {
-                delete self.youtnoteFileModes[(this as any).id || (state.file as string)];
-            }
-            return originalDetach.apply(this);
-        };
 
-        // Return uninstaller
+        WorkspaceLeaf.prototype.setViewState = ((plugin: YoutnotePlugin) => {
+            return function (this: WorkspaceLeafWithId, state: ViewStateWithFile, extraState?: unknown) {
+                if (!plugin.didFinishOnload) {
+                    return originalSetViewState.call(this, state, extraState);
+                }
+
+                const filePath = state.state?.file;
+                const leafKey = filePath ? getLeafKey(this, filePath) : getLeafKey(this);
+
+                if (
+                    filePath &&
+                    leafKey &&
+                    state.type === 'markdown' &&
+                    plugin.youtnoteFileModes[leafKey] !== 'markdown'
+                ) {
+                    const cache = plugin.app.metadataCache.getCache(filePath);
+                    if (cache?.frontmatter?.youtnote === true) {
+                        const newState: ViewState = { ...state, type: VIEW_TYPE };
+                        plugin.youtnoteFileModes[leafKey] = VIEW_TYPE;
+                        return originalSetViewState.call(this, newState, extraState);
+                    }
+                }
+
+                return originalSetViewState.call(this, state, extraState);
+            };
+        })(this);
+
+        WorkspaceLeaf.prototype.detach = ((plugin: YoutnotePlugin) => {
+            return function (this: WorkspaceLeafWithId) {
+                const filePath = getFilePath(this.view?.getState());
+                const key = getLeafKey(this, filePath);
+                if (key && plugin.youtnoteFileModes[key]) {
+                    delete plugin.youtnoteFileModes[key];
+                }
+                return originalDetach.apply(this);
+            };
+        })(this);
+
         return () => {
-            WorkspaceLeaf.prototype.setViewState = original;
+            WorkspaceLeaf.prototype.setViewState = originalSetViewState;
             WorkspaceLeaf.prototype.detach = originalDetach;
         };
     }
