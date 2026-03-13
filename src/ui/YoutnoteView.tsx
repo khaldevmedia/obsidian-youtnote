@@ -83,11 +83,9 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
     const [timestampError, setTimestampError] = useState<string | null>(null);
 
     // State for resizable panes
+    const paneWidthStorageKey = 'youtnote-plugin__notes-left-pane-width';
     const containerRef = useRef<HTMLDivElement>(null);
-    const [leftPaneWidth, setLeftPaneWidth] = useState<number>(() => {
-        const saved = localStorage.getItem('youtnote-plugin__notes-left-pane-width');
-        return saved ? parseFloat(saved) : 50;
-    });
+    const [leftPaneWidth, setLeftPaneWidth] = useState<number>(50);
     const leftPaneWidthRef = useRef(leftPaneWidth);
     const [isResizing, setIsResizing] = useState(false);
 
@@ -141,6 +139,34 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
     useEffect(() => {
         leftPaneWidthRef.current = leftPaneWidth;
     }, [leftPaneWidth]);
+
+    useEffect(() => {
+        let isMounted = true;
+
+        const loadStoredPaneWidth = async () => {
+            try {
+                const savedWidth = await app.loadLocalStorage(paneWidthStorageKey);
+                if (!isMounted) {
+                    return;
+                }
+                if (savedWidth) {
+                    const parsedWidth = Number.parseFloat(savedWidth);
+                    if (!Number.isNaN(parsedWidth)) {
+                        setLeftPaneWidth(parsedWidth);
+                        leftPaneWidthRef.current = parsedWidth;
+                    }
+                }
+            } catch (err) {
+                console.error('Failed to load pane width from local storage:', err);
+            }
+        };
+
+        void loadStoredPaneWidth();
+
+        return () => {
+            isMounted = false;
+        };
+    }, [app, paneWidthStorageKey]);
 
     useEffect(() => {
         if (exportButtonRef.current) {
@@ -696,7 +722,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
         const handleMouseUp = () => {
             if (isResizing) {
                 setIsResizing(false);
-                localStorage.setItem('youtnote-plugin__notes-left-pane-width', leftPaneWidthRef.current.toString());
+                void app.saveLocalStorage(paneWidthStorageKey, leftPaneWidthRef.current.toString());
             }
         };
 
@@ -709,7 +735,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
             document.removeEventListener('mousemove', handleMouseMove);
             document.removeEventListener('mouseup', handleMouseUp);
         };
-    }, [isResizing]);
+    }, [app, isResizing, paneWidthStorageKey]);
 
     const playerSection = (
         <div className="youtnote-plugin__player-container">
