@@ -14,7 +14,7 @@ export default defineConfig({
             formats: ['cjs']
         },
         rollupOptions: {
-            external: ['obsidian'],
+            external: ['obsidian', '@codemirror/state', '@codemirror/view'],
             output: {
                 dir: '.',
                 entryFileNames: 'main.js',
