@@ -7,7 +7,9 @@
     "dev": "vite build --watch",
     "build": "vite build",
     "start": "vite build --watch",
-    "test": "vitest run"
+    "test": "vitest run",
+    "lint": "eslint src --ext .ts,.tsx --max-warnings=0",
+    "lint:fix": "eslint src --ext .ts,.tsx --max-warnings=0 --fix"
   },
   "keywords": [],
   "author": "",
@@ -28,6 +30,7 @@
     "@types/sortablejs": "^1.15.9",
     "@vitejs/plugin-react": "^5.1.4",
     "eslint": "^10.0.1",
+    "eslint-plugin-obsidianmd": "^0.1.9",
     "jsdom": "^28.1.0",
     "obsidian": "^1.12.2",
     "prettier": "^3.8.1",
