@@ -119,7 +119,7 @@ export default class YoutnotePlugin extends Plugin {
                     }
 
                     win.onYouTubeIframeAPIReady = () => {
-                        console.log('[youtnoteAPIPromise] IFrame API ready');
+                        console.debug('[youtnoteAPIPromise] IFrame API ready');
                         resolve();
                     };
                 });

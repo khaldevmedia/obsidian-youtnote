@@ -248,7 +248,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
         };
 
         if (existingAdapter && existingAdapter.isReady()) {
-            console.log('[YoutnoteView] Loading new video in existing player');
+            console.debug('[YoutnoteView] Loading new video in existing player');
 
             startPlayerLoadTimeout();
             existingAdapter.loadVideo(ytId).then(async () => {
@@ -273,11 +273,11 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
             });
         } else {
             if (existingAdapter) {
-                console.log('[YoutnoteView] Existing adapter not ready, destroying before re-creating');
+                console.debug('[YoutnoteView] Existing adapter not ready, destroying before re-creating');
                 existingAdapter.destroy();
                 playerAdapterRef.current = null;
             }
-            console.log('[YoutnoteView] Creating new player adapter');
+            console.debug('[YoutnoteView] Creating new player adapter');
             setIsPlayerReady(false);
 
             const adapter = new YouTubeIframeAdapter(currentIframe, ytId, async () => {

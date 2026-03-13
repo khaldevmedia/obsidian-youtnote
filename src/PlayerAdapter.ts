@@ -52,11 +52,11 @@ export class YouTubeIframeAdapter implements PlayerAdapter {
             console.error('[PlayerAdapter] YouTube API not available');
             return;
         }
-        console.log('[PlayerAdapter] Creating YouTube player for video:', this.videoId);
+        console.debug('[PlayerAdapter] Creating YouTube player for video:', this.videoId);
         this.player = new window.YT.Player(this.iframeElement, {
             events: { 
                 'onReady': () => {
-                    console.log('[PlayerAdapter] Player ready for video:', this.videoId);
+                    console.debug('[PlayerAdapter] Player ready for video:', this.videoId);
                     this.ready = true;
                     this.onReadyCallback();
                 },
@@ -110,7 +110,7 @@ export class YouTubeIframeAdapter implements PlayerAdapter {
             return;
         }
         
-        console.log('[PlayerAdapter] Loading new video:', videoId);
+        console.debug('[PlayerAdapter] Loading new video:', videoId);
         this.videoId = videoId;
         this.ready = false;
         
@@ -150,7 +150,7 @@ export class YouTubeIframeAdapter implements PlayerAdapter {
                     if (state === 5 || state === -1 || state === 2) {
                         clearInterval(checkReady);
                         clearTimeout(loadTimeout);
-                        console.log('[PlayerAdapter] Video loaded and ready:', videoId);
+                        console.debug('[PlayerAdapter] Video loaded and ready:', videoId);
                         finish();
                     }
                 }
@@ -169,7 +169,7 @@ export class YouTubeIframeAdapter implements PlayerAdapter {
         this.destroyed = true;
         this.pendingLoadErrorHandler = null;
         if (this.player && typeof this.player.destroy === 'function') {
-            console.log('[PlayerAdapter] Destroying player for video:', this.videoId);
+            console.debug('[PlayerAdapter] Destroying player for video:', this.videoId);
             try {
                 this.player.destroy();
             } catch (err) {
@@ -204,7 +204,7 @@ export class YouTubeIframeAdapter implements PlayerAdapter {
         }
 
         try {
-            console.log('[PlayerAdapter] Seeking to:', timestampSec);
+            console.debug('[PlayerAdapter] Seeking to:', timestampSec);
             this.player.seekTo(timestampSec, true);
             
             // Verify seek worked by checking current time after a short delay
