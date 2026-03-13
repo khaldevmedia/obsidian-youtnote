@@ -66,11 +66,11 @@ function parseUrl(value: string): URL | null {
 
     try {
         return new URL(trimmed);
-    } catch (e) {
+    } catch (err) {
         console.error("Error parsing URL:", e);
         try {
             return new URL(`https://${trimmed}`);
-        } catch (e) {
+        } catch (err) {
             console.error("Error parsing URL:", e);
             return null;
         }
