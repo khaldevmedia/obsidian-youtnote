@@ -243,7 +243,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
                     onUpdateVideos(updatedVideos);
                 }
             } catch (err) {
-                console.warn('Could not fetch video duration', e);
+                console.warn('Could not fetch video duration', err);
             }
         };
 
@@ -374,7 +374,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
             try {
                 currentTime = await playerAdapter.getCurrentTime() || 0;
             } catch (err) {
-                console.warn("Could not get current time from player adapter", e);
+                console.warn("Could not get current time from player adapter", err);
             }
         }
 

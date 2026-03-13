@@ -43,7 +43,7 @@ export function getMarkdownEditorClass(app: App) {
         
         md.unload();
     } catch (err) {
-        console.error('[Youtnote] Failed to extract MarkdownEditor class:', e);
+        console.error('[Youtnote] Failed to extract MarkdownEditor class:', err);
     } finally {
         container.remove();
     }
