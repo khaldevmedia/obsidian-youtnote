@@ -12,6 +12,7 @@ export const VIEW_TYPE = 'youtnote-view';
 export class YoutnoteView extends TextFileView {
     root: ReactDOM.Root | null = null;
     plugin: YoutnotePlugin;
+    activeEditor: object | null = null;
     
     // State
     videos: Video[] = [];

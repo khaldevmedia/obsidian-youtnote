@@ -887,7 +887,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
                         >
                             <NoteListItem
                                 app={app}
-                                view={view as unknown}
+                                view={view}
                                 note={note}
                             isExpanded={expandedNotes.has(note.id)}
                             isActive={activeNoteId === note.id}

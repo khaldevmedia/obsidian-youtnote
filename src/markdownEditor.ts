@@ -1,9 +1,16 @@
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-return */
 import { App } from 'obsidian';
 
+/** Minimal abstract constructor shape of Obsidian's internal MarkdownEditor class. */
+export type MarkdownEditorClass = abstract new (...args: unknown[]) => {
+    onUpdate(update: unknown, changed: boolean): void;
+    buildLocalExtensions(): unknown[];
+    get(): string;
+};
+
 let cachedMarkdownEditor: any = null;
 
-export function getMarkdownEditorClass(app: App) {
+export function getMarkdownEditorClass(app: App): MarkdownEditorClass | null {
     if (cachedMarkdownEditor) return cachedMarkdownEditor;
 
     const embedByExtension = (app as any)?.embedRegistry?.embedByExtension;

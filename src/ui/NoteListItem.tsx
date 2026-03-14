@@ -281,7 +281,7 @@ export const NoteListItem: React.FC<NoteListItemProps> = React.memo(({
                 <div className="youtnote-plugin__note-editor-container" onClick={(e) => e.stopPropagation()}>
                     <ObsidianEditor
                         app={app}
-                        view={view as unknown}
+                        view={view}
                         value={editNoteBody}
                         onChange={onBodyChange}
                         onSave={onSaveEdit}

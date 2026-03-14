@@ -3,7 +3,7 @@ import { DEFAULT_SETTINGS, YoutnoteSettingTab } from './settings';
 import { YoutnoteView, VIEW_TYPE } from './view';
 import { PluginSettings, PluginData } from './types';
 import { hasYoutnoteFrontmatter } from './utils';
-import { getMarkdownEditorClass } from './markdownEditor';
+import { getMarkdownEditorClass, MarkdownEditorClass } from './markdownEditor';
 import './styles.css';
 
 // Register custom icon
@@ -29,8 +29,7 @@ const getLeafKey = (leaf: WorkspaceLeafWithId, fallback?: string): string | unde
 
 export default class YoutnotePlugin extends Plugin {
     settings!: PluginSettings;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    MarkdownEditor: any;
+    MarkdownEditor: MarkdownEditorClass | null = null;
     // Track per-leaf view mode: leafId => 'markdown' | VIEW_TYPE
     // Allows users to manually switch to markdown and have that choice respected.
     youtnoteFileModes: Record<string, string> = {};
@@ -39,7 +38,6 @@ export default class YoutnotePlugin extends Plugin {
     async onload() {
         await this.loadDataState();
 
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
         this.MarkdownEditor = getMarkdownEditorClass(this.app);
 
         this.registerView(VIEW_TYPE, (leaf) => new YoutnoteView(leaf, this));
@@ -284,8 +282,7 @@ export default class YoutnotePlugin extends Plugin {
     }
 
     async loadDataState() {
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-        const data: PluginData = await this.loadData() || {};
+        const data: PluginData = (await this.loadData() as PluginData | null) ?? ({} as PluginData);
         this.settings = Object.assign({}, DEFAULT_SETTINGS, data.settings || {});
     }
 
@@ -328,13 +325,16 @@ export default class YoutnotePlugin extends Plugin {
     }
 
     monkeyPatchLeafSetViewState = (): (() => void) => {
-        // eslint-disable-next-line @typescript-eslint/unbound-method
-        const originalSetViewState = WorkspaceLeaf.prototype.setViewState;
-        // eslint-disable-next-line @typescript-eslint/unbound-method
-        const originalDetach = WorkspaceLeaf.prototype.detach;
+        type LeafProto = {
+            setViewState: (state: ViewState, eState?: Record<string, unknown>) => Promise<void>;
+            detach: () => void;
+        };
+        const proto = WorkspaceLeaf.prototype as unknown as LeafProto;
+        const originalSetViewState = proto.setViewState;
+        const originalDetach = proto.detach;
 
         WorkspaceLeaf.prototype.setViewState = ((plugin: YoutnotePlugin) => {
-            return function (this: WorkspaceLeafWithId, state: ViewStateWithFile, extraState?: unknown) {
+            return function (this: WorkspaceLeafWithId, state: ViewStateWithFile, extraState?: Record<string, unknown>) {
                 if (!plugin.didFinishOnload) {
                     return originalSetViewState.call(this, state, extraState);
                 }

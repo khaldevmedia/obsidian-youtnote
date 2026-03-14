@@ -1,5 +1,6 @@
-import { App } from 'obsidian';
+import { App, Component, TFile } from 'obsidian';
 import type { MouseEvent } from 'react';
+import type { MarkdownEditorClass } from './markdownEditor';
 
 // YouTube IFrame API types
 interface YTPlayerOptions {
@@ -91,10 +92,21 @@ export interface PluginData {
     settings: PluginSettings;
 }
 
+/**
+ * Minimal view context passed from YoutnoteView into React components.
+ * Avoids circular imports while giving components typed access to app internals.
+ */
+export interface YoutnoteViewContext {
+    app: App;
+    file: TFile | null;
+    /** Tracks the active CodeMirror editor instance for mobile toolbar support. */
+    activeEditor: object | null;
+    plugin: Component & { MarkdownEditor: MarkdownEditorClass | null };
+}
+
 export interface ObsidianEditorProps {
     app: App;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    view: any;
+    view: YoutnoteViewContext;
     value: string;
     onChange: (value: string) => void;
     onSave: () => void;
@@ -112,8 +124,7 @@ export interface VideoListItemProps {
 
 export interface NoteListItemProps {
     app: App;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    view: any;
+    view: YoutnoteViewContext;
     note: Note;
     isExpanded: boolean;
     isActive: boolean;
@@ -156,8 +167,7 @@ export interface Note {
 
 export interface YoutubePluginViewProps {
     app: App;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    view: any;
+    view: YoutnoteViewContext;
     settings: PluginSettings;
     videos: Video[];
     notes: Note[];
