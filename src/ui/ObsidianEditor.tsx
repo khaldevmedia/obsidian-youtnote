@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-argument */
 import React, { useEffect, useRef } from 'react';
 import { Platform } from 'obsidian';
 import { Prec } from '@codemirror/state';
@@ -6,9 +7,9 @@ import { ObsidianEditorProps } from '../types';
 import { getMarkdownEditorClass } from '../markdownEditor';
 
 const noop = () => {};
-let cachedPrec: any = null;
-let cachedEditorView: any = null;
-let cachedKeymap: any = null;
+let cachedPrec: typeof Prec | null = null;
+let cachedEditorView: typeof EditorView | null = null;
+let cachedKeymap: typeof keymap | null = null;
 
 /**
  * Creates a controller object that Obsidian's MarkdownEditor expects as its "owner".

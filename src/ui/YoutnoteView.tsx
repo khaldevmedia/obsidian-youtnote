@@ -57,7 +57,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
     const exportAllButtonRef = useRef<HTMLButtonElement>(null);
     const mergeNotesButtonRef = useRef<HTMLButtonElement>(null);
     const [isPlayerReady, setIsPlayerReady] = useState(true);
-    const playerTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+    const playerTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const videoLoadRequestRef = useRef(0);
 
     // State for new video input
@@ -145,7 +145,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
 
         const loadStoredPaneWidth = async () => {
             try {
-                const savedWidth = await app.loadLocalStorage(paneWidthStorageKey);
+                const savedWidth = app.loadLocalStorage(paneWidthStorageKey);
                 if (!isMounted) {
                     return;
                 }
@@ -277,23 +277,26 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
             console.debug('[YoutnoteView] Loading new video in existing player');
 
             startPlayerLoadTimeout();
-            existingAdapter.loadVideo(ytId).then(async () => {
+            existingAdapter.loadVideo(ytId).then(() => {
                 if (!isLatestRequest()) return;
                 clearPlayerTimeout();
-                await handleDurationUpdate(existingAdapter, currentActiveVideo.id);
-                if (isLatestRequest()) {
-                    setIsPlayerReady(true);
-                }
-            }).catch((errorCode: unknown) => {
+                void handleDurationUpdate(existingAdapter, currentActiveVideo.id).then(() => {
+                    if (isLatestRequest()) {
+                        setIsPlayerReady(true);
+                    }
+                });
+            }).catch((err: unknown) => {
                 if (!isLatestRequest()) return;
-                const numericErrorCode = typeof errorCode === 'number' ? errorCode : Number(errorCode);
+                const numericErrorCode = err instanceof Error
+                    ? Number(err.message)
+                    : (typeof err === 'number' ? err : -1);
                 if (numericErrorCode === 101 || numericErrorCode === 150) {
                     clearPlayerTimeout();
                     new AlertModal(app, EMBEDDING_BLOCKED_TITLE, EMBEDDING_BLOCKED_MESSAGE).open();
                     setIsPlayerReady(true);
                     return;
                 }
-                console.warn('[YoutnoteView] Failed to load video in existing player', errorCode);
+                console.warn('[YoutnoteView] Failed to load video in existing player', err);
                 clearPlayerTimeout();
                 setIsPlayerReady(true);
             });
@@ -306,13 +309,14 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
             console.debug('[YoutnoteView] Creating new player adapter');
             setIsPlayerReady(false);
 
-            const adapter = new YouTubeIframeAdapter(currentIframe, ytId, async () => {
+            const adapter = new YouTubeIframeAdapter(currentIframe, ytId, () => {
                 if (!isLatestRequest()) return;
-                await handleDurationUpdate(adapter, currentActiveVideo.id);
-                clearPlayerTimeout();
-                if (isLatestRequest()) {
-                    setIsPlayerReady(true);
-                }
+                void handleDurationUpdate(adapter, currentActiveVideo.id).then(() => {
+                    clearPlayerTimeout();
+                    if (isLatestRequest()) {
+                        setIsPlayerReady(true);
+                    }
+                });
             }, (errorCode: number) => {
                 if (errorCode === 101 || errorCode === 150) {
                     clearPlayerTimeout();
@@ -329,7 +333,6 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
         return () => {
             clearPlayerTimeout();
         };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- Justification: we re-create the adapter only when the active video changes 
     }, [activeVideoId, activeVideoUrl]);
 
     useEffect(() => {
@@ -483,14 +486,15 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
                 throw new Error("Video not found or unavailable");
             }
 
-            const data = response.json;
+            interface OEmbedData { title?: string; thumbnail_url?: string; }
+            const data = response.json as OEmbedData;
             
             const ytId = extractYouTubeId(normalizedUrl);
             const newVideo: Video = {
                 id: crypto.randomUUID() as VideoId,
                 url: normalizedUrl,
-                title: data.title || `YouTube Video (${ytId})`,
-                thumbnail: data.thumbnail_url || `https://img.youtube.com/vi/${ytId}/default.jpg`,
+                title: data.title || `YouTube Video (${ytId ?? ''})`,
+                thumbnail: data.thumbnail_url || `https://img.youtube.com/vi/${ytId ?? ''}/default.jpg`,
                 durationSec: 0 // oEmbed doesn't provide duration, we'd need YouTube Data API for that
             };
             onUpdateVideos([...videos, newVideo]);
@@ -784,7 +788,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
                         <button
                             ref={exportAllButtonRef}
                             className="youtnote-plugin__export-btn"
-                            onClick={() => onExportAllVideos()}
+                            onClick={() => { void onExportAllVideos(); }}
                             aria-label="Export the notes of all videos as Markdown"
                         />
                     )}
@@ -802,7 +806,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
                     ))}
                 </div>
                 
-                <form className="youtnote-plugin__add-video-form" onSubmit={handleAddVideoSubmit}>
+                <form className="youtnote-plugin__add-video-form" onSubmit={(e) => { void handleAddVideoSubmit(e); }}>
                     <input 
                         type="url" 
                         className="youtnote-plugin__add-video-input" 
@@ -863,7 +867,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
                                 <button
                                     ref={exportButtonRef}
                                     className="youtnote-plugin__export-btn"
-                                    onClick={() => onExportSingleVideo(activeVideoId)}
+                                    onClick={() => { void onExportSingleVideo(activeVideoId); }}
                                     aria-label="Export the notes of selected video as Markdown"
                                 />
                             </div>
@@ -883,7 +887,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
                         >
                             <NoteListItem
                                 app={app}
-                                view={view}
+                                view={view as unknown}
                                 note={note}
                             isExpanded={expandedNotes.has(note.id)}
                             isActive={activeNoteId === note.id}
@@ -894,13 +898,13 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
                             editNoteBody={editNoteBody}
                             maxDuration={activeVideo?.durationSec || 0}
                             newLineTrigger={settings.newLineTrigger}
-                            onToggleExpand={handleNoteClick}
-                            onSelect={handleNoteSelect}
+                            onToggleExpand={(e, noteId, ts) => { void handleNoteClick(e, noteId, ts); }}
+                            onSelect={(noteId, ts) => { void handleNoteSelect(noteId, ts); }}
                             onStartEdit={(noteId, body) => { setEditingNoteId(noteId); setEditNoteBody(body); }}
                             onSaveEdit={saveNoteEdit}
                             onBodyChange={setEditNoteBody}
                             onStartTimestampEdit={(noteId, value) => { setEditingTimestampId(noteId); setEditTimestampValue(value); }}
-                            onSaveTimestampEdit={saveTimestampEdit}
+                            onSaveTimestampEdit={(noteId) => { void saveTimestampEdit(noteId); }}
                             onCancelTimestampEdit={cancelTimestampEdit}
                             onTimestampChange={handleTimestampChange}
                             onDelete={deleteNote}
@@ -916,7 +920,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
                         }
                     }}
                     className="youtnote-plugin__add-btn youtnote-plugin__add-note-btn" 
-                    onClick={handleAddNote}
+                    onClick={() => { void handleAddNote(); }}
                 >
                 </button>
             </div>

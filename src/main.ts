@@ -1,4 +1,4 @@
-import { Plugin, TFile, ViewState, WorkspaceLeaf, addIcon } from 'obsidian';
+import { Plugin, TFile, ViewState, WorkspaceLeaf, addIcon, MarkdownView } from 'obsidian';
 import { DEFAULT_SETTINGS, YoutnoteSettingTab } from './settings';
 import { YoutnoteView, VIEW_TYPE } from './view';
 import { PluginSettings, PluginData } from './types';
@@ -29,6 +29,7 @@ const getLeafKey = (leaf: WorkspaceLeafWithId, fallback?: string): string | unde
 
 export default class YoutnotePlugin extends Plugin {
     settings!: PluginSettings;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     MarkdownEditor: any;
     // Track per-leaf view mode: leafId => 'markdown' | VIEW_TYPE
     // Allows users to manually switch to markdown and have that choice respected.
@@ -38,13 +39,14 @@ export default class YoutnotePlugin extends Plugin {
     async onload() {
         await this.loadDataState();
 
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
         this.MarkdownEditor = getMarkdownEditorClass(this.app);
 
         this.registerView(VIEW_TYPE, (leaf) => new YoutnoteView(leaf, this));
 
         this.addCommand({
-            id: 'create-youtnote-file',
-            name: 'Create new Youtnote file',
+            id: 'create-file',
+            name: 'Create new file',
             callback: async () => {
                 const folder = this.app.workspace.getActiveFile()?.parent?.path || '';
                 const baseFileName = 'Youtnote Untitled';
@@ -65,19 +67,19 @@ export default class YoutnotePlugin extends Plugin {
                 // Open the new file in a new tab directly in the Youtnote view
                 const leaf = this.app.workspace.getLeaf(true);
                 await leaf.openFile(newFile);
-                this.youtnoteFileModes[(leaf as any).id || newFile.path] = VIEW_TYPE;
+                this.youtnoteFileModes[leaf.id ?? newFile.path] = VIEW_TYPE;
                 await this.setYoutnoteView(leaf);
             }
         });
 
         this.addCommand({
-            id: 'open-as-youtnote',
-            name: 'Open as Youtnote view',
+            id: 'open-as-view',
+            name: 'Open as view',
             callback: () => {
                 const activeLeaf = this.app.workspace.getLeaf(false);
                 if (activeLeaf && activeLeaf.view.getViewType() === 'markdown') {
-                    this.youtnoteFileModes[(activeLeaf as any).id || (activeLeaf.view as any).file?.path] = VIEW_TYPE;
-                    this.setYoutnoteView(activeLeaf);
+                    this.youtnoteFileModes[activeLeaf.id ?? (activeLeaf.view as MarkdownView).file?.path ?? ''] = VIEW_TYPE;
+                    void this.setYoutnoteView(activeLeaf);
                 }
             }
         });
@@ -96,9 +98,7 @@ export default class YoutnotePlugin extends Plugin {
         };
 
         const ensureYouTubeIframeAPILoaded = () => {
-            const win = window as any;
-
-            if (win.YT && typeof win.YT.Player === 'function') {
+            if (window.YT && typeof window.YT.Player === 'function') {
                 return;
             }
 
@@ -128,29 +128,27 @@ export default class YoutnotePlugin extends Plugin {
         };
 
         const ensureYouTubeAPIPromise = () => {
-            const win = window as any;
-            if (!win.youtubeAPIPromise) {
-                win.youtubeAPIPromise = new Promise<void>((resolve) => {
-                    if (win.YT && typeof win.YT.Player === 'function') {
+            if (!window.youtubeAPIPromise) {
+                window.youtubeAPIPromise = new Promise<void>((resolve) => {
+                    if (window.YT && typeof window.YT.Player === 'function') {
                         resolve();
                         return;
                     }
 
-                    win.onYouTubeIframeAPIReady = () => {
+                    window.onYouTubeIframeAPIReady = () => {
                         console.debug('[youtnoteAPIPromise] IFrame API ready');
                         resolve();
                     };
                 });
             }
-            return win.youtubeAPIPromise;
+            return window.youtubeAPIPromise;
         };
 
-        ensureYouTubeAPIPromise();
+        void ensureYouTubeAPIPromise();
         ensureYouTubeIframeAPILoaded();
 
         const handleOnline = () => {
-            const win = window as any;
-            if (!win.YT || typeof win.YT.Player !== 'function') {
+            if (!window.YT || typeof window.YT.Player !== 'function') {
                 ensureYouTubeIframeAPILoaded();
             }
         };
@@ -171,33 +169,36 @@ export default class YoutnotePlugin extends Plugin {
         
         // Add option to file menu (the 3 dots menu)
         this.registerEvent(
-            this.app.workspace.on('file-menu', async (menu, file) => {
-                if (file instanceof TFile && file.extension === 'md') {
-                    if (await this.isYoutnoteFile(file)) {
-                        menu.addItem((item) => {
-                            item.setTitle('Open as Youtnote view')
-                                .setIcon('youtnote')
-                                .setSection('pane')
-                                .onClick(() => {
-                                    const leaves = this.app.workspace.getLeavesOfType('markdown');
-                                    for (const leaf of leaves) {
-                                        if ((leaf.view as any).file?.path === file.path) {
-                                            this.youtnoteFileModes[(leaf as any).id || file.path] = VIEW_TYPE;
-                                            this.setYoutnoteView(leaf);
-                                            return; // Only convert the first matching leaf
+            this.app.workspace.on('file-menu', (menu, file) => {
+                void (async () => {
+                    if (file instanceof TFile && file.extension === 'md') {
+                        if (await this.isYoutnoteFile(file)) {
+                            menu.addItem((item) => {
+                                // eslint-disable-next-line obsidianmd/ui/sentence-case
+                                item.setTitle('Open as Youtnote view')
+                                    .setIcon('youtnote')
+                                    .setSection('pane')
+                                    .onClick(() => {
+                                        const leaves = this.app.workspace.getLeavesOfType('markdown');
+                                        for (const leaf of leaves) {
+                                            if ((leaf.view as MarkdownView).file?.path === file.path) {
+                                                this.youtnoteFileModes[leaf.id ?? file.path] = VIEW_TYPE;
+                                                void this.setYoutnoteView(leaf);
+                                                return; // Only convert the first matching leaf
+                                            }
                                         }
-                                    }
-                                    // If not currently open in a markdown leaf, just open it
-                                    const newLeaf = this.app.workspace.getLeaf(true);
-                                    newLeaf.setViewState({
-                                        type: VIEW_TYPE,
-                                        state: { file: file.path },
-                                        active: true
+                                        // If not currently open in a markdown leaf, just open it
+                                        const newLeaf = this.app.workspace.getLeaf(true);
+                                        void newLeaf.setViewState({
+                                            type: VIEW_TYPE,
+                                            state: { file: file.path },
+                                            active: true
+                                        });
                                     });
-                                });
-                        });
+                            });
+                        }
                     }
-                }
+                })();
             })
         );
         
@@ -207,11 +208,11 @@ export default class YoutnotePlugin extends Plugin {
         const syncMarkdownHeaderActions = () => {
             this.app.workspace.iterateAllLeaves((leaf) => {
                 if (leaf.view.getViewType() === 'markdown') {
-                    const markdownView = leaf.view as any;
+                    const markdownView = leaf.view as MarkdownView;
                     const file = markdownView.file;
 
-                    const existingActionEl = markdownView.youtnoteActionEl as HTMLElement | null | undefined;
-                    const existingActionPath = markdownView.youtnoteActionFilePath as string | undefined;
+                    const existingActionEl = markdownView.youtnoteActionEl;
+                    const existingActionPath = markdownView.youtnoteActionFilePath;
 
                     if (!file || file.extension !== 'md') {
                         if (existingActionEl) {
@@ -236,8 +237,8 @@ export default class YoutnotePlugin extends Plugin {
 
                     if (isYoutnote) {
                         const actionEl = markdownView.addAction('youtnote', 'Open as Youtnote view', () => {
-                            this.youtnoteFileModes[(leaf as any).id || file.path] = VIEW_TYPE;
-                            this.setYoutnoteView(leaf);
+                            this.youtnoteFileModes[leaf.id ?? file.path] = VIEW_TYPE;
+                            void this.setYoutnoteView(leaf);
                         });
                         markdownView.youtnoteActionEl = actionEl;
                         markdownView.youtnoteActionFilePath = file.path;
@@ -272,7 +273,7 @@ export default class YoutnotePlugin extends Plugin {
 
         // Add a ribbon icon to easily create a new note
         this.addRibbonIcon('youtnote', 'Create new youtnote', () => {
-             (this.app as any).commands.executeCommandById(`${this.manifest.id}:create-youtnote-file`);
+            this.app.commands.executeCommandById(`${this.manifest.id}:create-file`);
         });
 
         this.didFinishOnload = true;
@@ -283,6 +284,7 @@ export default class YoutnotePlugin extends Plugin {
     }
 
     async loadDataState() {
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
         const data: PluginData = await this.loadData() || {};
         this.settings = Object.assign({}, DEFAULT_SETTINGS, data.settings || {});
     }
@@ -326,7 +328,9 @@ export default class YoutnotePlugin extends Plugin {
     }
 
     monkeyPatchLeafSetViewState = (): (() => void) => {
+        // eslint-disable-next-line @typescript-eslint/unbound-method
         const originalSetViewState = WorkspaceLeaf.prototype.setViewState;
+        // eslint-disable-next-line @typescript-eslint/unbound-method
         const originalDetach = WorkspaceLeaf.prototype.detach;
 
         WorkspaceLeaf.prototype.setViewState = ((plugin: YoutnotePlugin) => {

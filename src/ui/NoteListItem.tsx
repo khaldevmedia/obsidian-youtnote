@@ -23,7 +23,7 @@ const MarkdownNoteBody: React.FC<{ app: import('obsidian').App; body: string; so
         containerRef.current.empty();
         
         // Render markdown
-        MarkdownRenderer.render(app, body, containerRef.current, sourcePath, componentRef.current);
+        void MarkdownRenderer.render(app, body, containerRef.current, sourcePath, componentRef.current);
         
         return () => {
             componentRef.current?.unload();
@@ -49,7 +49,7 @@ const MarkdownNoteBody: React.FC<{ app: import('obsidian').App; body: string; so
                     const href = target.getAttribute('href');
                     if (href) {
                         if (target.classList.contains('internal-link')) {
-                            app.workspace.openLinkText(href, sourcePath, e.ctrlKey || e.metaKey);
+                            void app.workspace.openLinkText(href, sourcePath, e.ctrlKey || e.metaKey);
                         } else if (isSafeExternalUrl(href)) {
                             window.open(href, '_blank', 'noopener,noreferrer');
                         }
@@ -167,10 +167,9 @@ export const NoteListItem: React.FC<NoteListItemProps> = React.memo(({
                 .onClick(() => {
                     confirmDeleteNote();
                 });
-            const itemEl = (item as any).dom as HTMLElement | undefined;
-            const iconEl = (item as any).iconEl as HTMLElement | undefined;
-            itemEl?.classList.add('mod-warning', 'mod-danger');
-            iconEl?.classList.add('mod-warning', 'mod-danger');
+            const typedItem = item as unknown as { dom?: HTMLElement; iconEl?: HTMLElement };
+            typedItem.dom?.classList.add('mod-warning', 'mod-danger');
+            typedItem.iconEl?.classList.add('mod-warning', 'mod-danger');
         });
         
         menu.showAtMouseEvent(e.nativeEvent);
@@ -282,7 +281,7 @@ export const NoteListItem: React.FC<NoteListItemProps> = React.memo(({
                 <div className="youtnote-plugin__note-editor-container" onClick={(e) => e.stopPropagation()}>
                     <ObsidianEditor
                         app={app}
-                        view={view}
+                        view={view as unknown}
                         value={editNoteBody}
                         onChange={onBodyChange}
                         onSave={onSaveEdit}

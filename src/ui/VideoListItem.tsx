@@ -89,10 +89,9 @@ export const VideoListItem: React.FC<VideoListItemProps> = React.memo(({
                 .onClick(() => {
                     confirmDeleteVideo();
                 });
-            const itemEl = (item as any).dom as HTMLElement | undefined;
-            const iconEl = (item as any).iconEl as HTMLElement | undefined;
-            itemEl?.classList.add('mod-warning', 'mod-danger');
-            iconEl?.classList.add('mod-warning', 'mod-danger');
+            const typedItem = item as unknown as { dom?: HTMLElement; iconEl?: HTMLElement };
+            typedItem.dom?.classList.add('mod-warning', 'mod-danger');
+            typedItem.iconEl?.classList.add('mod-warning', 'mod-danger');
         });
         
         menu.showAtMouseEvent(e.nativeEvent);
@@ -110,7 +109,7 @@ export const VideoListItem: React.FC<VideoListItemProps> = React.memo(({
             <button
                 ref={copyIconRef}
                 className="youtnote-plugin__video-copy-btn"
-                onClick={handleCopy}
+                onClick={(e) => { void handleCopy(e); }}
                 aria-label="Copy video URL"
             >
             </button>

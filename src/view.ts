@@ -36,7 +36,7 @@ export class YoutnoteView extends TextFileView {
             // Not a Youtnote, switch this leaf back to the regular markdown view
             // Defer to avoid conflicts during the current file loading cycle
             setTimeout(() => {
-                this.leaf.setViewState({
+                void this.leaf.setViewState({
                     type: 'markdown',
                     state: { file: file.path },
                     popstate: true,
@@ -89,24 +89,26 @@ export class YoutnoteView extends TextFileView {
         this.root = ReactDOM.createRoot(this.contentEl);
         
         // Add a button to export as Markdown
-        this.addAction('file-down', 'Export as Markdown', async () => {
-            if (!this.file) return;
-            
-            // Generate export content
-            const exportContent = exportToMarkdown(this.videos, this.notes);
-            
-            // Create filename: original name + " - Export.md"
-            const baseName = this.file.basename;
-            const exportFileName = `${baseName} - Export`;
-            
-            await this.createExportFile(exportFileName, exportContent);
+        this.addAction('file-down', 'Export as Markdown', () => {
+            void (async () => {
+                if (!this.file) return;
+                
+                // Generate export content
+                const exportContent = exportToMarkdown(this.videos, this.notes);
+                
+                // Create filename: original name + " - Export.md"
+                const baseName = this.file.basename;
+                const exportFileName = `${baseName} - Export`;
+                
+                await this.createExportFile(exportFileName, exportContent);
+            })();
         });
         
         // Add a button to the view header to switch back to markdown
         this.addAction('file-text', 'Open as Markdown', () => {
             // Mark this leaf as manually switched to prevent auto-switch back
-            this.plugin.youtnoteFileModes[(this.leaf as any).id || this.file?.path] = 'markdown';
-            this.plugin.setMarkdownView(this.leaf);
+            this.plugin.youtnoteFileModes[this.leaf.id ?? this.file?.path ?? ''] = 'markdown';
+            void this.plugin.setMarkdownView(this.leaf);
         });
 
         this.render();

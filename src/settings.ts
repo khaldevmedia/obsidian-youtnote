@@ -31,12 +31,12 @@ export class YoutnoteSettingTab extends PluginSettingTab {
 
 		// Title
         new Setting(containerEl)
-            .setName("Youtnote Plugin Settings")
+            .setName("Behavior")
             .setHeading();
 
 		// Subtitle
 		containerEl.createEl("p", {
-			text: "Configure how the Youtnote plugin behaves in your vault."
+			text: "Configure plugin behavior and display options in your vault."
 		});
 
 		const addToggleSetting = (

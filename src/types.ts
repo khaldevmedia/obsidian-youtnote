@@ -1,10 +1,64 @@
 import { App } from 'obsidian';
+import type { MouseEvent } from 'react';
 
+// YouTube IFrame API types
+interface YTPlayerOptions {
+    events?: {
+        onReady?: () => void;
+        onError?: (event: { data: number }) => void;
+        onStateChange?: (event: { data: number }) => void;
+    };
+}
 
-// Make Typescript compiler happy
+export interface YTPlayer {
+    seekTo(seconds: number, allowSeekAhead: boolean): void;
+    getCurrentTime(): number;
+    getDuration(): number;
+    playVideo(): void;
+    pauseVideo(): void;
+    getPlayerState(): number;
+    isMuted(): boolean;
+    mute(): void;
+    unMute(): void;
+    cueVideoById(videoId: string): void;
+    destroy(): void;
+}
+
+interface YTPlayerStateConstants {
+    UNSTARTED: number;
+    ENDED: number;
+    PLAYING: number;
+    PAUSED: number;
+    BUFFERING: number;
+    CUED: number;
+}
+
+interface YTNamespace {
+    Player: new (element: HTMLIFrameElement, options: YTPlayerOptions) => YTPlayer;
+    PlayerState?: YTPlayerStateConstants;
+}
+
+// Obsidian internal API augmentations
+declare module 'obsidian' {
+    interface App {
+        commands: { executeCommandById(id: string): void };
+        mobileToolbar?: { update(): void };
+        loadLocalStorage(key: string): string | null;
+        saveLocalStorage(key: string, value: string): void;
+    }
+    interface WorkspaceLeaf {
+        id?: string;
+    }
+    interface MarkdownView {
+        youtnoteActionEl?: HTMLElement | null;
+        youtnoteActionFilePath?: string | null;
+    }
+}
+
+// Make TypeScript compiler happy
 declare global {
     interface Window {
-        YT?: any;
+        YT?: YTNamespace;
         youtubeAPIPromise?: Promise<void>;
         onYouTubeIframeAPIReady?: () => void;
     }
@@ -39,6 +93,7 @@ export interface PluginData {
 
 export interface ObsidianEditorProps {
     app: App;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     view: any;
     value: string;
     onChange: (value: string) => void;
@@ -57,6 +112,7 @@ export interface VideoListItemProps {
 
 export interface NoteListItemProps {
     app: App;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     view: any;
     note: Note;
     isExpanded: boolean;
@@ -68,7 +124,7 @@ export interface NoteListItemProps {
     editNoteBody: string;
     maxDuration: number;
     newLineTrigger: PluginSettings['newLineTrigger'];
-    onToggleExpand: (e: React.MouseEvent, noteId: NoteId, timestampSec: number) => void;
+    onToggleExpand: (e: MouseEvent, noteId: NoteId, timestampSec: number) => void;
     onSelect: (noteId: NoteId, timestampSec: number) => void;
     onStartEdit: (noteId: NoteId, body: string) => void;
     onSaveEdit: () => void;
@@ -100,6 +156,7 @@ export interface Note {
 
 export interface YoutubePluginViewProps {
     app: App;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     view: any;
     settings: PluginSettings;
     videos: Video[];

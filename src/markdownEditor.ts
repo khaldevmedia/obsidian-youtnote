@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-return */
 import { App } from 'obsidian';
 
 let cachedMarkdownEditor: any = null;
@@ -13,7 +14,7 @@ export function getMarkdownEditorClass(app: App) {
     
     // Create a dummy container
     const container = document.createElement('div');
-    container.style.display = 'none';
+    container.hide();
     document.body.appendChild(container);
     
     try {
