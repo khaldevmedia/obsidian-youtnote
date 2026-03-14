@@ -1,9 +1,9 @@
 import { Plugin, TFile, ViewState, WorkspaceLeaf, addIcon, MarkdownView } from 'obsidian';
 import { DEFAULT_SETTINGS, YoutnoteSettingTab } from './settings';
 import { YoutnoteView, VIEW_TYPE } from './view';
-import { PluginSettings, PluginData } from './types';
+import { PluginSettings, PluginData, MarkdownEditorClass } from './types';
 import { hasYoutnoteFrontmatter } from './utils';
-import { getMarkdownEditorClass, MarkdownEditorClass } from './markdownEditor';
+import { getMarkdownEditorClass } from './markdownEditor';
 import './styles.css';
 
 // Register custom icon
@@ -172,8 +172,7 @@ export default class YoutnotePlugin extends Plugin {
                     if (file instanceof TFile && file.extension === 'md') {
                         if (await this.isYoutnoteFile(file)) {
                             menu.addItem((item) => {
-                                // eslint-disable-next-line obsidianmd/ui/sentence-case -- Justification: Youtnote is a brand name
-                                item.setTitle('Open as Youtnote view')
+                                item.setTitle('Open as youtnote view')
                                     .setIcon('youtnote')
                                     .setSection('pane')
                                     .onClick(() => {
@@ -234,7 +233,7 @@ export default class YoutnotePlugin extends Plugin {
                     }
 
                     if (isYoutnote) {
-                        const actionEl = markdownView.addAction('youtnote', 'Open as Youtnote view', () => {
+                        const actionEl = markdownView.addAction('youtnote', 'Open as youtnote view', () => {
                             this.youtnoteFileModes[leaf.id ?? file.path] = VIEW_TYPE;
                             void this.setYoutnoteView(leaf);
                         });

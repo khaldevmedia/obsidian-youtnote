@@ -1,6 +1,5 @@
 import { App, Component, TFile } from 'obsidian';
 import type { MouseEvent } from 'react';
-import type { MarkdownEditorClass } from './markdownEditor';
 
 // YouTube IFrame API types
 interface YTPlayerOptions {
@@ -39,6 +38,45 @@ interface YTNamespace {
     PlayerState?: YTPlayerStateConstants;
 }
 
+/** Minimal abstract constructor shape of Obsidian's internal MarkdownEditor class. */
+export type MarkdownEditorClass = abstract new (...args: unknown[]) => Component & {
+    onUpdate(update: unknown, changed: boolean): void;
+    buildLocalExtensions(): unknown[];
+    get(): string;
+    set(value: string): void;
+    readonly editor?: { focus(): void };
+};
+
+/** Context for instantiating Obsidian's internal embed registry factory. */
+export interface EmbedContext {
+    app: App;
+    containerEl: HTMLElement;
+    state: Record<string, unknown>;
+}
+
+/** Shape of the object returned by Obsidian's markdown embed factory. */
+export interface MarkdownEmbedInstance {
+    editable?: boolean;
+    editMode?: object;
+    showEditor?: () => void;
+    load(): void;
+    unload(): void;
+}
+
+/** Controller object that Obsidian's MarkdownEditor expects as its owner. */
+export interface MarkdownController {
+    app: App;
+    showSearch: () => void;
+    toggleMode: () => void;
+    onMarkdownScroll: () => void;
+    getMode: () => string;
+    scroll: number;
+    editMode: object | null;
+    readonly editor: { focus(): void } | undefined;
+    readonly file: TFile | null;
+    readonly path: string;
+}
+
 // Obsidian internal API augmentations
 declare module 'obsidian' {
     interface App {
@@ -46,6 +84,11 @@ declare module 'obsidian' {
         mobileToolbar?: { update(): void };
         loadLocalStorage(key: string): string | null;
         saveLocalStorage(key: string, value: string): void;
+        embedRegistry?: {
+            embedByExtension: {
+                md: (context: EmbedContext, file: null, path: string) => MarkdownEmbedInstance;
+            };
+        };
     }
     interface WorkspaceLeaf {
         id?: string;

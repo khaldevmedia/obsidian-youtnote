@@ -143,7 +143,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
     useEffect(() => {
         let isMounted = true;
 
-        const loadStoredPaneWidth = async () => {
+        const loadStoredPaneWidth = () => {
             try {
                 const savedWidth = app.loadLocalStorage(paneWidthStorageKey);
                 if (!isMounted) {
@@ -161,7 +161,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
             }
         };
 
-        void loadStoredPaneWidth();
+        loadStoredPaneWidth();
 
         return () => {
             isMounted = false;

@@ -1,37 +1,29 @@
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-return */
 import { App } from 'obsidian';
+import { MarkdownEditorClass } from './types';
 
-/** Minimal abstract constructor shape of Obsidian's internal MarkdownEditor class. */
-export type MarkdownEditorClass = abstract new (...args: unknown[]) => {
-    onUpdate(update: unknown, changed: boolean): void;
-    buildLocalExtensions(): unknown[];
-    get(): string;
-};
-
-let cachedMarkdownEditor: any = null;
+let cachedMarkdownEditor: MarkdownEditorClass | null = null;
 
 export function getMarkdownEditorClass(app: App): MarkdownEditorClass | null {
     if (cachedMarkdownEditor) return cachedMarkdownEditor;
 
-    const embedByExtension = (app as any)?.embedRegistry?.embedByExtension;
-    if (!embedByExtension?.md) {
+    if (!app.embedRegistry?.embedByExtension?.md) {
         console.error('[Youtnote] embedRegistry.embedByExtension.md is not available');
         return null;
     }
-    
+
     // Create a dummy container
     const container = document.createElement('div');
     container.hide();
     document.body.appendChild(container);
-    
+
     try {
         // Instantiate the embed
-        const md = (app as any).embedRegistry.embedByExtension.md(
+        const md = app.embedRegistry.embedByExtension.md(
             { app, containerEl: container, state: {} },
             null,
             ''
         );
-        
+
         md.load();
 
         // Mirror the original working extraction path used in main.ts.
@@ -41,14 +33,22 @@ export function getMarkdownEditorClass(app: App): MarkdownEditorClass | null {
         if (typeof md.showEditor === 'function') {
             md.showEditor();
         }
-        
+
         if (md.editMode) {
-            // Extract the raw constructor
-            const proto = Object.getPrototypeOf(md.editMode);
-            const parentProto = proto ? Object.getPrototypeOf(proto) : null;
-            cachedMarkdownEditor = parentProto?.constructor || md.editMode.constructor || null;
+            // Extract the raw constructor from the prototype chain
+            const editModeObj: object = md.editMode;
+            const proto = Object.getPrototypeOf(editModeObj) as object | null;
+            const parentProto = proto != null
+                ? Object.getPrototypeOf(proto) as object | null
+                : null;
+            const ctor: unknown =
+                (parentProto as { constructor?: unknown } | null)?.constructor
+                ?? (editModeObj as { constructor?: unknown }).constructor;
+            if (ctor != null) {
+                cachedMarkdownEditor = ctor as MarkdownEditorClass;
+            }
         }
-        
+
         md.unload();
     } catch (err) {
         console.error('[Youtnote] Failed to extract MarkdownEditor class:', err);
@@ -59,6 +59,6 @@ export function getMarkdownEditorClass(app: App): MarkdownEditorClass | null {
     if (!cachedMarkdownEditor) {
         console.error('[Youtnote] MarkdownEditor class extraction returned null');
     }
-    
+
     return cachedMarkdownEditor;
 }

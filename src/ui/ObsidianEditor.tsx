@@ -1,10 +1,14 @@
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-return */
 import React, { useEffect, useRef } from 'react';
 import { Platform } from 'obsidian';
 import { Prec } from '@codemirror/state';
 import { EditorView, keymap } from '@codemirror/view';
-import { ObsidianEditorProps } from '../types';
 import { getMarkdownEditorClass } from '../markdownEditor';
+import {
+    ObsidianEditorProps,
+    YoutnoteViewContext,
+    MarkdownEditorClass,
+    MarkdownController
+} from '../types';
 
 const noop = () => {};
 let cachedPrec: typeof Prec | null = null;
@@ -14,7 +18,10 @@ let cachedKeymap: typeof keymap | null = null;
 /**
  * Creates a controller object that Obsidian's MarkdownEditor expects as its "owner".
  */
-function getMarkdownController(view: any, getEditor: () => any): Record<string, any> {
+function getMarkdownController(
+    view: YoutnoteViewContext,
+    getEditor: () => { focus(): void } | undefined
+): MarkdownController {
     return {
         app: view.app,
         showSearch: noop,
@@ -37,7 +44,7 @@ function getMarkdownController(view: any, getEditor: () => any): Record<string, 
 
 export const ObsidianEditor: React.FC<ObsidianEditorProps> = ({ app, view, value, onChange, onSave, onBlur, newLineTrigger }) => {
     const containerRef = useRef<HTMLDivElement>(null);
-    const editorInstanceRef = useRef<any>(null);
+    const editorInstanceRef = useRef<InstanceType<MarkdownEditorClass> | null>(null);
     const isSavingRef = useRef(false);
     const onSaveRef = useRef(onSave);
     const onChangeRef = useRef(onChange);
@@ -57,17 +64,17 @@ export const ObsidianEditor: React.FC<ObsidianEditorProps> = ({ app, view, value
         if (!plugin.MarkdownEditor) {
             plugin.MarkdownEditor = getMarkdownEditorClass(app);
         }
-        const MarkdownEditorClass = plugin.MarkdownEditor;
+        const EditorClass = plugin.MarkdownEditor;
 
-        if (!MarkdownEditorClass) {
+        if (!EditorClass) {
             console.error('[Youtnote] MarkdownEditor class not available');
             return;
         }
 
-        class YoutnoteEditor extends MarkdownEditorClass {
+        class YoutnoteEditor extends EditorClass {
             updateBottomPadding() {}
 
-            onUpdate(update: any, changed: boolean) {
+            onUpdate(update: unknown, changed: boolean) {
                 super.onUpdate(update, changed);
                 if (changed) {
                     const text = this.get();
@@ -75,7 +82,7 @@ export const ObsidianEditor: React.FC<ObsidianEditorProps> = ({ app, view, value
                 }
             }
 
-            buildLocalExtensions(): any[] {
+            buildLocalExtensions(): unknown[] {
                 const extensions = super.buildLocalExtensions();
                 if (!cachedPrec || !cachedEditorView || !cachedKeymap) {
                     cachedPrec = Prec;
@@ -89,16 +96,17 @@ export const ObsidianEditor: React.FC<ObsidianEditorProps> = ({ app, view, value
                             focus: () => {
                                 view.activeEditor = controller;
                                 setTimeout(() => {
-                                    (app.workspace as any).activeEditor = controller;
+                                    const ws = app.workspace as unknown as { activeEditor: MarkdownController | null };
+                                    ws.activeEditor = controller;
                                     if (Platform.isMobile) {
-                                        (app as any).mobileToolbar?.update();
+                                        app.mobileToolbar?.update();
                                     }
                                 });
                                 return true;
                             },
                             blur: () => {
                                 if (Platform.isMobile) {
-                                    (app as any).mobileToolbar?.update();
+                                    app.mobileToolbar?.update();
                                 }
                                 return true;
                             },
@@ -146,7 +154,7 @@ export const ObsidianEditor: React.FC<ObsidianEditorProps> = ({ app, view, value
         }
 
         const controller = getMarkdownController(view, () => editor.editor);
-        const editor = plugin.addChild(new (YoutnoteEditor as any)(app, container, controller));
+        const editor = plugin.addChild(new YoutnoteEditor(app, container, controller));
         controller.editMode = editor;
 
         editorInstanceRef.current = editor;
@@ -180,9 +188,10 @@ export const ObsidianEditor: React.FC<ObsidianEditorProps> = ({ app, view, value
                     view.activeEditor = null;
                 }
 
-                if ((app.workspace as any).activeEditor === controller) {
-                    (app.workspace as any).activeEditor = null;
-                    (app as any).mobileToolbar?.update();
+                const ws = app.workspace as unknown as { activeEditor: MarkdownController | null };
+                if (ws.activeEditor === controller) {
+                    ws.activeEditor = null;
+                    app.mobileToolbar?.update();
                 }
             }
             plugin.removeChild(editor);
