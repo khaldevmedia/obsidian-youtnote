@@ -172,7 +172,7 @@ export default class YoutnotePlugin extends Plugin {
                     if (file instanceof TFile && file.extension === 'md') {
                         if (await this.isYoutnoteFile(file)) {
                             menu.addItem((item) => {
-                                // eslint-disable-next-line obsidianmd/ui/sentence-case
+                                // eslint-disable-next-line obsidianmd/ui/sentence-case -- Justification: Youtnote is a brand name
                                 item.setTitle('Open as Youtnote view')
                                     .setIcon('youtnote')
                                     .setSection('pane')
