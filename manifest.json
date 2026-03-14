@@ -1,7 +1,7 @@
 {
     "id": "youtnote",
     "name": "Youtnote",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "minAppVersion": "1.10.3",
     "description": "Embed multiple YouTube videos inside a single note, take timestamped Markdown notes with live preview editing.",
     "author": "Khaldevmedia",
