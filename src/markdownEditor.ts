@@ -12,7 +12,7 @@ export function getMarkdownEditorClass(app: App): MarkdownEditorClass | null {
     }
 
     // Create a dummy container
-    const container = document.createElement('div');
+    const container = createDiv();
     container.hide();
     document.body.appendChild(container);
 

@@ -106,7 +106,8 @@ export default class YoutnotePlugin extends Plugin {
                 return;
             }
 
-            const script = document.createElement('script');
+            // const script = document.createElement('script');
+            const script = createEl('script');
             script.src = YT_IFRAME_API_SRC;
             script.async = true;
             script.dataset.youtnoteIframeApi = 'true';

@@ -14,6 +14,13 @@ export default defineConfig([
       globals: {
         ...globals.browser,
         ...globals.node,
+        // Make ESLint aware of Obsidian's global helpers
+        createEl: "readonly",
+        createDiv: "readonly",
+        createSpan: "readonly",
+        createFragment: "readonly",
+        activeWindow: "readonly",
+        activeDocument: "readonly",
       },
     },
 
