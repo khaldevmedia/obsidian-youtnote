@@ -210,14 +210,14 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
 
         const clearPlayerTimeout = () => {
             if (playerTimeoutRef.current) {
-                activeWindow.clearTimeout(playerTimeoutRef.current);
+                window.clearTimeout(playerTimeoutRef.current);
                 playerTimeoutRef.current = null;
             }
         };
 
         const startPlayerLoadTimeout = () => {
             clearPlayerTimeout();
-            playerTimeoutRef.current = activeWindow.setTimeout(() => {
+            playerTimeoutRef.current = window.setTimeout(() => {
                 if (!isLatestRequest()) return;
                 new AlertModal(app, TIMEOUT_TITLE, TIMEOUT_MESSAGE).open();
                 setIsPlayerReady(true);
@@ -343,7 +343,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
                 adapterIframeRef.current = null;
             }
             if (playerTimeoutRef.current) {
-                activeWindow.clearTimeout(playerTimeoutRef.current);
+                window.clearTimeout(playerTimeoutRef.current);
                 playerTimeoutRef.current = null;
             }
         };
@@ -460,7 +460,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
         if (existingVideo) {
             new AlertModal(app, "Video duplication", "This video already exists in your list.").open();
             // Select the existing video after alert is dismissed
-            activeWindow.setTimeout(() => {
+            window.setTimeout(() => {
                 setActiveVideoId(existingVideo.id);
                 // Scroll to the existing video
                 if (videoListRef.current) {
@@ -504,7 +504,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
             setActiveVideoId(newVideo.id);
             
             // Auto-scroll to the newly added video
-            activeWindow.setTimeout(() => {
+            window.setTimeout(() => {
                 if (videoListRef.current) {
                     videoListRef.current.scrollTop = videoListRef.current.scrollHeight;
                 }

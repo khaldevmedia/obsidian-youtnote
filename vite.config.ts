@@ -13,7 +13,7 @@ export default defineConfig({
             name: 'main',
             formats: ['cjs']
         },
-        rolldownOptions: {                    // ← renamed from rollupOptions
+        rolldownOptions: {
             external: ['obsidian', '@codemirror/state', '@codemirror/view'],
             output: {
                 dir: '.',

@@ -90,7 +90,7 @@ export default class YoutnotePlugin extends Plugin {
 
         const clearPendingScriptRetry = () => {
             if (pendingScriptRetry !== null) {
-                activeWindow.clearTimeout(pendingScriptRetry);
+                window.clearTimeout(pendingScriptRetry);
                 pendingScriptRetry = null;
             }
         };
@@ -115,7 +115,7 @@ export default class YoutnotePlugin extends Plugin {
                 script.remove();
 
                 if (navigator.onLine && pendingScriptRetry === null) {
-                    pendingScriptRetry = activeWindow.setTimeout(() => {
+                    pendingScriptRetry = window.setTimeout(() => {
                         pendingScriptRetry = null;
                         ensureYouTubeIframeAPILoaded();
                     }, 5000);
@@ -247,7 +247,7 @@ export default class YoutnotePlugin extends Plugin {
         const scheduleMarkdownHeaderSync = () => {
             if (pendingHeaderSync) return;
             pendingHeaderSync = true;
-            pendingHeaderSyncRaf = activeWindow.requestAnimationFrame(() => {
+            pendingHeaderSyncRaf = window.requestAnimationFrame(() => {
                 pendingHeaderSync = false;
                 pendingHeaderSyncRaf = null;
                 syncMarkdownHeaderActions();

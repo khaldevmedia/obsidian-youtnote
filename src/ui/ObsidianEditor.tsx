@@ -95,7 +95,7 @@ export const ObsidianEditor: React.FC<ObsidianEditorProps> = ({ app, view, value
                         cachedEditorView.domEventHandlers({
                             focus: () => {
                                 view.activeEditor = controller;
-                                activeWindow.setTimeout(() => {
+                                window.setTimeout(() => {
                                     const ws = app.workspace as unknown as { activeEditor: MarkdownController | null };
                                     ws.activeEditor = controller;
                                     if (Platform.isMobile) {
@@ -161,11 +161,11 @@ export const ObsidianEditor: React.FC<ObsidianEditorProps> = ({ app, view, value
         editor.set(value || '');
 
         // Focus the editor
-        activeWindow.setTimeout(() => {
+        window.setTimeout(() => {
             editor.editor?.focus();
             // Scroll editor into view after a short delay to let layout settle
             if (Platform.isMobile) {
-                activeWindow.setTimeout(() => {
+                window.setTimeout(() => {
                     container.scrollIntoView({ block: 'center', behavior: 'smooth' });
                 }, 100);
             }

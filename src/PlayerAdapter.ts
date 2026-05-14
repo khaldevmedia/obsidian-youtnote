@@ -37,7 +37,7 @@ export class YouTubeIframeAdapter implements PlayerAdapter {
         // another chance once the script has (hopefully) loaded.
         const apiReady = await Promise.race([
             activeWindow.youtubeAPIPromise,
-            new Promise<'timeout'>(r => activeWindow.setTimeout(() => r('timeout'), 10000)),
+            new Promise<'timeout'>(r => window.setTimeout(() => r('timeout'), 10000)),
         ]);
         if (this.destroyed) return;
         if (apiReady === 'timeout') {
@@ -97,7 +97,7 @@ export class YouTubeIframeAdapter implements PlayerAdapter {
             if (this.isReady()) {
                 return true;
             }
-            await new Promise(r => activeWindow.setTimeout(r, 50));
+            await new Promise(r => window.setTimeout(r, 50));
         }
 
         return this.isReady();
@@ -134,8 +134,8 @@ export class YouTubeIframeAdapter implements PlayerAdapter {
             };
 
             this.pendingLoadErrorHandler = (errorCode: number) => {
-                activeWindow.clearInterval(checkReady);
-                activeWindow.clearTimeout(loadTimeout);
+                window.clearInterval(checkReady);
+                window.clearTimeout(loadTimeout);
                 fail(errorCode);
             };
 
@@ -143,13 +143,13 @@ export class YouTubeIframeAdapter implements PlayerAdapter {
             this.player!.cueVideoById(videoId);
             
             // Wait for the video to be cued and ready
-            const checkReady = activeWindow.setInterval(() => {
+            const checkReady = window.setInterval(() => {
                 if (this.player && typeof this.player.getPlayerState === 'function') {
                     const state = this.player.getPlayerState();
                     // State 5 = video cued, -1 = unstarted (both mean ready)
                     if (state === 5 || state === -1 || state === 2) {
-                        activeWindow.clearInterval(checkReady);
-                        activeWindow.clearTimeout(loadTimeout);
+                        window.clearInterval(checkReady);
+                        window.clearTimeout(loadTimeout);
                         console.debug('[PlayerAdapter] Video loaded and ready:', videoId);
                         finish();
                     }
@@ -157,8 +157,8 @@ export class YouTubeIframeAdapter implements PlayerAdapter {
             }, 100);
             
             // Timeout after 5 seconds
-            const loadTimeout = activeWindow.setTimeout(() => {
-                activeWindow.clearInterval(checkReady);
+            const loadTimeout = window.setTimeout(() => {
+                window.clearInterval(checkReady);
                 console.warn('[PlayerAdapter] Video load timeout, marking as ready anyway');
                 finish();
             }, 5000);
@@ -195,7 +195,7 @@ export class YouTubeIframeAdapter implements PlayerAdapter {
                 }
             }
             attempts++;
-            await new Promise(r => activeWindow.setTimeout(r, 100));
+            await new Promise(r => window.setTimeout(r, 100));
         }
 
         if (!this.isReady()) {
@@ -208,7 +208,7 @@ export class YouTubeIframeAdapter implements PlayerAdapter {
             this.player!.seekTo(timestampSec, true);
             
             // Verify seek worked by checking current time after a short delay
-            await new Promise(r => activeWindow.setTimeout(r, 200));
+            await new Promise(r => window.setTimeout(r, 200));
             const currentTime = await this.getCurrentTime();
             const seekDiff = Math.abs(currentTime - timestampSec);
             
@@ -313,7 +313,7 @@ export class YouTubeIframeAdapter implements PlayerAdapter {
         const pending = this.pendingAutoPause;
         this.pendingAutoPause = null;
         if (pending.timeoutId) {
-            activeWindow.clearTimeout(pending.timeoutId);
+            window.clearTimeout(pending.timeoutId);
         }
         if (pending.restoreMute && this.player && typeof this.player.unMute === 'function') {
             this.player.unMute();
@@ -340,7 +340,7 @@ export class YouTubeIframeAdapter implements PlayerAdapter {
                 }
             }
 
-            const timeoutId = activeWindow.setTimeout(() => {
+            const timeoutId = window.setTimeout(() => {
                 // If the player never transitioned to PLAYING, just clean up and resolve.
                 if (this.pendingAutoPause && this.pendingAutoPause.timeoutId === timeoutId) {
                     this.clearPendingAutoPause(true);
