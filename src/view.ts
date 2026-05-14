@@ -60,7 +60,7 @@ export class YoutnoteView extends TextFileView {
         return serializeDataToMarkdown(this.videos, this.notes);
     }
 
-    setViewData(data: string, clear: boolean): void {
+    setViewData(data: string): void {
         const parsed = parseMarkdownToData(data);
         this.videos = parsed.videos;
         this.notes = parsed.notes;
