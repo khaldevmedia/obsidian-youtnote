@@ -36,7 +36,7 @@ export class YoutnoteView extends TextFileView {
         if (!(await this.plugin.isYoutnoteFile(file))) {
             // Not a Youtnote, switch this leaf back to the regular markdown view
             // Defer to avoid conflicts during the current file loading cycle
-            setTimeout(() => {
+            activeWindow.setTimeout(() => {
                 void this.leaf.setViewState({
                     type: 'markdown',
                     state: { file: file.path },

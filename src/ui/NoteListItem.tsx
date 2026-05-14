@@ -51,7 +51,7 @@ const MarkdownNoteBody: React.FC<{ app: import('obsidian').App; body: string; so
                         if (target.classList.contains('internal-link')) {
                             void app.workspace.openLinkText(href, sourcePath, e.ctrlKey || e.metaKey);
                         } else if (isSafeExternalUrl(href)) {
-                            window.open(href, '_blank', 'noopener,noreferrer');
+                            activeWindow.open(href, '_blank', 'noopener,noreferrer');
                         }
                     }
                 }
@@ -217,9 +217,9 @@ export const NoteListItem: React.FC<NoteListItemProps> = React.memo(({
             timestampEditRef.current.textContent = editTimestampValue;
             timestampEditRef.current.focus();
             // Select all text in contenteditable
-            const range = document.createRange();
+            const range =activeDocument.createRange();
             range.selectNodeContents(timestampEditRef.current);
-            const selection = window.getSelection();
+            const selection = activeWindow.getSelection();
             selection?.removeAllRanges();
             selection?.addRange(range);
             hasInitializedTimestampEdit.current = true;

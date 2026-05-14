@@ -57,7 +57,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
     const exportAllButtonRef = useRef<HTMLButtonElement>(null);
     const mergeNotesButtonRef = useRef<HTMLButtonElement>(null);
     const [isPlayerReady, setIsPlayerReady] = useState(true);
-    const playerTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const playerTimeoutRef = useRef<ReturnType<typeof activeWindow.setTimeout> | null>(null);
     const videoLoadRequestRef = useRef(0);
 
     // State for new video input
@@ -210,14 +210,14 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
 
         const clearPlayerTimeout = () => {
             if (playerTimeoutRef.current) {
-                clearTimeout(playerTimeoutRef.current);
+                activeWindow.clearTimeout(playerTimeoutRef.current);
                 playerTimeoutRef.current = null;
             }
         };
 
         const startPlayerLoadTimeout = () => {
             clearPlayerTimeout();
-            playerTimeoutRef.current = setTimeout(() => {
+            playerTimeoutRef.current = activeWindow.setTimeout(() => {
                 if (!isLatestRequest()) return;
                 new AlertModal(app, TIMEOUT_TITLE, TIMEOUT_MESSAGE).open();
                 setIsPlayerReady(true);
@@ -343,7 +343,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
                 adapterIframeRef.current = null;
             }
             if (playerTimeoutRef.current) {
-                clearTimeout(playerTimeoutRef.current);
+                activeWindow.clearTimeout(playerTimeoutRef.current);
                 playerTimeoutRef.current = null;
             }
         };
@@ -460,7 +460,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
         if (existingVideo) {
             new AlertModal(app, "Video duplication", "This video already exists in your list.").open();
             // Select the existing video after alert is dismissed
-            setTimeout(() => {
+            activeWindow.setTimeout(() => {
                 setActiveVideoId(existingVideo.id);
                 // Scroll to the existing video
                 if (videoListRef.current) {
@@ -504,7 +504,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
             setActiveVideoId(newVideo.id);
             
             // Auto-scroll to the newly added video
-            setTimeout(() => {
+            activeWindow.setTimeout(() => {
                 if (videoListRef.current) {
                     videoListRef.current.scrollTop = videoListRef.current.scrollHeight;
                 }
@@ -731,13 +731,13 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
         };
 
         if (isResizing) {
-            document.addEventListener('mousemove', handleMouseMove);
-            document.addEventListener('mouseup', handleMouseUp);
+           activeDocument.addEventListener('mousemove', handleMouseMove);
+           activeDocument.addEventListener('mouseup', handleMouseUp);
         }
 
         return () => {
-            document.removeEventListener('mousemove', handleMouseMove);
-            document.removeEventListener('mouseup', handleMouseUp);
+           activeDocument.removeEventListener('mousemove', handleMouseMove);
+           activeDocument.removeEventListener('mouseup', handleMouseUp);
         };
     }, [app, isResizing, paneWidthStorageKey]);
 

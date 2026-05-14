@@ -95,7 +95,7 @@ export const ObsidianEditor: React.FC<ObsidianEditorProps> = ({ app, view, value
                         cachedEditorView.domEventHandlers({
                             focus: () => {
                                 view.activeEditor = controller;
-                                setTimeout(() => {
+                                activeWindow.setTimeout(() => {
                                     const ws = app.workspace as unknown as { activeEditor: MarkdownController | null };
                                     ws.activeEditor = controller;
                                     if (Platform.isMobile) {
@@ -161,11 +161,11 @@ export const ObsidianEditor: React.FC<ObsidianEditorProps> = ({ app, view, value
         editor.set(value || '');
 
         // Focus the editor
-        setTimeout(() => {
+        activeWindow.setTimeout(() => {
             editor.editor?.focus();
             // Scroll editor into view after a short delay to let layout settle
             if (Platform.isMobile) {
-                setTimeout(() => {
+                activeWindow.setTimeout(() => {
                     container.scrollIntoView({ block: 'center', behavior: 'smooth' });
                 }, 100);
             }
@@ -177,12 +177,12 @@ export const ObsidianEditor: React.FC<ObsidianEditorProps> = ({ app, view, value
         };
 
         if (Platform.isMobile) {
-            window.addEventListener('keyboardDidShow', onKeyboardShow);
+            activeWindow.addEventListener('keyboardDidShow', onKeyboardShow);
         }
 
         return () => {
             if (Platform.isMobile) {
-                window.removeEventListener('keyboardDidShow', onKeyboardShow);
+                activeWindow.removeEventListener('keyboardDidShow', onKeyboardShow);
 
                 if (view.activeEditor === controller) {
                     view.activeEditor = null;

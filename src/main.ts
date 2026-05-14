@@ -90,23 +90,22 @@ export default class YoutnotePlugin extends Plugin {
 
         const clearPendingScriptRetry = () => {
             if (pendingScriptRetry !== null) {
-                window.clearTimeout(pendingScriptRetry);
+                activeWindow.clearTimeout(pendingScriptRetry);
                 pendingScriptRetry = null;
             }
         };
 
         const ensureYouTubeIframeAPILoaded = () => {
-            if (window.YT && typeof window.YT.Player === 'function') {
+            if (activeWindow.YT && typeof activeWindow.YT.Player === 'function') {
                 return;
             }
 
-            const existingScript = document.querySelector<HTMLScriptElement>(SCRIPT_SELECTOR)
-                || document.querySelector<HTMLScriptElement>(`script[src="${YT_IFRAME_API_SRC}"]`);
+            const existingScript =activeDocument.querySelector<HTMLScriptElement>(SCRIPT_SELECTOR)
+                ||activeDocument.querySelector<HTMLScriptElement>(`script[src="${YT_IFRAME_API_SRC}"]`);
             if (existingScript) {
                 return;
             }
 
-            // const script = document.createElement('script');
             const script = createEl('script');
             script.src = YT_IFRAME_API_SRC;
             script.async = true;
@@ -116,45 +115,45 @@ export default class YoutnotePlugin extends Plugin {
                 script.remove();
 
                 if (navigator.onLine && pendingScriptRetry === null) {
-                    pendingScriptRetry = window.setTimeout(() => {
+                    pendingScriptRetry = activeWindow.setTimeout(() => {
                         pendingScriptRetry = null;
                         ensureYouTubeIframeAPILoaded();
                     }, 5000);
                 }
             };
 
-            document.body.appendChild(script);
+           activeDocument.body.appendChild(script);
         };
 
         const ensureYouTubeAPIPromise = () => {
-            if (!window.youtubeAPIPromise) {
-                window.youtubeAPIPromise = new Promise<void>((resolve) => {
-                    if (window.YT && typeof window.YT.Player === 'function') {
+            if (!activeWindow.youtubeAPIPromise) {
+                activeWindow.youtubeAPIPromise = new Promise<void>((resolve) => {
+                    if (activeWindow.YT && typeof activeWindow.YT.Player === 'function') {
                         resolve();
                         return;
                     }
 
-                    window.onYouTubeIframeAPIReady = () => {
+                    activeWindow.onYouTubeIframeAPIReady = () => {
                         console.debug('[youtnoteAPIPromise] IFrame API ready');
                         resolve();
                     };
                 });
             }
-            return window.youtubeAPIPromise;
+            return activeWindow.youtubeAPIPromise;
         };
 
         void ensureYouTubeAPIPromise();
         ensureYouTubeIframeAPILoaded();
 
         const handleOnline = () => {
-            if (!window.YT || typeof window.YT.Player !== 'function') {
+            if (!activeWindow.YT || typeof activeWindow.YT.Player !== 'function') {
                 ensureYouTubeIframeAPILoaded();
             }
         };
 
-        window.addEventListener('online', handleOnline);
+        activeWindow.addEventListener('online', handleOnline);
         this.register(() => {
-            window.removeEventListener('online', handleOnline);
+            activeWindow.removeEventListener('online', handleOnline);
             clearPendingScriptRetry();
         });
         
@@ -248,7 +247,7 @@ export default class YoutnotePlugin extends Plugin {
         const scheduleMarkdownHeaderSync = () => {
             if (pendingHeaderSync) return;
             pendingHeaderSync = true;
-            pendingHeaderSyncRaf = window.requestAnimationFrame(() => {
+            pendingHeaderSyncRaf = activeWindow.requestAnimationFrame(() => {
                 pendingHeaderSync = false;
                 pendingHeaderSyncRaf = null;
                 syncMarkdownHeaderActions();
@@ -263,7 +262,7 @@ export default class YoutnotePlugin extends Plugin {
 
         this.register(() => {
             if (pendingHeaderSyncRaf !== null) {
-                window.cancelAnimationFrame(pendingHeaderSyncRaf);
+                activeWindow.cancelAnimationFrame(pendingHeaderSyncRaf);
                 pendingHeaderSyncRaf = null;
                 pendingHeaderSync = false;
             }

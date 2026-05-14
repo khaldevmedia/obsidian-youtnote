@@ -14,7 +14,7 @@ export function getMarkdownEditorClass(app: App): MarkdownEditorClass | null {
     // Create a dummy container
     const container = createDiv();
     container.hide();
-    document.body.appendChild(container);
+   activeDocument.body.appendChild(container);
 
     try {
         // Instantiate the embed
