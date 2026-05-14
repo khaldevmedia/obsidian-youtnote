@@ -13,13 +13,13 @@ export default defineConfig({
             name: 'main',
             formats: ['cjs']
         },
-        rollupOptions: {
+        rolldownOptions: {                    // ← renamed from rollupOptions
             external: ['obsidian', '@codemirror/state', '@codemirror/view'],
             output: {
                 dir: '.',
                 entryFileNames: 'main.js',
                 assetFileNames: 'styles.css',
-                inlineDynamicImports: true
+                codeSplitting: false
             }
         },
         emptyOutDir: false,
