@@ -40,6 +40,8 @@ to avoid conflicts with other plugins */
 
 .is-mobile .youtnote-plugin__plugin-container {
     padding: 8px;
+    flex-direction: column;
+    overflow-y: auto;
 }
 
 .youtnote-plugin__plugin-container.youtnote-plugin__disabled {
@@ -61,11 +63,6 @@ to avoid conflicts with other plugins */
 .youtnote-plugin__plugin-container.youtnote-plugin__is-resizing * {
     cursor: col-resize !important;
     user-select: none;
-}
-
-.is-mobile .youtnote-plugin__plugin-container {
-    flex-direction: column;
-    overflow-y: auto;
 }
 
 /* Left Pane (Videos + Player) */
