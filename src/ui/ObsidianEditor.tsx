@@ -210,7 +210,7 @@ export const ObsidianEditor: React.FC<ObsidianEditorProps> = ({ app, view, value
                 if (Platform.isMobile) return;
                 // Only trigger onBlur if we're not currently saving
                 // and if the blur is going outside the editor container
-                if (!isSavingRef.current && onBlur && !e.currentTarget.contains(e.relatedTarget as Node)) {
+                if (!isSavingRef.current && onBlur && !e.currentTarget.contains(e.relatedTarget)) {
                     onBlur();
                 }
                 isSavingRef.current = false;
