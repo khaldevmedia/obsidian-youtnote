@@ -4,6 +4,15 @@ import path from 'path';
 
 export default defineConfig({
     plugins: [react()],
+    resolve: {
+        alias: {
+            'react/jsx-dev-runtime': 'preact/jsx-runtime',
+            'react/jsx-runtime': 'preact/jsx-runtime',
+            'react-dom/client': 'preact/compat/client',
+            'react-dom': 'preact/compat',
+            'react': 'preact/compat',
+        }
+    },
     define: {
         'process.env.NODE_ENV': JSON.stringify('production')
     },

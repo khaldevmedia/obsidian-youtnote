@@ -17,12 +17,13 @@
   "type": "commonjs",
   "dependencies": {
     "classnames": "^2.5.1",
-    "react": "^19.2.4",
-    "react-dom": "^19.2.4",
+    "preact": "^10.0.0",
     "sortablejs": "^1.15.7"
   },
   "devDependencies": {
     "@codemirror/state": "^6.5.0",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
     "@codemirror/view": "^6.38.6",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/react": "^16.3.2",
