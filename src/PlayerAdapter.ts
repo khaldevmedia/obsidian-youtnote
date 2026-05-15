@@ -1,14 +1,44 @@
-import { PlayerAdapter, YTPlayer } from "./types";
+import { PlayerAdapter } from "./types";
 
+const YT_STATE = {
+    UNSTARTED: -1,
+    ENDED: 0,
+    PLAYING: 1,
+    PAUSED: 2,
+    BUFFERING: 3,
+    CUED: 5,
+} as const;
+
+const NOCOOKIE_ORIGIN = 'https://www.youtube-nocookie.com';
+
+interface YTMessageEvent {
+    event?: string;
+    info?: number | YTInfoPayload;
+}
+
+interface YTInfoPayload {
+    currentTime?: number;
+    duration?: number;
+    playerState?: number;
+    muted?: boolean;
+}
 
 export class YouTubeIframeAdapter implements PlayerAdapter {
-    private player: YTPlayer | null = null;
-    private ready: boolean = false;
-    private destroyed: boolean = false;
     private iframeElement: HTMLIFrameElement;
     private videoId: string;
     private onReadyCallback: () => void;
     private onErrorCallback: ((errorCode: number) => void) | undefined;
+    private destroyed: boolean = false;
+    private ready: boolean = false;
+    private ownerWindow: Window;
+
+    // Cached state updated via infoDelivery / onStateChange messages
+    private cachedCurrentTime: number = 0;
+    private cachedDuration: number = 0;
+    private cachedPlayerState: number = YT_STATE.UNSTARTED;
+    private cachedMuted: boolean = false;
+
+    private boundMessageHandler: (event: MessageEvent) => void;
     private pendingLoadErrorHandler: ((errorCode: number) => void) | null = null;
     private pendingAutoPause: {
         timestamp: number;
@@ -22,71 +52,100 @@ export class YouTubeIframeAdapter implements PlayerAdapter {
         this.videoId = videoId;
         this.onReadyCallback = onReady;
         this.onErrorCallback = onError;
+        this.ownerWindow = iframeElement.ownerDocument.defaultView ?? window;
+
+        this.boundMessageHandler = this.handleMessage.bind(this);
+        this.ownerWindow.addEventListener('message', this.boundMessageHandler);
 
         // Set the src so the iframe actually loads the video
         // Using youtube-nocookie.com prevents doubleclick ad tracking scripts from trying to load and failing in Obsidian
-        iframeElement.src = `https://www.youtube-nocookie.com/embed/${videoId}?enablejsapi=1`;
+        iframeElement.src = `${NOCOOKIE_ORIGIN}/embed/${videoId}?enablejsapi=1`;
 
-        void this.initPlayer();
+        // The YouTube iframe player requires the parent to register via a
+        // "listening" event before it begins dispatching onReady / onStateChange
+        // / infoDelivery messages back.  Send it once the iframe document loads.
+        iframeElement.addEventListener('load', this.onIframeLoad, { once: true });
     }
 
-    private async initPlayer(): Promise<void> {
-        // Wait for the YouTube API to be ready, but don't hang forever if the
-        // script never loads (e.g. no internet).  The view-level timeout will
-        // surface the error; on the next video click a fresh adapter gets
-        // another chance once the script has (hopefully) loaded.
-        const apiReady = await Promise.race([
-            activeWindow.youtubeAPIPromise,
-            new Promise<'timeout'>(r => window.setTimeout(() => r('timeout'), 10000)),
-        ]);
+    private onIframeLoad = (): void => {
         if (this.destroyed) return;
-        if (apiReady === 'timeout') {
-            console.warn('[PlayerAdapter] Timed out waiting for YouTube API');
-            return;
-        }
-        this.createPlayer();
+        const win = this.iframeElement.contentWindow;
+        if (!win) return;
+        win.postMessage(JSON.stringify({ event: 'listening', id: 1 }), NOCOOKIE_ORIGIN);
+    };
+
+    private sendCommand(func: string, args: unknown[] = []): void {
+        const win = this.iframeElement.contentWindow;
+        if (!win) return;
+        win.postMessage(JSON.stringify({ event: 'command', func, args }), NOCOOKIE_ORIGIN);
     }
 
-    private createPlayer(): void {
-        if (!activeWindow.YT || typeof activeWindow.YT.Player !== 'function') {
-            console.error('[PlayerAdapter] YouTube API not available');
+    private handleMessage(event: MessageEvent): void {
+        // event.source may be null for cross-origin iframes in some Electron
+        // contexts; fall back to origin check when source is unavailable.
+        const sourceOk = event.source != null
+            ? event.source === this.iframeElement.contentWindow
+            : event.origin === NOCOOKIE_ORIGIN;
+        if (!sourceOk) return;
+        if (this.destroyed) return;
+
+        let data: YTMessageEvent;
+        try {
+            data = typeof event.data === 'string'
+                ? (JSON.parse(event.data) as YTMessageEvent)
+                : (event.data as YTMessageEvent);
+        } catch {
             return;
         }
-        console.debug('[PlayerAdapter] Creating YouTube player for video:', this.videoId);
-        this.player = new activeWindow.YT.Player(this.iframeElement, {
-            events: { 
-                'onReady': () => {
-                    console.debug('[PlayerAdapter] Player ready for video:', this.videoId);
-                    this.ready = true;
-                    this.onReadyCallback();
-                },
-                'onError': (event: { data: number }) => {
-                    const rawErrorCode = event?.data;
-                    const parsedErrorCode = typeof rawErrorCode === 'number' ? rawErrorCode : Number(rawErrorCode);
-                    const errorCode = Number.isFinite(parsedErrorCode) ? parsedErrorCode : -1;
-                    console.error('[PlayerAdapter] Player error for video:', this.videoId, 'Error code:', errorCode);
 
-                    if (this.pendingLoadErrorHandler) {
-                        const handlePendingError = this.pendingLoadErrorHandler;
-                        this.pendingLoadErrorHandler = null;
-                        handlePendingError(errorCode);
-                        return;
-                    }
+        switch (data.event) {
+            case 'onReady':
+                console.debug('[PlayerAdapter] Player ready for video:', this.videoId);
+                this.ready = true;
+                this.onReadyCallback();
+                break;
 
-                    // Error codes: 2 = invalid ID, 5 = HTML5 player error, 100 = video not found, 101/150 = embedding not allowed
-                    if (this.onErrorCallback) {
-                        this.onErrorCallback(errorCode);
-                    }
-                },
-                'onStateChange': (event: { data: number }) => {
-                    this.handleStateChange(event?.data);
-                }
+            case 'onStateChange': {
+                const state = data.info as number;
+                this.cachedPlayerState = state;
+                this.handleStateChange(state);
+                break;
             }
-        });
+
+            case 'infoDelivery':
+            case 'initialDelivery': {
+                const info = data.info as YTInfoPayload | undefined;
+                if (info && typeof info === 'object') {
+                    if (typeof info.currentTime === 'number') this.cachedCurrentTime = info.currentTime;
+                    if (typeof info.duration === 'number' && info.duration > 0) this.cachedDuration = info.duration;
+                    if (typeof info.playerState === 'number') this.cachedPlayerState = info.playerState;
+                    if (typeof info.muted === 'boolean') this.cachedMuted = info.muted;
+                }
+                break;
+            }
+
+            case 'onError': {
+                const errorCode = typeof data.info === 'number' ? data.info : -1;
+                console.error('[PlayerAdapter] Player error for video:', this.videoId, 'Error code:', errorCode);
+
+                if (this.pendingLoadErrorHandler) {
+                    const handler = this.pendingLoadErrorHandler;
+                    this.pendingLoadErrorHandler = null;
+                    handler(errorCode);
+                    return;
+                }
+
+                // Error codes: 2 = invalid ID, 5 = HTML5 player error, 100 = video not found, 101/150 = embedding not allowed
+                if (this.onErrorCallback) {
+                    this.onErrorCallback(errorCode);
+                }
+                break;
+            }
+        }
     }
 
     isReady(): boolean {
-        return this.ready && this.player !== null && typeof this.player.seekTo === 'function';
+        return this.ready;
     }
 
     private async waitForReady(timeoutMs: number = 5000): Promise<boolean> {
@@ -105,15 +164,19 @@ export class YouTubeIframeAdapter implements PlayerAdapter {
 
     async loadVideo(videoId: string): Promise<void> {
         const isReady = await this.waitForReady();
-        if (!this.player || !isReady) {
+        if (!isReady) {
             console.warn('[PlayerAdapter] Cannot load video - player not ready after waiting');
             return;
         }
-        
+
         console.debug('[PlayerAdapter] Loading new video:', videoId);
         this.videoId = videoId;
         this.ready = false;
-        
+        // Reset cached state so the poll below doesn't match the previous
+        // video's stale state before YouTube sends the real onStateChange.
+        this.cachedPlayerState = YT_STATE.PLAYING;
+        this.cachedDuration = 0;
+
         return new Promise((resolve, reject) => {
             let settled = false;
 
@@ -140,22 +203,20 @@ export class YouTubeIframeAdapter implements PlayerAdapter {
             };
 
             // Use cueVideoById to load without autoplay
-            this.player!.cueVideoById(videoId);
-            
-            // Wait for the video to be cued and ready
+            this.sendCommand('cueVideoById', [videoId]);
+
+            // Wait for the video to be cued and ready via cached state
             const checkReady = window.setInterval(() => {
-                if (this.player && typeof this.player.getPlayerState === 'function') {
-                    const state = this.player.getPlayerState();
-                    // State 5 = video cued, -1 = unstarted (both mean ready)
-                    if (state === 5 || state === -1 || state === 2) {
-                        window.clearInterval(checkReady);
-                        window.clearTimeout(loadTimeout);
-                        console.debug('[PlayerAdapter] Video loaded and ready:', videoId);
-                        finish();
-                    }
+                const state = this.cachedPlayerState;
+                // State 5 = video cued, -1 = unstarted, 2 = paused (all indicate ready)
+                if (state === YT_STATE.CUED || state === YT_STATE.UNSTARTED || state === YT_STATE.PAUSED) {
+                    window.clearInterval(checkReady);
+                    window.clearTimeout(loadTimeout);
+                    console.debug('[PlayerAdapter] Video loaded and ready:', videoId);
+                    finish();
                 }
             }, 100);
-            
+
             // Timeout after 5 seconds
             const loadTimeout = window.setTimeout(() => {
                 window.clearInterval(checkReady);
@@ -168,29 +229,22 @@ export class YouTubeIframeAdapter implements PlayerAdapter {
     destroy(): void {
         this.destroyed = true;
         this.pendingLoadErrorHandler = null;
-        if (this.player && typeof this.player.destroy === 'function') {
-            console.debug('[PlayerAdapter] Destroying player for video:', this.videoId);
-            try {
-                this.player.destroy();
-            } catch (err) {
-                console.warn('[PlayerAdapter] Error destroying player:', err);
-            }
-        }
-        this.player = null;
+        this.ownerWindow.removeEventListener('message', this.boundMessageHandler);
         this.ready = false;
+        console.debug('[PlayerAdapter] Destroyed player for video:', this.videoId);
     }
 
     async seek(timestampSec: number): Promise<void> {
         // Wait for player to be ready and in a valid state (not buffering)
         let attempts = 0;
         const maxAttempts = 10;
-        
+
         while (attempts < maxAttempts) {
             if (this.isReady()) {
                 const state = await this.getPlayerState();
                 // Valid states: -1 (unstarted), 0 (ended), 1 (playing), 2 (paused), 5 (cued)
-                // Avoid seeking when buffering (3) or video cued but not ready
-                if (state !== 3) {
+                // Avoid seeking when buffering (3)
+                if (state !== YT_STATE.BUFFERING) {
                     break;
                 }
             }
@@ -205,118 +259,91 @@ export class YouTubeIframeAdapter implements PlayerAdapter {
 
         try {
             console.debug('[PlayerAdapter] Seeking to:', timestampSec);
-            this.player!.seekTo(timestampSec, true);
-            
+            this.sendCommand('seekTo', [timestampSec, true]);
+            this.cachedCurrentTime = timestampSec;
+
             // Verify seek worked by checking current time after a short delay
             await new Promise(r => window.setTimeout(r, 200));
             const currentTime = await this.getCurrentTime();
             const seekDiff = Math.abs(currentTime - timestampSec);
-            
+
             if (seekDiff > 2) {
                 console.warn('[PlayerAdapter] Seek verification failed. Expected:', timestampSec, 'Got:', currentTime, 'Retrying...');
-                // Retry once
-                this.player!.seekTo(timestampSec, true);
+                this.sendCommand('seekTo', [timestampSec, true]);
+                this.cachedCurrentTime = timestampSec;
             }
         } catch (err) {
             console.error('[PlayerAdapter] Error seeking to timestamp:', err);
         }
     }
+
     getCurrentTime(): Promise<number> {
-        if (!this.isReady()) return Promise.resolve(0);
-        try {
-            return Promise.resolve(this.player!.getCurrentTime() || 0);
-        } catch (err) {
-            console.warn('Error getting current time:', err);
-            return Promise.resolve(0);
-        }
+        return Promise.resolve(this.cachedCurrentTime);
     }
+
     getDuration(): Promise<number> {
-        if (!this.isReady()) return Promise.resolve(0);
-        try {
-            return Promise.resolve(this.player!.getDuration() || 0);
-        } catch (err) {
-            console.warn('Error getting duration:', err);
-            return Promise.resolve(0);
-        }
+        return Promise.resolve(this.cachedDuration);
     }
+
     play(): Promise<void> {
-        if (!this.isReady()) return Promise.resolve();
         try {
-            this.player!.playVideo();
+            this.sendCommand('playVideo');
         } catch (err) {
             console.error('Error playing video:', err);
         }
         return Promise.resolve();
     }
+
     pause(): Promise<void> {
-        if (!this.isReady()) return Promise.resolve();
         try {
-            this.player!.pauseVideo();
+            this.sendCommand('pauseVideo');
         } catch (err) {
             console.error('Error pausing video:', err);
         }
         return Promise.resolve();
     }
+
     async seekAndPause(timestampSec: number): Promise<void> {
         await this.seek(timestampSec);
         if (!this.isReady()) return;
 
-        const state = this.safeGetPlayerState();
+        const state = this.cachedPlayerState;
 
         // If video is already playing/buffering, pause immediately.
-        if (state === activeWindow.YT?.PlayerState?.PLAYING || state === activeWindow.YT?.PlayerState?.BUFFERING || state === 1 || state === 3) {
-            this.player!.pauseVideo();
+        if (state === YT_STATE.PLAYING || state === YT_STATE.BUFFERING) {
+            this.sendCommand('pauseVideo');
             return;
         }
 
-        // State 0 (ended) or 2 (paused) are safe to pause directly as well.
-        if (state === activeWindow.YT?.PlayerState?.PAUSED || state === activeWindow.YT?.PlayerState?.ENDED || state === 0 || state === 2) {
-            this.player!.pauseVideo();
+        // State ended or paused are safe to pause directly as well.
+        if (state === YT_STATE.PAUSED || state === YT_STATE.ENDED) {
+            this.sendCommand('pauseVideo');
             return;
         }
 
         // Unstarted / cued: wait for the player to actually start playing before pausing,
         // so we never call pauseVideo() while the iframe is still initializing (which
         // breaks controls on mobile WebViews).
-        if (state === activeWindow.YT?.PlayerState?.UNSTARTED || state === activeWindow.YT?.PlayerState?.CUED || state === -1 || state === 5) {
+        if (state === YT_STATE.UNSTARTED || state === YT_STATE.CUED) {
             await this.waitForAutoPause(timestampSec);
             return;
         }
 
         // Fallback
-        this.player!.pauseVideo();
-    }
-    
-    getPlayerState(): Promise<number> {
-        if (!this.isReady()) return Promise.resolve(-1);
-        try {
-            return Promise.resolve(this.player!.getPlayerState());
-        } catch (err) {
-            console.error('Error getting player state:', err);
-            return Promise.resolve(-1);
-        }
+        this.sendCommand('pauseVideo');
     }
 
-    private safeGetPlayerState(): number {
-        try {
-            if (this.player && typeof this.player.getPlayerState === 'function') {
-                return this.player.getPlayerState();
-            }
-        } catch (err) {
-            console.error('Error getting player state:', err);
-        }
-        return -1;
+    getPlayerState(): Promise<number> {
+        return Promise.resolve(this.cachedPlayerState);
     }
 
     private clearPendingAutoPause(resolve: boolean): void {
         if (!this.pendingAutoPause) return;
         const pending = this.pendingAutoPause;
         this.pendingAutoPause = null;
-        if (pending.timeoutId) {
-            window.clearTimeout(pending.timeoutId);
-        }
-        if (pending.restoreMute && this.player && typeof this.player.unMute === 'function') {
-            this.player.unMute();
+        window.clearTimeout(pending.timeoutId);
+        if (pending.restoreMute) {
+            this.sendCommand('unMute');
         }
         if (resolve) {
             pending.resolve();
@@ -328,21 +355,14 @@ export class YouTubeIframeAdapter implements PlayerAdapter {
             this.clearPendingAutoPause(false);
 
             let restoreMute = false;
-            if (typeof this.player?.isMuted === 'function' && typeof this.player?.mute === 'function') {
-                try {
-                    if (!this.player.isMuted()) {
-                        this.player.mute();
-                        restoreMute = true;
-                    }
-                } catch (err) {
-                    console.error('Error muting player:', err);
-                    restoreMute = false;
-                }
+            if (!this.cachedMuted) {
+                this.sendCommand('mute');
+                restoreMute = true;
             }
 
             const timeoutId = window.setTimeout(() => {
                 // If the player never transitioned to PLAYING, just clean up and resolve.
-                if (this.pendingAutoPause && this.pendingAutoPause.timeoutId === timeoutId) {
+                if (this.pendingAutoPause?.timeoutId === timeoutId) {
                     this.clearPendingAutoPause(true);
                 }
             }, 2000);
@@ -359,15 +379,14 @@ export class YouTubeIframeAdapter implements PlayerAdapter {
     private handleStateChange(state: number): void {
         if (!this.pendingAutoPause) return;
 
-        const yt = activeWindow.YT?.PlayerState;
-        const isPlayingState = state === yt?.PLAYING || state === 1;
-        const isPausedState = state === yt?.PAUSED || state === yt?.ENDED || state === 0 || state === 2;
+        const isPlayingState = state === YT_STATE.PLAYING;
+        const isPausedState = state === YT_STATE.PAUSED || state === YT_STATE.ENDED;
 
         if (isPlayingState) {
             const target = this.pendingAutoPause;
-            this.player!.pauseVideo();
+            this.sendCommand('pauseVideo');
             // Ensure we stay exactly on the requested timestamp.
-            this.player!.seekTo(target.timestamp, true);
+            this.sendCommand('seekTo', [target.timestamp, true]);
             this.clearPendingAutoPause(true);
         } else if (isPausedState) {
             this.clearPendingAutoPause(true);
