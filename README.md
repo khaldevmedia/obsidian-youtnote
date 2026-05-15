@@ -1,9 +1,16 @@
 # Obsidian Youtnote Plugin
 
-Embed multiple YouTube videos inside a single Obsidian note, take timestamped Markdown notes with live preview editing, and export everything back to clean Markdown. Youtnote keeps the video player and your research notes in lockstep so you never lose the context of what you were watching. Works on desktop and mobile.
+<div align="center">
 
-> **Importnat:**
-> You need Obsidian version `1.10.3` or later. If you use an older version, embedded YouTube videos will display "Error 153". Obsidian fixed this error in [version 1.10.3](https://obsidian.md/changelog/2025-11-11-desktop-v1.10.3/)
+![Youtnote Logo](docs/images/youtnote-logo.png)
+
+### Youtnote
+
+---
+
+</div>
+
+Take timestamped Markdown notes with live preview editing across multiple embedded YouTube videos, all inside a single Obsidian note. Then, if you want, export everything back to clean Markdown. **Youtnote** keeps the video player and your research notes in lockstep so you never lose the context of what you were watching. Works on desktop and mobile.
 
 ## Screenshots
 
@@ -18,6 +25,9 @@ Embed multiple YouTube videos inside a single Obsidian note, take timestamped Ma
 
 ![UI overview](docs/images/ui-demo.gif)
 
+
+> **Importnat:**
+> You need Obsidian version `1.10.3` or later. If you use an older version, embedded YouTube videos will display "Error 153". Obsidian fixed this error in [version 1.10.3](https://obsidian.md/changelog/2025-11-11-desktop-v1.10.3/)
 
 ## Features
 - **Multi-video timeline** – Track any number of YouTube videos inside the same file, reorder them with drag & drop, and jump between them instantly.
