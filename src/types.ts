@@ -1,6 +1,4 @@
 import { App, Component, TFile } from 'obsidian';
-import type { MouseEvent } from 'react';
-
 
 /** Minimal abstract constructor shape of Obsidian's internal MarkdownEditor class. */
 export type MarkdownEditorClass = abstract new (...args: unknown[]) => Component & {
