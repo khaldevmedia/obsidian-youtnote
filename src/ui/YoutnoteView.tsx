@@ -231,10 +231,8 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
         if (!currentActiveVideo || !currentIframe) {
             setIsPlayerReady(true);
             if (!currentActiveVideo && playerAdapterRef.current) {
-                // Keep adapter alive – YT.Player.destroy() removes the iframe
-                // from the DOM which breaks React's ref and all future player
-                // creation.  The API is designed to reuse players via
-                // cueVideoById, so just pause and leave the adapter intact.
+                // Keep adapter alive – reuse via cueVideoById for the next
+                // video selection rather than destroying and recreating.
                 void playerAdapterRef.current.pause();
             }
             return () => {

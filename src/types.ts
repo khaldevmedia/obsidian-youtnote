@@ -1,42 +1,4 @@
 import { App, Component, TFile } from 'obsidian';
-import type { MouseEvent } from 'react';
-
-// YouTube IFrame API types
-interface YTPlayerOptions {
-    events?: {
-        onReady?: () => void;
-        onError?: (event: { data: number }) => void;
-        onStateChange?: (event: { data: number }) => void;
-    };
-}
-
-export interface YTPlayer {
-    seekTo(seconds: number, allowSeekAhead: boolean): void;
-    getCurrentTime(): number;
-    getDuration(): number;
-    playVideo(): void;
-    pauseVideo(): void;
-    getPlayerState(): number;
-    isMuted(): boolean;
-    mute(): void;
-    unMute(): void;
-    cueVideoById(videoId: string): void;
-    destroy(): void;
-}
-
-interface YTPlayerStateConstants {
-    UNSTARTED: number;
-    ENDED: number;
-    PLAYING: number;
-    PAUSED: number;
-    BUFFERING: number;
-    CUED: number;
-}
-
-interface YTNamespace {
-    Player: new (element: HTMLIFrameElement, options: YTPlayerOptions) => YTPlayer;
-    PlayerState?: YTPlayerStateConstants;
-}
 
 /** Minimal abstract constructor shape of Obsidian's internal MarkdownEditor class. */
 export type MarkdownEditorClass = abstract new (...args: unknown[]) => Component & {
@@ -99,14 +61,6 @@ declare module 'obsidian' {
     }
 }
 
-// Make TypeScript compiler happy
-declare global {
-    interface Window {
-        YT?: YTNamespace;
-        youtubeAPIPromise?: Promise<void>;
-        onYouTubeIframeAPIReady?: () => void;
-    }
-}
 
 
 // Types
