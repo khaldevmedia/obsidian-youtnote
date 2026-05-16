@@ -1,9 +1,9 @@
 {
     "id": "youtnote",
     "name": "Youtnote",
-    "version": "1.2.0",
+    "version": "1.2.1",
     "minAppVersion": "1.10.3",
-    "description": "Take timestamped Markdown notes across multiple embedded YouTube videos, all inside a single Obsidian note.",
+    "description": "Take timestamped Markdown notes across multiple embedded YouTube videos, all inside a single note.",
     "author": "Khaldevmedia",
     "authorUrl": "https://khaldevmedia.com",
     "isDesktopOnly": false,
