@@ -271,6 +271,15 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
             }
         };
 
+        let embeddingErrorShown = false;
+        const showEmbeddingError = () => {
+            if (embeddingErrorShown) return;
+            embeddingErrorShown = true;
+            clearPlayerTimeout();
+            new AlertModal(app, EMBEDDING_BLOCKED_TITLE, EMBEDDING_BLOCKED_MESSAGE).open();
+            setIsPlayerReady(true);
+        };
+
         if (existingAdapter && existingAdapter.isReady()) {
             console.debug('[YoutnoteView] Loading new video in existing player');
 
@@ -289,9 +298,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
                     ? Number(err.message)
                     : (typeof err === 'number' ? err : -1);
                 if (numericErrorCode === 101 || numericErrorCode === 150) {
-                    clearPlayerTimeout();
-                    new AlertModal(app, EMBEDDING_BLOCKED_TITLE, EMBEDDING_BLOCKED_MESSAGE).open();
-                    setIsPlayerReady(true);
+                    showEmbeddingError();
                     return;
                 }
                 console.warn('[YoutnoteView] Failed to load video in existing player', err);
@@ -308,18 +315,30 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
             setIsPlayerReady(false);
 
             const adapter = new YouTubeIframeAdapter(currentIframe, ytId, () => {
-                if (!isLatestRequest()) return;
-                void handleDurationUpdate(adapter, currentActiveVideo.id).then(() => {
+                if (!isLatestRequest() || embeddingErrorShown) return;
+                adapter.loadVideo(ytId).then(() => {
+                    if (!isLatestRequest()) return;
                     clearPlayerTimeout();
-                    if (isLatestRequest()) {
+                    void handleDurationUpdate(adapter, currentActiveVideo.id).then(() => {
+                        if (isLatestRequest()) {
+                            setIsPlayerReady(true);
+                        }
+                    });
+                }).catch((err: unknown) => {
+                    if (!isLatestRequest()) return;
+                    const numericErrorCode = err instanceof Error
+                        ? Number(err.message)
+                        : (typeof err === 'number' ? err : -1);
+                    if (numericErrorCode === 101 || numericErrorCode === 150) {
+                        showEmbeddingError();
+                    } else {
+                        clearPlayerTimeout();
                         setIsPlayerReady(true);
                     }
                 });
             }, (errorCode: number) => {
                 if (errorCode === 101 || errorCode === 150) {
-                    clearPlayerTimeout();
-                    new AlertModal(app, EMBEDDING_BLOCKED_TITLE, EMBEDDING_BLOCKED_MESSAGE).open();
-                    setIsPlayerReady(true);
+                    showEmbeddingError();
                 }
             });
 

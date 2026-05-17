@@ -260,12 +260,12 @@ export const NoteListItem: React.FC<NoteListItemProps> = React.memo(({
                             onKeyDown={(e) => {
                                 if (e.key === 'Enter') {
                                     e.preventDefault();
-                                    (e.currentTarget as HTMLElement).blur();
+                                    e.currentTarget.blur();
                                 }
                                 if (e.key === 'Escape') {
                                     e.preventDefault();
                                     skipNextSaveOnBlurRef.current = true;
-                                    (e.currentTarget as HTMLElement).blur();
+                                    e.currentTarget.blur();
                                     onCancelTimestampEdit();
                                 }
                             }}

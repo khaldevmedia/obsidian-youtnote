@@ -172,18 +172,20 @@ export class YouTubeIframeAdapter implements PlayerAdapter {
         console.debug('[PlayerAdapter] Loading new video:', videoId);
         this.videoId = videoId;
         this.ready = false;
-        // Reset cached state so the poll below doesn't match the previous
-        // video's stale state before YouTube sends the real onStateChange.
-        this.cachedPlayerState = YT_STATE.PLAYING;
+        // Reset to a state not matched by the poll below so we don't finish
+        // on a stale value from the previous video.
+        this.cachedPlayerState = YT_STATE.CUED;
         this.cachedDuration = 0;
 
         return new Promise((resolve, reject) => {
             let settled = false;
+            const wasMuted = this.cachedMuted;
 
             const finish = () => {
                 if (settled) return;
                 settled = true;
                 this.pendingLoadErrorHandler = null;
+                if (!wasMuted) this.sendCommand('unMute');
                 this.ready = true;
                 resolve();
             };
@@ -192,6 +194,7 @@ export class YouTubeIframeAdapter implements PlayerAdapter {
                 if (settled) return;
                 settled = true;
                 this.pendingLoadErrorHandler = null;
+                if (!wasMuted) this.sendCommand('unMute');
                 this.ready = true;
                 reject(new Error(String(errorCode)));
             };
@@ -202,14 +205,24 @@ export class YouTubeIframeAdapter implements PlayerAdapter {
                 fail(errorCode);
             };
 
-            // Use cueVideoById to load without autoplay
-            this.sendCommand('cueVideoById', [videoId]);
+            // Mute before starting playback to avoid audio flash.
+            if (!wasMuted) this.sendCommand('mute');
 
-            // Wait for the video to be cued and ready via cached state
+            // loadVideoById starts playback, which triggers onError (101/150) for
+            // embedding-blocked videos via postMessage. cueVideoById does NOT fire
+            // that error, so we must use loadVideoById for reliable detection.
+            this.sendCommand('loadVideoById', [videoId]);
+
             const checkReady = window.setInterval(() => {
                 const state = this.cachedPlayerState;
-                // State 5 = video cued, -1 = unstarted, 2 = paused (all indicate ready)
-                if (state === YT_STATE.CUED || state === YT_STATE.UNSTARTED || state === YT_STATE.PAUSED) {
+                if (state === YT_STATE.PLAYING) {
+                    // Video started — not blocked. Pause immediately and finish.
+                    this.sendCommand('pauseVideo');
+                    window.clearInterval(checkReady);
+                    window.clearTimeout(loadTimeout);
+                    console.debug('[PlayerAdapter] Video loaded and ready:', videoId);
+                    finish();
+                } else if (state === YT_STATE.PAUSED || state === YT_STATE.ENDED) {
                     window.clearInterval(checkReady);
                     window.clearTimeout(loadTimeout);
                     console.debug('[PlayerAdapter] Video loaded and ready:', videoId);
