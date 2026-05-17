@@ -1,3 +1,4 @@
+import React from 'react';
 import { App, Component, TFile } from 'obsidian';
 
 /** Minimal abstract constructor shape of Obsidian's internal MarkdownEditor class. */
@@ -132,7 +133,7 @@ export interface NoteListItemProps {
     editNoteBody: string;
     maxDuration: number;
     newLineTrigger: PluginSettings['newLineTrigger'];
-    onToggleExpand: (e: MouseEvent, noteId: NoteId, timestampSec: number) => void;
+    onToggleExpand: (e: React.MouseEvent<HTMLDivElement>, noteId: NoteId, timestampSec: number) => void;
     onSelect: (noteId: NoteId, timestampSec: number) => void;
     onStartEdit: (noteId: NoteId, body: string) => void;
     onSaveEdit: () => void;
