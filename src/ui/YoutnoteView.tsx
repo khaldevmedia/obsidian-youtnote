@@ -586,13 +586,11 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
         // Seek to the new timestamp in the player
         const playerAdapter = playerAdapterRef.current;
         if (playerAdapter) {
-            await playerAdapter.seek(result.seconds);
-            
             if (settings.autoplayOnNoteSelect) {
+                await playerAdapter.seek(result.seconds);
                 await playerAdapter.play();
             } else {
-                // Always pause after seek to prevent autoplay
-                await playerAdapter.pause();
+                await playerAdapter.seekAndPause(result.seconds);
             }
         }
     };

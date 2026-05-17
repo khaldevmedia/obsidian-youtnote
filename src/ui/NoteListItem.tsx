@@ -181,6 +181,7 @@ export const NoteListItem: React.FC<NoteListItemProps> = React.memo(({
     const mobileSaveIconRef = useRef<HTMLButtonElement>(null);
     const timestampEditRef = useRef<HTMLDivElement>(null);
     const hasInitializedTimestampEdit = useRef(false);
+    const skipNextSaveOnBlurRef = useRef(false);
 
     useEffect(() => {
         if (chevronIconRef.current) {
@@ -249,14 +250,22 @@ export const NoteListItem: React.FC<NoteListItemProps> = React.memo(({
                             contentEditable
                             suppressContentEditableWarning
                             onInput={(e) => onTimestampChange(e.currentTarget.textContent || '')}
-                            onBlur={() => onSaveTimestampEdit(note.id)}
+                            onBlur={() => {
+                                if (skipNextSaveOnBlurRef.current) {
+                                    skipNextSaveOnBlurRef.current = false;
+                                    return;
+                                }
+                                onSaveTimestampEdit(note.id);
+                            }}
                             onKeyDown={(e) => {
                                 if (e.key === 'Enter') {
                                     e.preventDefault();
-                                    onSaveTimestampEdit(note.id);
+                                    (e.currentTarget as HTMLElement).blur();
                                 }
                                 if (e.key === 'Escape') {
                                     e.preventDefault();
+                                    skipNextSaveOnBlurRef.current = true;
+                                    (e.currentTarget as HTMLElement).blur();
                                     onCancelTimestampEdit();
                                 }
                             }}
