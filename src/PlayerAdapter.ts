@@ -10,6 +10,7 @@ const YT_STATE = {
 } as const;
 
 const NOCOOKIE_ORIGIN = 'https://www.youtube-nocookie.com';
+const YT_URL_PARAMETERS = '?enablejsapi=1&playsinline=1';
 
 interface YTMessageEvent {
     event?: string;
@@ -59,7 +60,7 @@ export class YouTubeIframeAdapter implements PlayerAdapter {
 
         // Set the src so the iframe actually loads the video
         // Using youtube-nocookie.com prevents doubleclick ad tracking scripts from trying to load and failing in Obsidian
-        iframeElement.src = `${NOCOOKIE_ORIGIN}/embed/${videoId}?enablejsapi=1`;
+        iframeElement.src = `${NOCOOKIE_ORIGIN}/embed/${videoId}${YT_URL_PARAMETERS}`;
 
         // The YouTube iframe player requires the parent to register via a
         // "listening" event before it begins dispatching onReady / onStateChange

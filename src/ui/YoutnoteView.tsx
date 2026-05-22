@@ -763,7 +763,8 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
                 className={classNames('youtnote-plugin__iframe', {
                     'youtnote-plugin__iframe-hidden': !activeVideo,
                 })}
-                allow="autoplay"
+                allow="autoplay; encrypted-media"
+                referrerPolicy="strict-origin-when-cross-origin"
             />
             {!activeVideo && (
                 <div className="youtnote-plugin__empty-state">
