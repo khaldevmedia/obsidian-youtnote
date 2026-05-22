@@ -792,7 +792,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
             {/* Left Pane / Top Column */}
             <div 
                 className="youtnote-plugin__video-pane" 
-                style={{ width: `${leftPaneWidth}%` }}
+                style={isMobile ? undefined : { width: `${leftPaneWidth}%` }}
             >
                 {playerSection}
                 
@@ -857,7 +857,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
             {/* Right Pane / Bottom Column */}
             <div 
                 className="youtnote-plugin__notes-pane"
-                style={{ width: `${100 - leftPaneWidth}%` }}
+                style={isMobile ? undefined : { width: `${100 - leftPaneWidth}%` }}
             >
                 <div className="youtnote-plugin__note-list-header">
                     <div className="youtnote-plugin__note-list-header-content">

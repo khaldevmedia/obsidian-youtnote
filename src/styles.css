@@ -8,20 +8,22 @@ to avoid conflicts with other plugins */
    layout to prioritize the CM editor. These rules ensure our plugin-container
    still fills view-content correctly regardless of is-mobile-editing state. */
 .workspace-leaf-content[data-type='youtnote-view'] {
-    .view-content {
+    .view-content,
+    .view-content.is-mobile-editing {
         padding: 0;
-        display: flex !important;
-        flex-direction: column !important;
-        overflow: hidden !important;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
     }
 
-    .view-content > .youtnote-plugin__plugin-container {
-        flex: 1 1 auto !important;
-        min-height: 0 !important;
+    .view-content > .youtnote-plugin__plugin-container,
+    .view-content.is-mobile-editing > .youtnote-plugin__plugin-container {
+        flex: 1 1 auto;
+        min-height: 0;
     }
 
     > .view-header {
-        display: flex !important;
+        display: flex;
     }
 }
 
@@ -36,6 +38,11 @@ to avoid conflicts with other plugins */
     padding: 16px;
     box-sizing: border-box;
     position: relative;
+
+    /* Remove top spacing for markdown view in .cm-scroller */
+    /* Remove weird excessive padding-top on markdown editor */
+/* appears if <body> has class "is-phone" not "is-mobile" */
+    --view-top-spacing-markdown: 0px;
 }
 
 .is-mobile .youtnote-plugin__plugin-container {
@@ -60,8 +67,10 @@ to avoid conflicts with other plugins */
     user-select: none;
 }
 
-.youtnote-plugin__plugin-container.youtnote-plugin__is-resizing * {
-    cursor: col-resize !important;
+.youtnote-plugin__plugin-container.youtnote-plugin__is-resizing *,
+.youtnote-plugin__plugin-container.youtnote-plugin__is-resizing *:hover,
+.youtnote-plugin__plugin-container.youtnote-plugin__is-resizing *:active {
+    cursor: col-resize;
     user-select: none;
 }
 
@@ -76,7 +85,7 @@ to avoid conflicts with other plugins */
 }
 
 .is-mobile .youtnote-plugin__video-pane {
-    width: 100% !important;
+    width: 100%;
     max-width: 100%;
     flex: none;
     padding: 0;
@@ -327,7 +336,7 @@ to avoid conflicts with other plugins */
 }
 
 .is-mobile .youtnote-plugin__notes-pane {
-    width: 100% !important;
+    width: 100%;
     padding: 0;
     max-height: none;
     overflow: visible;
@@ -588,26 +597,27 @@ to avoid conflicts with other plugins */
 /* Override CodeMirror's default borders and outlines */
 .youtnote-plugin__obsidian-editor-container .cm-editor,
 .youtnote-plugin__obsidian-editor-container .cm-editor.cm-focused {
-    outline: none !important;
-    border: none !important;
-    box-shadow: none !important;
+    outline: none;
+    border: none;
+    box-shadow: none;
 }
 
 /* Force text cursor everywhere inside the editor container */
 .youtnote-plugin__obsidian-editor-container,
-.youtnote-plugin__obsidian-editor-container * {
-    cursor: text !important;
+.youtnote-plugin__obsidian-editor-container *,
+.youtnote-plugin__obsidian-editor-container *:hover {
+    cursor: text;
 }
 
 /* Hide the inline title in the embedded editor and remove its padding */
 .youtnote-plugin__obsidian-editor-container .inline-title,
 .youtnote-plugin__obsidian-editor-container .markdown-embed-title,
 .youtnote-plugin__obsidian-editor-container .markdown-embed-link {
-    display: none !important;
+    display: none;
 }
 .youtnote-plugin__obsidian-editor-container .cm-sizer {
-    padding-top: 0 !important;
-    padding-bottom: 0 !important;
+    padding-top: 0;
+    padding-bottom: 0;
 }
 
 .youtnote-plugin__obsidian-editor-container:focus-within {
@@ -710,7 +720,7 @@ to avoid conflicts with other plugins */
     outline: none;
 }
 
-.youtnote-plugin__add-btn {
+button.youtnote-plugin__add-btn {
     background-color: var(--background-secondary);
     border: 1px solid var(--background-modifier-border);
     border-radius: 6px;
@@ -721,7 +731,7 @@ to avoid conflicts with other plugins */
     align-items: center;
     justify-content: center;
     transition: all 0.15s ease;
-    box-shadow: none !important;
+    box-shadow: none;
 }
 
 .youtnote-plugin__add-btn:hover:not(:disabled) {
@@ -912,6 +922,6 @@ to avoid conflicts with other plugins */
 
 /* Remove weird excessive padding-top on markdown editor */
 /* appears if <body> has class "is-phone" not "is-mobile" */
-.is-phone .youtnote-plugin__plugin-container .cm-scroller {
-    padding-top: 0px !important; 
-}
+/* .is-phone .youtnote-plugin__plugin-container .cm-scroller {
+    padding-top: 0px;
+} */
