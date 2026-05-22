@@ -789,12 +789,18 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
                 'youtnote-plugin__disabled': !isPlayerReady,
             })}
         >
+            {/* On mobile, player is hoisted out of video-pane as a stable direct flex child
+               of plugin-container. This keeps its tree position constant so toggling
+               isStickyEnabled never causes the iframe to remount/reload. It also makes
+               position:sticky span the full scroll height without needing display:contents. */}
+            {isMobile && playerSection}
+
             {/* Left Pane / Top Column */}
             <div 
                 className="youtnote-plugin__video-pane" 
                 style={isMobile ? undefined : { width: `${leftPaneWidth}%` }}
             >
-                {playerSection}
+                {!isMobile && playerSection}
                 
                 <div className="youtnote-plugin__video-list-header">
                     <div className="youtnote-plugin__video-list-header-content">

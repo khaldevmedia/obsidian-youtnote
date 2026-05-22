@@ -101,11 +101,6 @@ to avoid conflicts with other plugins */
     border-bottom: 1px solid var(--background-modifier-border);
 }
 
-/* Keep sticky active while scrolling across both videos and notes by
-   flattening the video-pane boundary on mobile sticky mode. */
-.is-mobile .youtnote-plugin__plugin-container.youtnote-plugin__iframe-sticky .youtnote-plugin__video-pane {
-    display: contents;
-}
 
 .youtnote-plugin__player-container {
     width: 100%;
