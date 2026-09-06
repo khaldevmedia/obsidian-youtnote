@@ -914,9 +914,3 @@ button.youtnote-plugin__add-btn {
 .is-mobile .youtnote-plugin__plugin-container button:not(.youtnote-plugin__add-note-btn):not(.youtnote-plugin__add-video-submit){
     height: auto;
 }
-
-/* Remove weird excessive padding-top on markdown editor */
-/* appears if <body> has class "is-phone" not "is-mobile" */
-/* .is-phone .youtnote-plugin__plugin-container .cm-scroller {
-    padding-top: 0px;
-} */
