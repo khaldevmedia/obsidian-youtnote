@@ -18,7 +18,14 @@ function buildSortedNotesByVideo(notes: Note[]): Map<VideoId, Note[]> {
     }
 
     notesByVideo.forEach((videoNotes) => {
-        videoNotes.sort((a, b) => a.timestampSec - b.timestampSec);
+        videoNotes.sort((a, b) => {
+            // General notes (timestampSec === -1) always come first
+            const aGeneral = a.isGeneral === true || a.timestampSec === -1;
+            const bGeneral = b.isGeneral === true || b.timestampSec === -1;
+            if (aGeneral && !bGeneral) return -1;
+            if (!aGeneral && bGeneral) return 1;
+            return a.timestampSec - b.timestampSec;
+        });
     });
 
     return notesByVideo;
@@ -73,9 +80,9 @@ export function parseMarkdownToData(markdown: string): { videos: Video[], notes:
             continue;
         }
 
-        // Match Video: [Title](URL) - must not be a timestamp link
+        // Match Video: [Title](URL) - must not be a timestamp or general-note link
         const videoMatch = line.match(/^\[(.*?)\]\((.+)\)$/);
-        if (videoMatch && videoMatch[2] !== 'timestamp') {
+        if (videoMatch && videoMatch[2] !== 'timestamp' && videoMatch[2] !== 'general-note') {
             const ytId = extractYouTubeId(videoMatch[2]);
             if (!ytId) {
                 // Regular markdown link in note body, not a video section delimiter.
@@ -121,6 +128,22 @@ export function parseMarkdownToData(markdown: string): { videos: Video[], notes:
             continue;
         }
 
+        // Match General Note: [general-note](general-note)
+        if (line === '[general-note](general-note)' && currentVideo) {
+            commitNote();
+
+            currentNote = {
+                id: crypto.randomUUID() as NoteId,
+                videoId: currentVideo.id,
+                timestampSec: -1,
+                bodyMarkdown: '',
+                isGeneral: true,
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString()
+            };
+            continue;
+        }
+
         // Accumulate note body
         if (currentNote) {
             currentNote.bodyMarkdown += (currentNote.bodyMarkdown ? '\n' : '') + line;
@@ -149,8 +172,12 @@ export function serializeDataToMarkdown(videos: Video[], notes: Note[]): string 
         const videoNotes = notesByVideo.get(video.id) || [];
 
         for (const note of videoNotes) {
-            const timeStr = formatSecondsToDisplay(note.timestampSec, 0);
-            lines.push(`[${timeStr}](timestamp)`);
+            if (note.isGeneral === true || note.timestampSec === -1) {
+                lines.push('[general-note](general-note)');
+            } else {
+                const timeStr = formatSecondsToDisplay(note.timestampSec, 0);
+                lines.push(`[${timeStr}](timestamp)`);
+            }
             lines.push(note.bodyMarkdown);
             lines.push('');
         }
@@ -178,6 +205,15 @@ function generateExportContent(videos: Video[], notes: Note[]): string {
         const ytId = extractYouTubeId(video.url);
 
         for (const note of videoNotes) {
+            const isGeneral = note.isGeneral === true || note.timestampSec === -1;
+
+            if (isGeneral) {
+                lines.push('**General note:**');
+                lines.push(note.bodyMarkdown);
+                lines.push('');
+                continue;
+            }
+
             const timeStr = formatSecondsToDisplay(note.timestampSec, 0);
             
             // Create YouTube timestamp link

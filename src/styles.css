@@ -379,6 +379,45 @@ to avoid conflicts with other plugins */
     border-color: var(--interactive-accent);
 }
 
+/* General note (timestamp-less, pinned to top) */
+.youtnote-plugin__note-card.youtnote-plugin__general-note {
+    background-color: var(--background-primary-alt, var(--background-primary));
+    border-left: 3px solid var(--interactive-accent);
+}
+
+.youtnote-plugin__note-card.youtnote-plugin__general-note:hover {
+    background-color: var(--background-modifier-hover);
+}
+
+.youtnote-plugin__general-note-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    background-color: var(--interactive-accent);
+    color: var(--text-on-accent, var(--text-normal));
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+    text-transform: uppercase;
+}
+
+.youtnote-plugin__general-note-icon {
+    display: flex;
+    align-items: center;
+    --icon-size: 12px;
+}
+
+.youtnote-plugin__general-note-icon svg {
+    width: 12px;
+    height: 12px;
+}
+
+.youtnote-plugin__general-note-text {
+    line-height: 1;
+}
+
 .youtnote-plugin__note-header {
     display: flex;
     align-items: center;
@@ -689,6 +728,32 @@ to avoid conflicts with other plugins */
 
 .is-mobile .youtnote-plugin__add-note-btn {
     margin-bottom: 90px;
+}
+
+/* Add General Note button (in note list header, beside merge/export) */
+.youtnote-plugin__add-general-note-btn {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s ease;
+    flex-shrink: 0;
+}
+
+.youtnote-plugin__add-general-note-btn:hover:not(:disabled) {
+    color: var(--text-normal);
+    background-color: var(--background-modifier-hover);
+}
+
+.youtnote-plugin__add-general-note-btn:disabled {
+    opacity: 0.3;
+    cursor: default;
+    pointer-events: none;
 }
 
 /* URL Input Modal/Row */

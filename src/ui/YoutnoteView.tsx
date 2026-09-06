@@ -33,7 +33,15 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
     onExportAllVideos
 }) => {
     const activeVideoNotes = useMemo(
-        () => notes.filter(n => n.videoId === activeVideoId),
+        () => notes
+            .filter(n => n.videoId === activeVideoId)
+            .sort((a, b) => {
+                const aGeneral = a.isGeneral === true || a.timestampSec === -1;
+                const bGeneral = b.isGeneral === true || b.timestampSec === -1;
+                if (aGeneral && !bGeneral) return -1;
+                if (!aGeneral && bGeneral) return 1;
+                return a.timestampSec - b.timestampSec;
+            }),
         [notes, activeVideoId]
     );
     const activeVideo = useMemo(
@@ -41,6 +49,10 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
         [videos, activeVideoId]
     );
     const activeVideoUrl = activeVideo?.url ?? null;
+    const hasGeneralNote = useMemo(
+        () => activeVideoNotes.some(n => n.isGeneral === true || n.timestampSec === -1),
+        [activeVideoNotes]
+    );
     const activeVideoStats = useMemo(() => {
         const noteBodies = activeVideoNotes.map(n => n.bodyMarkdown);
         return {
@@ -56,6 +68,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
     const exportButtonRef = useRef<HTMLButtonElement>(null);
     const exportAllButtonRef = useRef<HTMLButtonElement>(null);
     const mergeNotesButtonRef = useRef<HTMLButtonElement>(null);
+    const addGeneralNoteButtonRef = useRef<HTMLButtonElement>(null);
     const [isPlayerReady, setIsPlayerReady] = useState(true);
     const playerTimeoutRef = useRef<ReturnType<typeof activeWindow.setTimeout> | null>(null);
     const videoLoadRequestRef = useRef(0);
@@ -178,7 +191,10 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
         if (mergeNotesButtonRef.current) {
             setIcon(mergeNotesButtonRef.current, 'list-plus');
         }
-    }, [activeVideoId, activeVideoNotes.length, videos.length, notes.length]);
+        if (addGeneralNoteButtonRef.current) {
+            setIcon(addGeneralNoteButtonRef.current, 'pin');
+        }
+    }, [activeVideoId, activeVideoNotes.length, videos.length, notes.length, hasGeneralNote]);
 
     useEffect(() => {
         if (videoListRef.current) {
@@ -399,6 +415,9 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
         // Set as active note (for highlighting)
         setActiveNoteId(noteId);
 
+        // General notes have no timestamp — do not seek the player
+        if (timestampSec === -1) return;
+
         // Handle video playback - PlayerAdapter.seek() has internal waiting logic
         await seekToTimestamp(timestampSec);
     };
@@ -406,6 +425,9 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
     const handleNoteSelect = async (noteId: NoteId, timestampSec: number) => {
         // Select note without toggling expand/collapse (used for right-click)
         setActiveNoteId(noteId);
+
+        // General notes have no timestamp — do not seek the player
+        if (timestampSec === -1) return;
 
         // Handle video playback - PlayerAdapter.seek() has internal waiting logic
         await seekToTimestamp(timestampSec);
@@ -444,6 +466,48 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
         // Clear any previously selected note
         setActiveNoteId(null);
         
+        // Auto-expand the new note
+        setExpandedNotes(prev => {
+            const next = new Set(prev);
+            if (settings.singleExpandMode) next.clear();
+            next.add(newNoteId);
+            return next;
+        });
+        setEditingNoteId(newNoteId);
+        setEditNoteBody('');
+    };
+
+    const handleAddGeneralNote = () => {
+        if (!activeVideoId) return;
+        // Enforce at most one general note per video
+        if (hasGeneralNote) return;
+
+        const newNoteId = crypto.randomUUID() as NoteId;
+        const newNote: Note = {
+            id: newNoteId,
+            videoId: activeVideoId,
+            timestampSec: -1,
+            bodyMarkdown: '',
+            isGeneral: true,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+        };
+
+        const newNotes = [...notes, newNote].sort((a, b) => {
+            const aGeneral = a.isGeneral === true || a.timestampSec === -1;
+            const bGeneral = b.isGeneral === true || b.timestampSec === -1;
+            if (aGeneral && !bGeneral) return -1;
+            if (!aGeneral && bGeneral) return 1;
+            return a.timestampSec - b.timestampSec;
+        });
+        onUpdateNotes(newNotes);
+
+        // Mark as newly created for scroll into view
+        setNewlyCreatedNoteId(newNoteId);
+
+        // Clear any previously selected note
+        setActiveNoteId(null);
+
         // Auto-expand the new note
         setExpandedNotes(prev => {
             const next = new Set(prev);
@@ -877,21 +941,33 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
                             </>
                         )}
                     </div>
-                    {activeVideoId && activeVideoNotes.length > 0 && (
+                    {activeVideoId && (
                         <div className="youtnote-plugin__note-list-header-actions">
                             <div className="youtnote-plugin__note-list-action-btns-container">
                                 <button
-                                    ref={mergeNotesButtonRef}
-                                    className="youtnote-plugin__merge-notes-btn"
-                                    onClick={handleMergeDuplicateNotes}
-                                    aria-label="Merge notes with the same timestamp"
+                                    ref={addGeneralNoteButtonRef}
+                                    className="youtnote-plugin__add-general-note-btn"
+                                    onClick={handleAddGeneralNote}
+                                    disabled={hasGeneralNote}
+                                    aria-label="Add general note"
+                                    title={hasGeneralNote ? 'A general note already exists for this video' : 'Add general note'}
                                 />
-                                <button
-                                    ref={exportButtonRef}
-                                    className="youtnote-plugin__export-btn"
-                                    onClick={() => { void onExportSingleVideo(activeVideoId); }}
-                                    aria-label="Export the notes of selected video as Markdown"
-                                />
+                                {activeVideoNotes.length > 0 && (
+                                    <>
+                                        <button
+                                            ref={mergeNotesButtonRef}
+                                            className="youtnote-plugin__merge-notes-btn"
+                                            onClick={handleMergeDuplicateNotes}
+                                            aria-label="Merge notes with the same timestamp"
+                                        />
+                                        <button
+                                            ref={exportButtonRef}
+                                            className="youtnote-plugin__export-btn"
+                                            onClick={() => { void onExportSingleVideo(activeVideoId); }}
+                                            aria-label="Export the notes of selected video as Markdown"
+                                        />
+                                    </>
+                                )}
                             </div>
                         </div>
                     )}
@@ -920,6 +996,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
                             editNoteBody={editNoteBody}
                             maxDuration={activeVideo?.durationSec || 0}
                             newLineTrigger={settings.newLineTrigger}
+                            isGeneral={note.isGeneral === true || note.timestampSec === -1}
                             onToggleExpand={(e, noteId, ts) => { void handleNoteClick(e, noteId, ts); }}
                             onSelect={(noteId, ts) => { void handleNoteSelect(noteId, ts); }}
                             onStartEdit={(noteId, body) => { setEditingNoteId(noteId); setEditNoteBody(body); }}
@@ -934,15 +1011,16 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
                         </div>
                     ))}
                 </div>
-                <button 
+                <button
                     ref={(el) => {
                         if (el) {
                             el.empty();
                             setIcon(el, 'plus');
                         }
                     }}
-                    className="youtnote-plugin__add-btn youtnote-plugin__add-note-btn" 
+                    className="youtnote-plugin__add-btn youtnote-plugin__add-note-btn"
                     onClick={() => { void handleAddNote(); }}
+                    aria-label="Add note"
                 >
                 </button>
             </div>

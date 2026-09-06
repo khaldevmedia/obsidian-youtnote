@@ -75,6 +75,7 @@ export const NoteListItem: React.FC<NoteListItemProps> = React.memo(({
     editNoteBody,
     maxDuration,
     newLineTrigger,
+    isGeneral,
     onToggleExpand,
     onSelect,
     onStartEdit,
@@ -148,15 +149,17 @@ export const NoteListItem: React.FC<NoteListItemProps> = React.memo(({
                 });
         });
         
-        menu.addItem((item) => {
-            item
-                .setTitle('Edit timestamp')
-                .setIcon('clock')
-                .onClick(() => {
-                    const formattedValue = formatSecondsToDisplay(note.timestampSec, maxDuration);
-                    onStartTimestampEdit(note.id, formattedValue);
-                });
-        });
+        if (!isGeneral) {
+            menu.addItem((item) => {
+                item
+                    .setTitle('Edit timestamp')
+                    .setIcon('clock')
+                    .onClick(() => {
+                        const formattedValue = formatSecondsToDisplay(note.timestampSec, maxDuration);
+                        onStartTimestampEdit(note.id, formattedValue);
+                    });
+            });
+        }
         
         menu.addSeparator();
         
@@ -180,6 +183,7 @@ export const NoteListItem: React.FC<NoteListItemProps> = React.memo(({
     const deleteIconRef = useRef<HTMLButtonElement>(null);
     const mobileSaveIconRef = useRef<HTMLButtonElement>(null);
     const timestampEditRef = useRef<HTMLDivElement>(null);
+    const generalIconRef = useRef<HTMLSpanElement>(null);
     const hasInitializedTimestampEdit = useRef(false);
     const skipNextSaveOnBlurRef = useRef(false);
 
@@ -189,6 +193,13 @@ export const NoteListItem: React.FC<NoteListItemProps> = React.memo(({
             setIcon(chevronIconRef.current, isExpanded ? 'chevron-down' : 'chevron-right');
         }
     }, [isExpanded]);
+
+    useEffect(() => {
+        if (generalIconRef.current) {
+            generalIconRef.current.empty();
+            setIcon(generalIconRef.current, 'pin');
+        }
+    }, []);
 
     useEffect(() => {
         if (editIconRef.current) {
@@ -232,9 +243,10 @@ export const NoteListItem: React.FC<NoteListItemProps> = React.memo(({
 
     return (
         <div
-            className={classNames('youtnote-plugin__note-card', { 
-                expanded: isExpanded, 
+            className={classNames('youtnote-plugin__note-card', {
+                expanded: isExpanded,
                 'youtnote-plugin__active-note': isActive,
+                'youtnote-plugin__general-note': isGeneral,
             })}
             onClick={(e) => onToggleExpand(e, note.id, note.timestampSec)}
             onContextMenu={handleContextMenu}
@@ -242,7 +254,12 @@ export const NoteListItem: React.FC<NoteListItemProps> = React.memo(({
             <div className="youtnote-plugin__note-header">
                 <span className="youtnote-plugin__note-header-icon" ref={chevronIconRef}>
                 </span>
-                {isEditingTimestamp ? (
+                {isGeneral ? (
+                    <span className="youtnote-plugin__general-note-label">
+                        <span className="youtnote-plugin__general-note-icon" ref={generalIconRef} aria-hidden="true" />
+                        <span className="youtnote-plugin__general-note-text">General</span>
+                    </span>
+                ) : isEditingTimestamp ? (
                     <div className="youtnote-plugin__timestamp-editor" onClick={(e) => e.stopPropagation()}>
                         <span
                             ref={timestampEditRef}
