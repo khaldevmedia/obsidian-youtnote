@@ -53,6 +53,21 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
         () => activeVideoNotes.some(n => n.isGeneral === true || n.timestampSec === -1),
         [activeVideoNotes]
     );
+    const maxDuration = activeVideo?.durationSec || 0;
+
+    // State for notes search (active video only)
+    const [searchQuery, setSearchQuery] = useState('');
+
+    const filteredVideoNotes = useMemo(() => {
+        const q = searchQuery.trim().toLowerCase();
+        if (!q) return activeVideoNotes;
+        return activeVideoNotes.filter(note => {
+            if (note.bodyMarkdown.toLowerCase().includes(q)) return true;
+            const isGeneral = note.isGeneral === true || note.timestampSec === -1;
+            if (isGeneral) return false;
+            return formatSecondsToDisplay(note.timestampSec, maxDuration).toLowerCase().includes(q);
+        });
+    }, [activeVideoNotes, searchQuery, maxDuration]);
     const activeVideoStats = useMemo(() => {
         const noteBodies = activeVideoNotes.map(n => n.bodyMarkdown);
         return {
@@ -122,6 +137,8 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
         if (!settings.persistExpandedState) {
             setExpandedNotes(new Set());
         }
+        // Clear search query when switching to a different video
+        setSearchQuery('');
     }, [activeVideoId, settings.persistExpandedState]);
     
     // Handle singleExpandMode changes - collapse extra notes when switching to single mode
@@ -192,7 +209,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
             setIcon(mergeNotesButtonRef.current, 'list-plus');
         }
         if (addGeneralNoteButtonRef.current) {
-            setIcon(addGeneralNoteButtonRef.current, 'pin');
+            setIcon(addGeneralNoteButtonRef.current, 'file-plus');
         }
     }, [activeVideoId, activeVideoNotes.length, videos.length, notes.length, hasGeneralNote]);
 
@@ -459,7 +476,10 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
 
         const newNotes = [...notes, newNote].sort((a, b) => a.timestampSec - b.timestampSec);
         onUpdateNotes(newNotes);
-        
+
+        // Clear search so the new note is visible
+        setSearchQuery('');
+
         // Mark as newly created for scroll into view
         setNewlyCreatedNoteId(newNoteId);
         
@@ -501,6 +521,9 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
             return a.timestampSec - b.timestampSec;
         });
         onUpdateNotes(newNotes);
+
+        // Clear search so the new note is visible
+        setSearchQuery('');
 
         // Mark as newly created for scroll into view
         setNewlyCreatedNoteId(newNoteId);
@@ -930,50 +953,81 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
                 style={isMobile ? undefined : { width: `${100 - leftPaneWidth}%` }}
             >
                 <div className="youtnote-plugin__note-list-header">
-                    <div className="youtnote-plugin__note-list-header-content">
-                        Notes: <span>{activeVideoNotes.length}</span>
-                        {settings.showNoteStats && activeVideoNotes.length > 0 && (
-                            <>
-                                {' • '}
-                                Total words: <span>{activeVideoStats.words}</span>
-                                {' • '}
-                                Total characters: <span>{activeVideoStats.characters}</span>
-                            </>
+                    <div className="youtnote-plugin__note-list-header-row">
+                        <div className="youtnote-plugin__note-list-header-content">
+                            Notes: <span>{activeVideoNotes.length}</span>
+                            {settings.showNoteStats && activeVideoNotes.length > 0 && (
+                                <>
+                                    {' • '}
+                                    Total words: <span>{activeVideoStats.words}</span>
+                                    {' • '}
+                                    Total characters: <span>{activeVideoStats.characters}</span>
+                                </>
+                            )}
+                        </div>
+                        {activeVideoId && (
+                            <div className="youtnote-plugin__note-list-header-actions">
+                                <div className="youtnote-plugin__note-list-action-btns-container">
+                                    <button
+                                        ref={addGeneralNoteButtonRef}
+                                        className="youtnote-plugin__add-general-note-btn"
+                                        onClick={handleAddGeneralNote}
+                                        disabled={hasGeneralNote}
+                                        aria-label="Add general note"
+                                        title={hasGeneralNote ? 'A general note already exists for this video' : 'Add general note'}
+                                    />
+                                    {activeVideoNotes.length > 0 && (
+                                        <>
+                                            <button
+                                                ref={mergeNotesButtonRef}
+                                                className="youtnote-plugin__merge-notes-btn"
+                                                onClick={handleMergeDuplicateNotes}
+                                                aria-label="Merge notes with the same timestamp"
+                                            />
+                                            <button
+                                                ref={exportButtonRef}
+                                                className="youtnote-plugin__export-btn"
+                                                onClick={() => { void onExportSingleVideo(activeVideoId); }}
+                                                aria-label="Export the notes of selected video as Markdown"
+                                            />
+                                        </>
+                                    )}
+                                </div>
+                            </div>
                         )}
                     </div>
-                    {activeVideoId && (
-                        <div className="youtnote-plugin__note-list-header-actions">
-                            <div className="youtnote-plugin__note-list-action-btns-container">
+                    {activeVideoId && activeVideoNotes.length > 0 && (
+                        <div className="youtnote-plugin__note-search-container">
+                            <input
+                                className="youtnote-plugin__note-search-input"
+                                placeholder="Search notes..."
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value)}
+                                onKeyDown={(e) => {
+                                    // Prevent editor shortcuts from being hijacked
+                                    e.stopPropagation();
+                                }}
+                                aria-label="Search notes"
+                            />
+                            {searchQuery && (
                                 <button
-                                    ref={addGeneralNoteButtonRef}
-                                    className="youtnote-plugin__add-general-note-btn"
-                                    onClick={handleAddGeneralNote}
-                                    disabled={hasGeneralNote}
-                                    aria-label="Add general note"
-                                    title={hasGeneralNote ? 'A general note already exists for this video' : 'Add general note'}
+                                    ref={(el) => {
+                                        if (el) {
+                                            el.empty();
+                                            setIcon(el, 'x');
+                                        }
+                                    }}
+                                    className="clickable-icon youtnote-plugin__note-search-clear"
+                                    onClick={() => setSearchQuery('')}
+                                    aria-label="Clear search"
+                                    title="Clear search"
                                 />
-                                {activeVideoNotes.length > 0 && (
-                                    <>
-                                        <button
-                                            ref={mergeNotesButtonRef}
-                                            className="youtnote-plugin__merge-notes-btn"
-                                            onClick={handleMergeDuplicateNotes}
-                                            aria-label="Merge notes with the same timestamp"
-                                        />
-                                        <button
-                                            ref={exportButtonRef}
-                                            className="youtnote-plugin__export-btn"
-                                            onClick={() => { void onExportSingleVideo(activeVideoId); }}
-                                            aria-label="Export the notes of selected video as Markdown"
-                                        />
-                                    </>
-                                )}
-                            </div>
+                            )}
                         </div>
                     )}
                 </div>
                 <div className="youtnote-plugin__notes-list">
-                    {activeVideoNotes.map(note => (
+                    {filteredVideoNotes.map(note => (
                         <div
                             key={note.id}
                             ref={note.id === newlyCreatedNoteId ? (el: HTMLDivElement | null) => {
