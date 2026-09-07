@@ -9,26 +9,26 @@ export const MAX_TEXT_LENGTH = 1000;
 /** Debounce window in milliseconds. */
 export const DEBOUNCE_MS = 500;
 
-/** Valid mode values for the URL scheme. */
-export type YoutnoteUrlMode = 'new' | 'append' | 'note' | 'general-note';
+/** Valid mode values for the URI scheme. */
+export type YoutnoteUriMode = 'new' | 'append' | 'note' | 'general-note';
 
-/** Allowed parameter keys in the URL scheme. */
+/** Allowed parameter keys in the URI scheme. */
 const ALLOWED_PARAMS = ['url', 'mode', 'timestamp', 'text'];
 
-/** Raw parsed parameters from the URL (before validation). */
-export interface ParsedYoutnoteUrlParams {
+/** Raw parsed parameters from the URI (before validation). */
+export interface ParsedYoutnoteUriParams {
     url?: string;
     mode?: string;
     timestamp?: string;
     text?: string;
 }
 
-/** Result of validating parsed URL parameters. */
-export interface ValidatedYoutnoteUrlParams {
+/** Result of validating parsed URI parameters. */
+export interface ValidatedYoutnoteUriParams {
     valid: boolean;
     error?: string | undefined;
     normalizedUrl?: string | undefined;
-    mode: YoutnoteUrlMode;
+    mode: YoutnoteUriMode;
     timestampSec?: number | undefined;
     text?: string | undefined;
 }
@@ -47,8 +47,8 @@ export function getUnsupportedParams(rawParams: Record<string, string>): string[
  * Extracts `url`, `mode`, `timestamp`, and `text` from a youtnote:// URL string.
  * All other parameters are ignored (use getUnsupportedParams to detect them).
  */
-export function parseYoutnoteUrlParams(url: string): ParsedYoutnoteUrlParams {
-    const params: ParsedYoutnoteUrlParams = {};
+export function parseYoutnoteUriParams(url: string): ParsedYoutnoteUriParams {
+    const params: ParsedYoutnoteUriParams = {};
 
     try {
         const parsed = new URL(url);
@@ -89,14 +89,14 @@ export function hasLeadingFrontmatter(text: string): boolean {
 }
 
 /**
- * Validates parsed URL parameters against all safeguards.
+ * Validates parsed URI parameters against all safeguards.
  * Returns a validated result (with normalized URL, parsed timestamp, text)
  * or an error message explaining why the params were rejected.
  */
-export function validateYoutnoteUrlParams(
-    params: ParsedYoutnoteUrlParams,
+export function validateYoutnoteUriParams(
+    params: ParsedYoutnoteUriParams,
     fullUrlLength: number
-): ValidatedYoutnoteUrlParams {
+): ValidatedYoutnoteUriParams {
     // 1. Check total URL length
     if (fullUrlLength > MAX_URL_LENGTH) {
         return {
@@ -107,7 +107,7 @@ export function validateYoutnoteUrlParams(
     }
 
     // 2. Validate mode — reject if missing or not in whitelist
-    const validModes: YoutnoteUrlMode[] = ['new', 'append', 'note', 'general-note'];
+    const validModes: YoutnoteUriMode[] = ['new', 'append', 'note', 'general-note'];
     if (!params.mode) {
         return {
             valid: false,
@@ -115,14 +115,14 @@ export function validateYoutnoteUrlParams(
             mode: 'new',
         };
     }
-    if (!validModes.includes(params.mode as YoutnoteUrlMode)) {
+    if (!validModes.includes(params.mode as YoutnoteUriMode)) {
         return {
             valid: false,
             error: `Invalid mode "${params.mode}". Must be one of: new, append, note, general-note.`,
             mode: 'new',
         };
     }
-    const mode = params.mode as YoutnoteUrlMode;
+    const mode = params.mode as YoutnoteUriMode;
 
     // 3. Validate url param is present
     if (!params.url) {

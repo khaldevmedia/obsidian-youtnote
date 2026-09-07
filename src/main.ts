@@ -4,7 +4,7 @@ import { YoutnoteView, VIEW_TYPE } from './view';
 import { PluginSettings, PluginData, MarkdownEditorClass, Video, Note, VideoId, NoteId } from './types';
 import { hasYoutnoteFrontmatter, extractYouTubeId, normalizeYouTubeUrl } from './utils';
 import { getMarkdownEditorClass } from './markdownEditor';
-import { validateYoutnoteUrlParams, isDebounced, getUnsupportedParams, YoutnoteUrlMode, ParsedYoutnoteUrlParams } from './url-scheme';
+import { validateYoutnoteUriParams, isDebounced, getUnsupportedParams, YoutnoteUriMode, ParsedYoutnoteUriParams } from './uri-scheme';
 import './styles.css';
 
 // Register custom icon
@@ -35,7 +35,7 @@ export default class YoutnotePlugin extends Plugin {
     // Allows users to manually switch to markdown and have that choice respected.
     youtnoteFileModes: Record<string, string> = {};
     private didFinishOnload = false;
-    private lastUrlSchemeInvocation = 0;
+    private lastUriSchemeInvocation = 0;
 
     async onload() {
         await this.loadDataState();
@@ -202,18 +202,18 @@ export default class YoutnotePlugin extends Plugin {
             this.app.commands.executeCommandById(`${this.manifest.id}:create-file`);
         });
 
-        // Register obsidian://youtnote URL scheme handler
+        // Register obsidian://youtnote URI scheme handler
         this.registerObsidianProtocolHandler('youtnote', (params) => {
             // params is a key-value object like { action: 'youtnote', url: '...', mode: '...' }
 
             // Check for unsupported params (security: reject, don't ignore)
             const unsupported = getUnsupportedParams(params);
             if (unsupported.length > 0) {
-                new Notice(`Youtnote URL scheme error: Unsupported parameter(s): ${unsupported.join(', ')}. Allowed: url, mode, timestamp, text.`, 0);
+                new Notice(`Youtnote URI scheme error: Unsupported parameter(s): ${unsupported.join(', ')}. Allowed: url, mode, timestamp, text.`, 0);
                 return;
             }
 
-            const parsed: ParsedYoutnoteUrlParams = {
+            const parsed: ParsedYoutnoteUriParams = {
                 url: params.url,
                 mode: params.mode,
                 timestamp: params.timestamp,
@@ -226,7 +226,7 @@ export default class YoutnotePlugin extends Plugin {
             if (params.timestamp) searchParams.set('timestamp', params.timestamp);
             if (params.text) searchParams.set('text', params.text);
             const fullUrlLength = `obsidian://youtnote?${searchParams.toString()}`.length;
-            void this.handleYoutnoteUrlScheme(parsed, fullUrlLength);
+            void this.handleYoutnoteUriScheme(parsed, fullUrlLength);
         });
 
         this.didFinishOnload = true;
@@ -341,7 +341,7 @@ export default class YoutnotePlugin extends Plugin {
         });
     }
 
-    // ─── URL scheme: reusable methods ───────────────────────────────────────
+    // ─── URI scheme: reusable methods ───────────────────────────────────────
 
     /**
      * Fetch video metadata via YouTube's oEmbed endpoint.
@@ -503,55 +503,55 @@ export default class YoutnotePlugin extends Plugin {
         return true;
     }
 
-    // ─── URL scheme: handler ────────────────────────────────────────────────
+    // ─── URI scheme: handler ────────────────────────────────────────────────
 
     /**
      * Main handler for obsidian://youtnote URLs.
      * Validates params, then dispatches to the appropriate mode logic.
      */
-    private async handleYoutnoteUrlScheme(parsed: ParsedYoutnoteUrlParams, fullUrlLength: number): Promise<void> {
+    private async handleYoutnoteUriScheme(parsed: ParsedYoutnoteUriParams, fullUrlLength: number): Promise<void> {
         // 8. Check debounce
         const now = Date.now();
-        if (isDebounced(this.lastUrlSchemeInvocation, now)) {
+        if (isDebounced(this.lastUriSchemeInvocation, now)) {
             return; // Silently ignore
         }
-        this.lastUrlSchemeInvocation = now;
+        this.lastUriSchemeInvocation = now;
 
         // 1-7. Validate (params already parsed by the protocol handler)
-        const validated = validateYoutnoteUrlParams(parsed, fullUrlLength);
+        const validated = validateYoutnoteUriParams(parsed, fullUrlLength);
 
         if (!validated.valid) {
-            new Notice(`Youtnote URL scheme error: ${validated.error}`, 0);
+            new Notice(`Youtnote URI scheme error: ${validated.error}`, 0);
             return;
         }
 
         const { normalizedUrl, mode, timestampSec, text } = validated;
 
         try {
-            switch (mode as YoutnoteUrlMode) {
+            switch (mode as YoutnoteUriMode) {
                 case 'new':
-                    await this.handleUrlSchemeNew(normalizedUrl!);
+                    await this.handleUriSchemeNew(normalizedUrl!);
                     break;
                 case 'append':
-                    await this.handleUrlSchemeAppend(normalizedUrl!);
+                    await this.handleUriSchemeAppend(normalizedUrl!);
                     break;
                 case 'note':
-                    await this.handleUrlSchemeNote(normalizedUrl!, timestampSec!, text!);
+                    await this.handleUriSchemeNote(normalizedUrl!, timestampSec!, text!);
                     break;
                 case 'general-note':
-                    await this.handleUrlSchemeGeneralNote(normalizedUrl!, text!);
+                    await this.handleUriSchemeGeneralNote(normalizedUrl!, text!);
                     break;
             }
         } catch (error) {
             const message = error instanceof Error ? error.message : 'Unknown error';
-            new Notice(`Youtnote URL scheme error: ${message}`, 0);
+            new Notice(`Youtnote URI scheme error: ${message}`, 0);
         }
     }
 
     /**
      * mode=new: Create a new Youtnote file with the video.
      */
-    private async handleUrlSchemeNew(normalizedUrl: string): Promise<void> {
+    private async handleUriSchemeNew(normalizedUrl: string): Promise<void> {
         // 9. Fetch oEmbed metadata
         const metadata = await this.fetchVideoMetadata(normalizedUrl);
 
@@ -568,12 +568,12 @@ export default class YoutnotePlugin extends Plugin {
     /**
      * mode=append: Add the video to the currently open Youtnote, or fall back to mode=new.
      */
-    private async handleUrlSchemeAppend(normalizedUrl: string): Promise<void> {
+    private async handleUriSchemeAppend(normalizedUrl: string): Promise<void> {
         const view = this.getOpenYoutnoteView();
 
         if (!view) {
             // No open Youtnote — fall back to mode=new
-            await this.handleUrlSchemeNew(normalizedUrl);
+            await this.handleUriSchemeNew(normalizedUrl);
             return;
         }
 
@@ -599,7 +599,7 @@ export default class YoutnotePlugin extends Plugin {
      * If the video doesn't exist, auto-add it first.
      * If no Youtnote is open, fall back to mode=new.
      */
-    private async handleUrlSchemeNote(normalizedUrl: string, timestampSec: number, text: string): Promise<void> {
+    private async handleUriSchemeNote(normalizedUrl: string, timestampSec: number, text: string): Promise<void> {
         const view = this.getOpenYoutnoteView();
 
         let targetView: YoutnoteView;
@@ -611,7 +611,7 @@ export default class YoutnotePlugin extends Plugin {
             const { leaf } = await this.createYoutnoteFile();
             const newView = leaf.view;
             if (!(newView instanceof YoutnoteView)) {
-                new Notice('Youtnote URL scheme error: Failed to open new Youtnote view.', 0);
+                new Notice('Youtnote URI scheme error: Failed to open new Youtnote view.', 0);
                 return;
             }
             targetView = newView;
@@ -642,7 +642,7 @@ export default class YoutnotePlugin extends Plugin {
      * If the video doesn't exist, auto-add it first.
      * If no Youtnote is open, fall back to mode=new.
      */
-    private async handleUrlSchemeGeneralNote(normalizedUrl: string, text: string): Promise<void> {
+    private async handleUriSchemeGeneralNote(normalizedUrl: string, text: string): Promise<void> {
         const view = this.getOpenYoutnoteView();
 
         let targetView: YoutnoteView;
@@ -654,7 +654,7 @@ export default class YoutnotePlugin extends Plugin {
             const { leaf } = await this.createYoutnoteFile();
             const newView = leaf.view;
             if (!(newView instanceof YoutnoteView)) {
-                new Notice('Youtnote URL scheme error: Failed to open new Youtnote view.', 0);
+                new Notice('Youtnote URI scheme error: Failed to open new Youtnote view.', 0);
                 return;
             }
             targetView = newView;

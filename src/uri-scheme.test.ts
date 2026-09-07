@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
-    parseYoutnoteUrlParams,
-    validateYoutnoteUrlParams,
+    parseYoutnoteUriParams,
+    validateYoutnoteUriParams,
     hasLeadingFrontmatter,
     getUnsupportedParams,
     isDebounced,
@@ -9,16 +9,16 @@ import {
     MAX_URL_PARAM_LENGTH,
     MAX_TEXT_LENGTH,
     DEBOUNCE_MS,
-} from './url-scheme';
+} from './uri-scheme';
 
 const VALID_YT_URL = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ';
 
-// ─── parseYoutnoteUrlParams ─────────────────────────────────────────────────
+// ─── parseYoutnoteUriParams ─────────────────────────────────────────────────
 
-describe('parseYoutnoteUrlParams', () => {
+describe('parseYoutnoteUriParams', () => {
     it('parses all four params correctly from a full URL', () => {
         const url = `obsidian://youtnote?url=${encodeURIComponent(VALID_YT_URL)}&mode=note&timestamp=90&text=${encodeURIComponent('My note')}`;
-        const params = parseYoutnoteUrlParams(url);
+        const params = parseYoutnoteUriParams(url);
 
         expect(params.url).toBe(VALID_YT_URL);
         expect(params.mode).toBe('note');
@@ -28,7 +28,7 @@ describe('parseYoutnoteUrlParams', () => {
 
     it('handles missing optional params (mode, timestamp, text absent)', () => {
         const url = `obsidian://youtnote?url=${encodeURIComponent(VALID_YT_URL)}`;
-        const params = parseYoutnoteUrlParams(url);
+        const params = parseYoutnoteUriParams(url);
 
         expect(params.url).toBe(VALID_YT_URL);
         expect(params.mode).toBeUndefined();
@@ -38,7 +38,7 @@ describe('parseYoutnoteUrlParams', () => {
 
     it('handles empty url param', () => {
         const url = 'obsidian://youtnote?url=&mode=new';
-        const params = parseYoutnoteUrlParams(url);
+        const params = parseYoutnoteUriParams(url);
 
         expect(params.url).toBe('');
         expect(params.mode).toBe('new');
@@ -46,7 +46,7 @@ describe('parseYoutnoteUrlParams', () => {
 
     it('ignores unknown params (path, file, command, etc.)', () => {
         const url = `obsidian://youtnote?url=${encodeURIComponent(VALID_YT_URL)}&mode=new&path=/etc/passwd&file=secret.md&command=rm -rf`;
-        const params = parseYoutnoteUrlParams(url);
+        const params = parseYoutnoteUriParams(url);
 
         expect(params.url).toBe(VALID_YT_URL);
         expect(params.mode).toBe('new');
@@ -59,7 +59,7 @@ describe('parseYoutnoteUrlParams', () => {
     it('URL-decodes the text param', () => {
         const rawText = 'Hello%20world%20with%20newlines%0Aand%20special%20chars%3A%20%2B%26%23';
         const url = `obsidian://youtnote?url=${encodeURIComponent(VALID_YT_URL)}&mode=note&timestamp=10&text=${rawText}`;
-        const params = parseYoutnoteUrlParams(url);
+        const params = parseYoutnoteUriParams(url);
 
         expect(params.text).toBe('Hello world with newlines\nand special chars: +&#');
     });
@@ -89,12 +89,12 @@ describe('getUnsupportedParams', () => {
     });
 });
 
-// ─── validateYoutnoteUrlParams ──────────────────────────────────────────────
+// ─── validateYoutnoteUriParams ──────────────────────────────────────────────
 
-describe('validateYoutnoteUrlParams', () => {
+describe('validateYoutnoteUriParams', () => {
     it('accepts valid url + mode=new and returns normalized URL', () => {
         const params = { url: VALID_YT_URL, mode: 'new' };
-        const result = validateYoutnoteUrlParams(params, 100);
+        const result = validateYoutnoteUriParams(params, 100);
 
         expect(result.valid).toBe(true);
         expect(result.mode).toBe('new');
@@ -103,7 +103,7 @@ describe('validateYoutnoteUrlParams', () => {
 
     it('rejects invalid mode with an error', () => {
         const params = { url: VALID_YT_URL, mode: 'invalid-mode' };
-        const result = validateYoutnoteUrlParams(params, 100);
+        const result = validateYoutnoteUriParams(params, 100);
 
         expect(result.valid).toBe(false);
         expect(result.error).toContain('Invalid mode');
@@ -112,7 +112,7 @@ describe('validateYoutnoteUrlParams', () => {
 
     it('rejects missing mode with an error', () => {
         const params = { url: VALID_YT_URL };
-        const result = validateYoutnoteUrlParams(params, 100);
+        const result = validateYoutnoteUriParams(params, 100);
 
         expect(result.valid).toBe(false);
         expect(result.error).toContain('Missing required "mode"');
@@ -120,7 +120,7 @@ describe('validateYoutnoteUrlParams', () => {
 
     it('rejects url that does not resolve to a YouTube ID', () => {
         const params = { url: 'https://example.com/watch?v=bad', mode: 'new' };
-        const result = validateYoutnoteUrlParams(params, 100);
+        const result = validateYoutnoteUriParams(params, 100);
 
         expect(result.valid).toBe(false);
         expect(result.error).toContain('not a valid YouTube URL');
@@ -128,7 +128,7 @@ describe('validateYoutnoteUrlParams', () => {
 
     it('rejects URL > 2000 chars total', () => {
         const params = { url: VALID_YT_URL, mode: 'new' };
-        const result = validateYoutnoteUrlParams(params, MAX_URL_LENGTH + 1);
+        const result = validateYoutnoteUriParams(params, MAX_URL_LENGTH + 1);
 
         expect(result.valid).toBe(false);
         expect(result.error).toContain('too long');
@@ -137,7 +137,7 @@ describe('validateYoutnoteUrlParams', () => {
     it('rejects url param > 500 chars', () => {
         const longUrl = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ' + '&x=' + 'a'.repeat(500);
         const params = { url: longUrl, mode: 'new' };
-        const result = validateYoutnoteUrlParams(params, longUrl.length + 50);
+        const result = validateYoutnoteUriParams(params, longUrl.length + 50);
 
         expect(result.valid).toBe(false);
         expect(result.error).toContain('"url" parameter is too long');
@@ -146,7 +146,7 @@ describe('validateYoutnoteUrlParams', () => {
     it('rejects text param > 1000 chars (decoded)', () => {
         const longText = 'a'.repeat(MAX_TEXT_LENGTH + 1);
         const params = { url: VALID_YT_URL, mode: 'note', timestamp: '10', text: longText };
-        const result = validateYoutnoteUrlParams(params, 200);
+        const result = validateYoutnoteUriParams(params, 200);
 
         expect(result.valid).toBe(false);
         expect(result.error).toContain('"text" parameter is too long');
@@ -154,7 +154,7 @@ describe('validateYoutnoteUrlParams', () => {
 
     it('accepts valid timestamp for mode=note and returns timestampSec', () => {
         const params = { url: VALID_YT_URL, mode: 'note', timestamp: '1:23', text: 'Note text' };
-        const result = validateYoutnoteUrlParams(params, 200);
+        const result = validateYoutnoteUriParams(params, 200);
 
         expect(result.valid).toBe(true);
         expect(result.mode).toBe('note');
@@ -164,7 +164,7 @@ describe('validateYoutnoteUrlParams', () => {
 
     it('rejects invalid timestamp for mode=note (non-numeric)', () => {
         const params = { url: VALID_YT_URL, mode: 'note', timestamp: 'abc', text: 'Note text' };
-        const result = validateYoutnoteUrlParams(params, 200);
+        const result = validateYoutnoteUriParams(params, 200);
 
         expect(result.valid).toBe(false);
         expect(result.error).toContain('Invalid timestamp');
@@ -172,7 +172,7 @@ describe('validateYoutnoteUrlParams', () => {
 
     it('rejects invalid timestamp for mode=note (negative)', () => {
         const params = { url: VALID_YT_URL, mode: 'note', timestamp: '-5', text: 'Note text' };
-        const result = validateYoutnoteUrlParams(params, 200);
+        const result = validateYoutnoteUriParams(params, 200);
 
         expect(result.valid).toBe(false);
         expect(result.error).toContain('Invalid timestamp');
@@ -180,7 +180,7 @@ describe('validateYoutnoteUrlParams', () => {
 
     it('accepts timestamp > 86400 seconds (no duration cap at validation time)', () => {
         const params = { url: VALID_YT_URL, mode: 'note', timestamp: '90000', text: 'Note text' };
-        const result = validateYoutnoteUrlParams(params, 200);
+        const result = validateYoutnoteUriParams(params, 200);
 
         expect(result.valid).toBe(true);
         expect(result.timestampSec).toBe(90000);
@@ -188,7 +188,7 @@ describe('validateYoutnoteUrlParams', () => {
 
     it('rejects missing timestamp for mode=note', () => {
         const params = { url: VALID_YT_URL, mode: 'note', text: 'Note text' };
-        const result = validateYoutnoteUrlParams(params, 200);
+        const result = validateYoutnoteUriParams(params, 200);
 
         expect(result.valid).toBe(false);
         expect(result.error).toContain('Missing required "timestamp"');
@@ -196,7 +196,7 @@ describe('validateYoutnoteUrlParams', () => {
 
     it('rejects missing text for mode=note', () => {
         const params = { url: VALID_YT_URL, mode: 'note', timestamp: '10' };
-        const result = validateYoutnoteUrlParams(params, 200);
+        const result = validateYoutnoteUriParams(params, 200);
 
         expect(result.valid).toBe(false);
         expect(result.error).toContain('Missing required "text"');
@@ -204,7 +204,7 @@ describe('validateYoutnoteUrlParams', () => {
 
     it('rejects missing text for mode=general-note', () => {
         const params = { url: VALID_YT_URL, mode: 'general-note' };
-        const result = validateYoutnoteUrlParams(params, 200);
+        const result = validateYoutnoteUriParams(params, 200);
 
         expect(result.valid).toBe(false);
         expect(result.error).toContain('Missing required "text"');
@@ -212,7 +212,7 @@ describe('validateYoutnoteUrlParams', () => {
 
     it('accepts missing timestamp/text for mode=new', () => {
         const params = { url: VALID_YT_URL, mode: 'new' };
-        const result = validateYoutnoteUrlParams(params, 100);
+        const result = validateYoutnoteUriParams(params, 100);
 
         expect(result.valid).toBe(true);
         expect(result.timestampSec).toBeUndefined();
@@ -221,7 +221,7 @@ describe('validateYoutnoteUrlParams', () => {
 
     it('accepts missing timestamp/text for mode=append', () => {
         const params = { url: VALID_YT_URL, mode: 'append' };
-        const result = validateYoutnoteUrlParams(params, 100);
+        const result = validateYoutnoteUriParams(params, 100);
 
         expect(result.valid).toBe(true);
         expect(result.timestampSec).toBeUndefined();
@@ -230,7 +230,7 @@ describe('validateYoutnoteUrlParams', () => {
 
     it('accepts mode=general-note with text', () => {
         const params = { url: VALID_YT_URL, mode: 'general-note', text: 'General note content' };
-        const result = validateYoutnoteUrlParams(params, 200);
+        const result = validateYoutnoteUriParams(params, 200);
 
         expect(result.valid).toBe(true);
         expect(result.mode).toBe('general-note');
@@ -239,7 +239,7 @@ describe('validateYoutnoteUrlParams', () => {
 
     it('rejects missing url param', () => {
         const params = { mode: 'new' };
-        const result = validateYoutnoteUrlParams(params, 100);
+        const result = validateYoutnoteUriParams(params, 100);
 
         expect(result.valid).toBe(false);
         expect(result.error).toContain('Missing required "url"');
@@ -247,7 +247,7 @@ describe('validateYoutnoteUrlParams', () => {
 
     it('rejects text with leading frontmatter marker', () => {
         const params = { url: VALID_YT_URL, mode: 'note', timestamp: '10', text: '---\nyoutnote: false\n---\nReal note' };
-        const result = validateYoutnoteUrlParams(params, 200);
+        const result = validateYoutnoteUriParams(params, 200);
 
         expect(result.valid).toBe(false);
         expect(result.error).toContain('frontmatter marker');
@@ -255,7 +255,7 @@ describe('validateYoutnoteUrlParams', () => {
 
     it('accepts text with --- that appears later (not at the start)', () => {
         const params = { url: VALID_YT_URL, mode: 'note', timestamp: '10', text: 'Some text\n---\nMore text' };
-        const result = validateYoutnoteUrlParams(params, 200);
+        const result = validateYoutnoteUriParams(params, 200);
 
         expect(result.valid).toBe(true);
         expect(result.text).toBe('Some text\n---\nMore text');
