@@ -197,7 +197,7 @@ export const NoteListItem: React.FC<NoteListItemProps> = React.memo(({
     useEffect(() => {
         if (generalIconRef.current) {
             generalIconRef.current.empty();
-            setIcon(generalIconRef.current, 'pin');
+            setIcon(generalIconRef.current, 'file');
         }
     }, []);
 
@@ -257,7 +257,7 @@ export const NoteListItem: React.FC<NoteListItemProps> = React.memo(({
                 {isGeneral ? (
                     <span className="youtnote-plugin__general-note-label">
                         <span className="youtnote-plugin__general-note-icon" ref={generalIconRef} aria-hidden="true" />
-                        <span className="youtnote-plugin__general-note-text">General</span>
+                        <span className="youtnote-plugin__general-note-text">General note</span>
                     </span>
                 ) : isEditingTimestamp ? (
                     <div className="youtnote-plugin__timestamp-editor" onClick={(e) => e.stopPropagation()}>
