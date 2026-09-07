@@ -292,9 +292,12 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
         const handleDurationUpdate = async (adapter: YouTubeIframeAdapter, videoId: VideoId) => {
             try {
                 const duration = await adapter.getDuration();
-                const latestVideo = videosRef.current.find(v => v.id === videoId);
+                // Read from the view's videos (source of truth) instead of videosRef.current
+                // which can be stale if an external caller (e.g. URI scheme) updated videos
+                const latestVideos = (view as unknown as { videos: Video[] }).videos;
+                const latestVideo = latestVideos.find(v => v.id === videoId);
                 if (latestVideo && duration > 0 && duration !== latestVideo.durationSec) {
-                    const updatedVideos = videosRef.current.map(v =>
+                    const updatedVideos = latestVideos.map(v =>
                         v.id === videoId ? { ...v, durationSec: duration } : v
                     );
                     onUpdateVideos(updatedVideos);

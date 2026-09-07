@@ -632,6 +632,9 @@ export default class YoutnotePlugin extends Plugin {
             }
         }
 
+        // Select the target video so the user sees the note appear
+        targetView.handleSetActiveVideoId(videoId);
+
         // Add the note
         this.addNoteToView(targetView, videoId, timestampSec, text);
         new Notice('Note added to video.', 0);
@@ -674,6 +677,9 @@ export default class YoutnotePlugin extends Plugin {
                 videoId = video.id;
             }
         }
+
+        // Select the target video so the user sees the general note appear
+        targetView.handleSetActiveVideoId(videoId);
 
         // Add the general note
         const added = this.addGeneralNoteToView(targetView, videoId, text);
