@@ -1,0 +1,246 @@
+import { extractYouTubeId, normalizeYouTubeUrl, parseTimestampInput } from './utils';
+
+/** Maximum total URL length accepted by the handler. */
+export const MAX_URL_LENGTH = 2000;
+/** Maximum length of the `url` parameter. */
+export const MAX_URL_PARAM_LENGTH = 500;
+/** Maximum length of the decoded `text` parameter. */
+export const MAX_TEXT_LENGTH = 1000;
+/** Debounce window in milliseconds. */
+export const DEBOUNCE_MS = 500;
+
+/** Valid mode values for the URL scheme. */
+export type YoutnoteUrlMode = 'new' | 'append' | 'note' | 'general-note';
+
+/** Allowed parameter keys in the URL scheme. */
+const ALLOWED_PARAMS = ['url', 'mode', 'timestamp', 'text'];
+
+/** Raw parsed parameters from the URL (before validation). */
+export interface ParsedYoutnoteUrlParams {
+    url?: string;
+    mode?: string;
+    timestamp?: string;
+    text?: string;
+}
+
+/** Result of validating parsed URL parameters. */
+export interface ValidatedYoutnoteUrlParams {
+    valid: boolean;
+    error?: string | undefined;
+    normalizedUrl?: string | undefined;
+    mode: YoutnoteUrlMode;
+    timestampSec?: number | undefined;
+    text?: string | undefined;
+}
+
+/**
+ * Checks if the raw params object contains any keys other than the allowed ones.
+ * 'action' is included by Obsidian and is always allowed.
+ * Returns an array of unsupported param names, or empty if all are allowed.
+ */
+export function getUnsupportedParams(rawParams: Record<string, string>): string[] {
+    const allowed = ['action', ...ALLOWED_PARAMS];
+    return Object.keys(rawParams).filter(key => !allowed.includes(key));
+}
+
+/**
+ * Extracts `url`, `mode`, `timestamp`, and `text` from a youtnote:// URL string.
+ * All other parameters are ignored (use getUnsupportedParams to detect them).
+ */
+export function parseYoutnoteUrlParams(url: string): ParsedYoutnoteUrlParams {
+    const params: ParsedYoutnoteUrlParams = {};
+
+    try {
+        const parsed = new URL(url);
+        const searchParams = parsed.searchParams;
+
+        const urlParam = searchParams.get('url');
+        if (urlParam !== null) {
+            params.url = urlParam;
+        }
+
+        const modeParam = searchParams.get('mode');
+        if (modeParam !== null) {
+            params.mode = modeParam;
+        }
+
+        const timestampParam = searchParams.get('timestamp');
+        if (timestampParam !== null) {
+            params.timestamp = timestampParam;
+        }
+
+        const textParam = searchParams.get('text');
+        if (textParam !== null) {
+            params.text = textParam;
+        }
+    } catch {
+        // Invalid URL — return empty params, validation will reject
+    }
+
+    return params;
+}
+
+/**
+ * Checks if the text starts with a `---` frontmatter marker.
+ * Such text is rejected (not stripped) for security reasons.
+ */
+export function hasLeadingFrontmatter(text: string): boolean {
+    return /^\s*---\s*\n?/.test(text);
+}
+
+/**
+ * Validates parsed URL parameters against all safeguards.
+ * Returns a validated result (with normalized URL, parsed timestamp, text)
+ * or an error message explaining why the params were rejected.
+ */
+export function validateYoutnoteUrlParams(
+    params: ParsedYoutnoteUrlParams,
+    fullUrlLength: number
+): ValidatedYoutnoteUrlParams {
+    // 1. Check total URL length
+    if (fullUrlLength > MAX_URL_LENGTH) {
+        return {
+            valid: false,
+            error: `URL is too long (${fullUrlLength} chars). Maximum is ${MAX_URL_LENGTH} chars.`,
+            mode: 'new',
+        };
+    }
+
+    // 2. Validate mode — reject if missing or not in whitelist
+    const validModes: YoutnoteUrlMode[] = ['new', 'append', 'note', 'general-note'];
+    if (!params.mode) {
+        return {
+            valid: false,
+            error: 'Missing required "mode" parameter.',
+            mode: 'new',
+        };
+    }
+    if (!validModes.includes(params.mode as YoutnoteUrlMode)) {
+        return {
+            valid: false,
+            error: `Invalid mode "${params.mode}". Must be one of: new, append, note, general-note.`,
+            mode: 'new',
+        };
+    }
+    const mode = params.mode as YoutnoteUrlMode;
+
+    // 3. Validate url param is present
+    if (!params.url) {
+        return {
+            valid: false,
+            error: 'Missing required "url" parameter.',
+            mode,
+        };
+    }
+
+    // 4. Check url param length
+    if (params.url.length > MAX_URL_PARAM_LENGTH) {
+        return {
+            valid: false,
+            error: `"url" parameter is too long (${params.url.length} chars). Maximum is ${MAX_URL_PARAM_LENGTH} chars.`,
+            mode,
+        };
+    }
+
+    // 5. Validate url resolves to a YouTube ID
+    const ytId = extractYouTubeId(params.url);
+    if (!ytId) {
+        return {
+            valid: false,
+            error: 'The "url" parameter is not a valid YouTube URL.',
+            mode,
+        };
+    }
+
+    // 6. Normalize the URL
+    const normalizedUrl = normalizeYouTubeUrl(params.url);
+    if (!normalizedUrl) {
+        return {
+            valid: false,
+            error: 'Failed to normalize the YouTube URL.',
+            mode,
+        };
+    }
+
+    // 7. If mode=note: validate timestamp (no duration cap — validated against video later)
+    let timestampSec: number | undefined;
+    if (mode === 'note') {
+        if (!params.timestamp) {
+            return {
+                valid: false,
+                error: 'Missing required "timestamp" parameter for mode=note.',
+                mode,
+                normalizedUrl,
+            };
+        }
+
+        // Pass maxDuration=0 to disable the duration cap — duration is checked
+        // against the actual video when the note is added, same as manual editing.
+        const tsResult = parseTimestampInput(params.timestamp, 0);
+        if (tsResult.error) {
+            return {
+                valid: false,
+                error: `Invalid timestamp: ${tsResult.error}`,
+                mode,
+                normalizedUrl,
+            };
+        }
+
+        timestampSec = tsResult.seconds;
+    }
+
+    // 8. If mode=note or mode=general-note: validate text
+    let text: string | undefined;
+    if (mode === 'note' || mode === 'general-note') {
+        if (!params.text) {
+            return {
+                valid: false,
+                error: `Missing required "text" parameter for mode=${mode}.`,
+                mode,
+                normalizedUrl,
+                timestampSec,
+            };
+        }
+
+        if (params.text.length > MAX_TEXT_LENGTH) {
+            return {
+                valid: false,
+                error: `"text" parameter is too long (${params.text.length} chars). Maximum is ${MAX_TEXT_LENGTH} chars.`,
+                mode,
+                normalizedUrl,
+                timestampSec,
+            };
+        }
+
+        // Reject text with leading frontmatter markers (security)
+        if (hasLeadingFrontmatter(params.text)) {
+            return {
+                valid: false,
+                error: 'The "text" parameter contains a leading frontmatter marker (---), which is not allowed.',
+                mode,
+                normalizedUrl,
+                timestampSec,
+            };
+        }
+
+        text = params.text;
+    }
+
+    return {
+        valid: true,
+        normalizedUrl,
+        mode,
+        timestampSec,
+        text,
+    };
+}
+
+/**
+ * Returns true if two timestamps are within the debounce window,
+ * meaning the second call should be ignored.
+ * A `lastInvocation` of 0 means no previous call (first call — never debounced).
+ */
+export function isDebounced(lastInvocation: number, now: number): boolean {
+    if (lastInvocation === 0) return false;
+    return (now - lastInvocation) < DEBOUNCE_MS;
+}

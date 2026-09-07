@@ -1,9 +1,10 @@
-import { Plugin, TFile, ViewState, WorkspaceLeaf, addIcon, MarkdownView } from 'obsidian';
+import { Plugin, TFile, ViewState, WorkspaceLeaf, addIcon, MarkdownView, Notice, requestUrl } from 'obsidian';
 import { DEFAULT_SETTINGS, YoutnoteSettingTab } from './settings';
 import { YoutnoteView, VIEW_TYPE } from './view';
-import { PluginSettings, PluginData, MarkdownEditorClass } from './types';
-import { hasYoutnoteFrontmatter } from './utils';
+import { PluginSettings, PluginData, MarkdownEditorClass, Video, Note, VideoId, NoteId } from './types';
+import { hasYoutnoteFrontmatter, extractYouTubeId, normalizeYouTubeUrl } from './utils';
 import { getMarkdownEditorClass } from './markdownEditor';
+import { validateYoutnoteUrlParams, isDebounced, getUnsupportedParams, YoutnoteUrlMode, ParsedYoutnoteUrlParams } from './url-scheme';
 import './styles.css';
 
 // Register custom icon
@@ -34,6 +35,7 @@ export default class YoutnotePlugin extends Plugin {
     // Allows users to manually switch to markdown and have that choice respected.
     youtnoteFileModes: Record<string, string> = {};
     private didFinishOnload = false;
+    private lastUrlSchemeInvocation = 0;
 
     async onload() {
         await this.loadDataState();
@@ -200,6 +202,33 @@ export default class YoutnotePlugin extends Plugin {
             this.app.commands.executeCommandById(`${this.manifest.id}:create-file`);
         });
 
+        // Register obsidian://youtnote URL scheme handler
+        this.registerObsidianProtocolHandler('youtnote', (params) => {
+            // params is a key-value object like { action: 'youtnote', url: '...', mode: '...' }
+
+            // Check for unsupported params (security: reject, don't ignore)
+            const unsupported = getUnsupportedParams(params);
+            if (unsupported.length > 0) {
+                new Notice(`Youtnote URL scheme error: Unsupported parameter(s): ${unsupported.join(', ')}. Allowed: url, mode, timestamp, text.`, 0);
+                return;
+            }
+
+            const parsed: ParsedYoutnoteUrlParams = {
+                url: params.url,
+                mode: params.mode,
+                timestamp: params.timestamp,
+                text: params.text,
+            };
+            // Reconstruct URL length for the safeguard check
+            const searchParams = new URLSearchParams();
+            if (params.url) searchParams.set('url', params.url);
+            if (params.mode) searchParams.set('mode', params.mode);
+            if (params.timestamp) searchParams.set('timestamp', params.timestamp);
+            if (params.text) searchParams.set('text', params.text);
+            const fullUrlLength = `obsidian://youtnote?${searchParams.toString()}`.length;
+            void this.handleYoutnoteUrlScheme(parsed, fullUrlLength);
+        });
+
         this.didFinishOnload = true;
     }
 
@@ -310,5 +339,348 @@ export default class YoutnotePlugin extends Plugin {
                 leaf.view.refresh();
             }
         });
+    }
+
+    // ─── URL scheme: reusable methods ───────────────────────────────────────
+
+    /**
+     * Fetch video metadata via YouTube's oEmbed endpoint.
+     * Returns a Video object (without an ID — caller assigns one) or throws on failure.
+     * Wrapped in a 10-second timeout to avoid hanging.
+     */
+    async fetchVideoMetadata(normalizedUrl: string): Promise<{ title: string; thumbnail: string; durationSec: number }> {
+        const oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(normalizedUrl)}&format=json`;
+
+        const timeoutPromise = new Promise<never>((_, reject) => {
+            window.setTimeout(() => reject(new Error('oEmbed request timed out')), 10000);
+        });
+
+        const response = await Promise.race([
+            requestUrl({ url: oembedUrl }),
+            timeoutPromise,
+        ]);
+
+        if (response.status !== 200) {
+            throw new Error('Video not found or unavailable');
+        }
+
+        interface OEmbedData { title?: string; thumbnail_url?: string; }
+        const data = response.json as OEmbedData;
+        const ytId = extractYouTubeId(normalizedUrl);
+
+        return {
+            title: data.title || `YouTube Video (${ytId ?? ''})`,
+            thumbnail: data.thumbnail_url || `https://img.youtube.com/vi/${ytId ?? ''}/default.jpg`,
+            durationSec: 0,
+        };
+    }
+
+    /**
+     * Create a new Youtnote file and open it in a new tab.
+     * Reuses the same logic as the `create-file` command.
+     * Returns the created file and the leaf it was opened in.
+     */
+    async createYoutnoteFile(): Promise<{ file: TFile; leaf: WorkspaceLeaf }> {
+        const folder = this.app.workspace.getActiveFile()?.parent?.path || '';
+        const baseFileName = 'Youtnote Untitled';
+        let newFileName = `${baseFileName}.md`;
+        let newFilePath = folder ? `${folder}/${newFileName}` : newFileName;
+
+        let i = 1;
+        while (await this.app.vault.adapter.exists(newFilePath)) {
+            newFileName = `${baseFileName} ${i}.md`;
+            newFilePath = folder ? `${folder}/${newFileName}` : newFileName;
+            i++;
+        }
+
+        const initialContent = `---\nyoutnote: true\n---\n\n`;
+        const newFile = await this.app.vault.create(newFilePath, initialContent);
+
+        const leaf = this.app.workspace.getLeaf(true);
+        await leaf.openFile(newFile);
+        this.youtnoteFileModes[leaf.id ?? newFile.path] = VIEW_TYPE;
+        await this.setYoutnoteView(leaf);
+
+        return { file: newFile, leaf };
+    }
+
+    /**
+     * Find the first open YoutnoteView leaf, or null if none is open.
+     */
+    getOpenYoutnoteView(): YoutnoteView | null {
+        const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE);
+        for (const leaf of leaves) {
+            if (leaf.view instanceof YoutnoteView) {
+                return leaf.view;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Add a video to a YoutnoteView. If the video already exists (by YouTube ID),
+     * select it and return the existing video.
+     */
+    addVideoToView(view: YoutnoteView, normalizedUrl: string, metadata: { title: string; thumbnail: string; durationSec: number }): Video {
+        const ytId = extractYouTubeId(normalizedUrl);
+
+        // Check for duplicate
+        const existingVideo = view.videos.find(v => extractYouTubeId(v.url) === ytId);
+        if (existingVideo) {
+            view.handleSetActiveVideoId(existingVideo.id);
+            return existingVideo;
+        }
+
+        const newVideo: Video = {
+            id: crypto.randomUUID() as VideoId,
+            url: normalizedUrl,
+            title: metadata.title,
+            thumbnail: metadata.thumbnail,
+            durationSec: metadata.durationSec,
+        };
+
+        view.handleUpdateVideos([...view.videos, newVideo]);
+        view.handleSetActiveVideoId(newVideo.id);
+
+        return newVideo;
+    }
+
+    /**
+     * Add a timestamped note to a specific video in a YoutnoteView.
+     */
+    addNoteToView(view: YoutnoteView, videoId: VideoId, timestampSec: number, bodyMarkdown: string): Note {
+        const newNote: Note = {
+            id: crypto.randomUUID() as NoteId,
+            videoId,
+            timestampSec,
+            bodyMarkdown,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+        };
+
+        const sortedNotes = [...view.notes, newNote].sort((a, b) => {
+            const aGeneral = a.isGeneral === true || a.timestampSec === -1;
+            const bGeneral = b.isGeneral === true || b.timestampSec === -1;
+            if (aGeneral && !bGeneral) return -1;
+            if (!aGeneral && bGeneral) return 1;
+            return a.timestampSec - b.timestampSec;
+        });
+
+        view.handleUpdateNotes(sortedNotes);
+        return newNote;
+    }
+
+    /**
+     * Add a general note to a specific video in a YoutnoteView.
+     * Returns false if a general note already exists for that video.
+     */
+    addGeneralNoteToView(view: YoutnoteView, videoId: VideoId, bodyMarkdown: string): boolean {
+        // Check if a general note already exists
+        const hasGeneral = view.notes.some(n => n.videoId === videoId && (n.isGeneral === true || n.timestampSec === -1));
+        if (hasGeneral) {
+            return false;
+        }
+
+        const newNote: Note = {
+            id: crypto.randomUUID() as NoteId,
+            videoId,
+            timestampSec: -1,
+            bodyMarkdown,
+            isGeneral: true,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+        };
+
+        const sortedNotes = [...view.notes, newNote].sort((a, b) => {
+            const aGeneral = a.isGeneral === true || a.timestampSec === -1;
+            const bGeneral = b.isGeneral === true || b.timestampSec === -1;
+            if (aGeneral && !bGeneral) return -1;
+            if (!aGeneral && bGeneral) return 1;
+            return a.timestampSec - b.timestampSec;
+        });
+
+        view.handleUpdateNotes(sortedNotes);
+        return true;
+    }
+
+    // ─── URL scheme: handler ────────────────────────────────────────────────
+
+    /**
+     * Main handler for obsidian://youtnote URLs.
+     * Validates params, then dispatches to the appropriate mode logic.
+     */
+    private async handleYoutnoteUrlScheme(parsed: ParsedYoutnoteUrlParams, fullUrlLength: number): Promise<void> {
+        // 8. Check debounce
+        const now = Date.now();
+        if (isDebounced(this.lastUrlSchemeInvocation, now)) {
+            return; // Silently ignore
+        }
+        this.lastUrlSchemeInvocation = now;
+
+        // 1-7. Validate (params already parsed by the protocol handler)
+        const validated = validateYoutnoteUrlParams(parsed, fullUrlLength);
+
+        if (!validated.valid) {
+            new Notice(`Youtnote URL scheme error: ${validated.error}`, 0);
+            return;
+        }
+
+        const { normalizedUrl, mode, timestampSec, text } = validated;
+
+        try {
+            switch (mode as YoutnoteUrlMode) {
+                case 'new':
+                    await this.handleUrlSchemeNew(normalizedUrl!);
+                    break;
+                case 'append':
+                    await this.handleUrlSchemeAppend(normalizedUrl!);
+                    break;
+                case 'note':
+                    await this.handleUrlSchemeNote(normalizedUrl!, timestampSec!, text!);
+                    break;
+                case 'general-note':
+                    await this.handleUrlSchemeGeneralNote(normalizedUrl!, text!);
+                    break;
+            }
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Unknown error';
+            new Notice(`Youtnote URL scheme error: ${message}`, 0);
+        }
+    }
+
+    /**
+     * mode=new: Create a new Youtnote file with the video.
+     */
+    private async handleUrlSchemeNew(normalizedUrl: string): Promise<void> {
+        // 9. Fetch oEmbed metadata
+        const metadata = await this.fetchVideoMetadata(normalizedUrl);
+
+        // 10. Create file and add video
+        const { leaf } = await this.createYoutnoteFile();
+        const view = leaf.view;
+        if (view instanceof YoutnoteView) {
+            this.addVideoToView(view, normalizedUrl, metadata);
+        }
+
+        new Notice('Youtnote created with video.', 0);
+    }
+
+    /**
+     * mode=append: Add the video to the currently open Youtnote, or fall back to mode=new.
+     */
+    private async handleUrlSchemeAppend(normalizedUrl: string): Promise<void> {
+        const view = this.getOpenYoutnoteView();
+
+        if (!view) {
+            // No open Youtnote — fall back to mode=new
+            await this.handleUrlSchemeNew(normalizedUrl);
+            return;
+        }
+
+        // Check for duplicate before fetching metadata
+        const ytId = extractYouTubeId(normalizedUrl);
+        const existingVideo = view.videos.find(v => extractYouTubeId(v.url) === ytId);
+        if (existingVideo) {
+            view.handleSetActiveVideoId(existingVideo.id);
+            new Notice('Video already exists in this Youtnote.', 0);
+            return;
+        }
+
+        // 9. Fetch oEmbed metadata
+        const metadata = await this.fetchVideoMetadata(normalizedUrl);
+
+        // 10. Add video
+        this.addVideoToView(view, normalizedUrl, metadata);
+        new Notice('Video added to Youtnote.', 0);
+    }
+
+    /**
+     * mode=note: Add a timestamped note to a specific video in the open Youtnote.
+     * If the video doesn't exist, auto-add it first.
+     * If no Youtnote is open, fall back to mode=new.
+     */
+    private async handleUrlSchemeNote(normalizedUrl: string, timestampSec: number, text: string): Promise<void> {
+        const view = this.getOpenYoutnoteView();
+
+        let targetView: YoutnoteView;
+        let videoId: VideoId;
+
+        if (!view) {
+            // No open Youtnote — fall back to mode=new
+            const metadata = await this.fetchVideoMetadata(normalizedUrl);
+            const { leaf } = await this.createYoutnoteFile();
+            const newView = leaf.view;
+            if (!(newView instanceof YoutnoteView)) {
+                new Notice('Youtnote URL scheme error: Failed to open new Youtnote view.', 0);
+                return;
+            }
+            targetView = newView;
+            const video = this.addVideoToView(targetView, normalizedUrl, metadata);
+            videoId = video.id;
+        } else {
+            targetView = view;
+            const ytId = extractYouTubeId(normalizedUrl);
+            const existingVideo = targetView.videos.find(v => extractYouTubeId(v.url) === ytId);
+
+            if (existingVideo) {
+                videoId = existingVideo.id;
+            } else {
+                // Auto-add the video first
+                const metadata = await this.fetchVideoMetadata(normalizedUrl);
+                const video = this.addVideoToView(targetView, normalizedUrl, metadata);
+                videoId = video.id;
+            }
+        }
+
+        // Add the note
+        this.addNoteToView(targetView, videoId, timestampSec, text);
+        new Notice('Note added to video.', 0);
+    }
+
+    /**
+     * mode=general-note: Add a general note to a specific video in the open Youtnote.
+     * If the video doesn't exist, auto-add it first.
+     * If no Youtnote is open, fall back to mode=new.
+     */
+    private async handleUrlSchemeGeneralNote(normalizedUrl: string, text: string): Promise<void> {
+        const view = this.getOpenYoutnoteView();
+
+        let targetView: YoutnoteView;
+        let videoId: VideoId;
+
+        if (!view) {
+            // No open Youtnote — fall back to mode=new
+            const metadata = await this.fetchVideoMetadata(normalizedUrl);
+            const { leaf } = await this.createYoutnoteFile();
+            const newView = leaf.view;
+            if (!(newView instanceof YoutnoteView)) {
+                new Notice('Youtnote URL scheme error: Failed to open new Youtnote view.', 0);
+                return;
+            }
+            targetView = newView;
+            const video = this.addVideoToView(targetView, normalizedUrl, metadata);
+            videoId = video.id;
+        } else {
+            targetView = view;
+            const ytId = extractYouTubeId(normalizedUrl);
+            const existingVideo = targetView.videos.find(v => extractYouTubeId(v.url) === ytId);
+
+            if (existingVideo) {
+                videoId = existingVideo.id;
+            } else {
+                // Auto-add the video first
+                const metadata = await this.fetchVideoMetadata(normalizedUrl);
+                const video = this.addVideoToView(targetView, normalizedUrl, metadata);
+                videoId = video.id;
+            }
+        }
+
+        // Add the general note
+        const added = this.addGeneralNoteToView(targetView, videoId, text);
+        if (added) {
+            new Notice('General note added to video.', 0);
+        } else {
+            new Notice('A general note already exists for this video.', 0);
+        }
     }
 }
