@@ -475,7 +475,6 @@ to avoid conflicts with other plugins */
 /* General note (timestamp-less, pinned to top) */
 .youtnote-plugin__note-card.youtnote-plugin__general-note {
     background-color: var(--background-primary-alt, var(--background-primary));
-    border-left: 3px solid var(--interactive-accent);
 }
 
 .youtnote-plugin__note-card.youtnote-plugin__general-note:hover {
@@ -494,17 +493,6 @@ to avoid conflicts with other plugins */
     font-weight: 600;
     letter-spacing: 0.3px;
     text-transform: uppercase;
-}
-
-.youtnote-plugin__general-note-icon {
-    display: flex;
-    align-items: center;
-    --icon-size: 12px;
-}
-
-.youtnote-plugin__general-note-icon svg {
-    width: 12px;
-    height: 12px;
 }
 
 .youtnote-plugin__general-note-text {

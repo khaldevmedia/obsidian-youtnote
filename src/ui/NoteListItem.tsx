@@ -183,7 +183,6 @@ export const NoteListItem: React.FC<NoteListItemProps> = React.memo(({
     const deleteIconRef = useRef<HTMLButtonElement>(null);
     const mobileSaveIconRef = useRef<HTMLButtonElement>(null);
     const timestampEditRef = useRef<HTMLDivElement>(null);
-    const generalIconRef = useRef<HTMLSpanElement>(null);
     const hasInitializedTimestampEdit = useRef(false);
     const skipNextSaveOnBlurRef = useRef(false);
 
@@ -193,13 +192,6 @@ export const NoteListItem: React.FC<NoteListItemProps> = React.memo(({
             setIcon(chevronIconRef.current, isExpanded ? 'chevron-down' : 'chevron-right');
         }
     }, [isExpanded]);
-
-    useEffect(() => {
-        if (generalIconRef.current) {
-            generalIconRef.current.empty();
-            setIcon(generalIconRef.current, 'file');
-        }
-    }, []);
 
     useEffect(() => {
         if (editIconRef.current) {
@@ -256,7 +248,6 @@ export const NoteListItem: React.FC<NoteListItemProps> = React.memo(({
                 </span>
                 {isGeneral ? (
                     <span className="youtnote-plugin__general-note-label">
-                        <span className="youtnote-plugin__general-note-icon" ref={generalIconRef} aria-hidden="true" />
                         <span className="youtnote-plugin__general-note-text">General note</span>
                     </span>
                 ) : isEditingTimestamp ? (
