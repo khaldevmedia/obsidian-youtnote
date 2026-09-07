@@ -75,6 +75,7 @@ export const NoteListItem: React.FC<NoteListItemProps> = React.memo(({
     editNoteBody,
     maxDuration,
     newLineTrigger,
+    isGeneral,
     onToggleExpand,
     onSelect,
     onStartEdit,
@@ -148,15 +149,17 @@ export const NoteListItem: React.FC<NoteListItemProps> = React.memo(({
                 });
         });
         
-        menu.addItem((item) => {
-            item
-                .setTitle('Edit timestamp')
-                .setIcon('clock')
-                .onClick(() => {
-                    const formattedValue = formatSecondsToDisplay(note.timestampSec, maxDuration);
-                    onStartTimestampEdit(note.id, formattedValue);
-                });
-        });
+        if (!isGeneral) {
+            menu.addItem((item) => {
+                item
+                    .setTitle('Edit timestamp')
+                    .setIcon('clock')
+                    .onClick(() => {
+                        const formattedValue = formatSecondsToDisplay(note.timestampSec, maxDuration);
+                        onStartTimestampEdit(note.id, formattedValue);
+                    });
+            });
+        }
         
         menu.addSeparator();
         
@@ -232,9 +235,10 @@ export const NoteListItem: React.FC<NoteListItemProps> = React.memo(({
 
     return (
         <div
-            className={classNames('youtnote-plugin__note-card', { 
-                expanded: isExpanded, 
+            className={classNames('youtnote-plugin__note-card', {
+                expanded: isExpanded,
                 'youtnote-plugin__active-note': isActive,
+                'youtnote-plugin__general-note': isGeneral,
             })}
             onClick={(e) => onToggleExpand(e, note.id, note.timestampSec)}
             onContextMenu={handleContextMenu}
@@ -242,7 +246,11 @@ export const NoteListItem: React.FC<NoteListItemProps> = React.memo(({
             <div className="youtnote-plugin__note-header">
                 <span className="youtnote-plugin__note-header-icon" ref={chevronIconRef}>
                 </span>
-                {isEditingTimestamp ? (
+                {isGeneral ? (
+                    <span className="youtnote-plugin__general-note-label">
+                        <span className="youtnote-plugin__general-note-text">General note</span>
+                    </span>
+                ) : isEditingTimestamp ? (
                     <div className="youtnote-plugin__timestamp-editor" onClick={(e) => e.stopPropagation()}>
                         <span
                             ref={timestampEditRef}

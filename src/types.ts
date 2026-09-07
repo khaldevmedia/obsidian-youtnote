@@ -133,6 +133,7 @@ export interface NoteListItemProps {
     editNoteBody: string;
     maxDuration: number;
     newLineTrigger: PluginSettings['newLineTrigger'];
+    isGeneral: boolean;
     onToggleExpand: (e: React.MouseEvent<HTMLDivElement>, noteId: NoteId, timestampSec: number) => void;
     onSelect: (noteId: NoteId, timestampSec: number) => void;
     onStartEdit: (noteId: NoteId, body: string) => void;
@@ -161,6 +162,8 @@ export interface Note {
     bodyMarkdown: string;
     createdAt: string;
     updatedAt: string;
+    /** Marks a timestamp-less note pinned at the top of a video's note list. */
+    isGeneral?: boolean;
 }
 
 export interface YoutubePluginViewProps {
