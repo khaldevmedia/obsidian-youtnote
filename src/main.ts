@@ -1,4 +1,4 @@
-import { Plugin, TFile, ViewState, WorkspaceLeaf, addIcon, MarkdownView } from 'obsidian';
+import { Plugin, TFile, TFolder, ViewState, WorkspaceLeaf, addIcon, MarkdownView } from 'obsidian';
 import { DEFAULT_SETTINGS, YoutnoteSettingTab } from './settings';
 import { YoutnoteView, VIEW_TYPE } from './view';
 import { PluginSettings, PluginData, MarkdownEditorClass } from './types';
@@ -47,26 +47,7 @@ export default class YoutnotePlugin extends Plugin {
             name: 'Create new file',
             callback: async () => {
                 const folder = this.app.workspace.getActiveFile()?.parent?.path || '';
-                const baseFileName = 'Youtnote Untitled';
-                let newFileName = `${baseFileName}.md`;
-                let newFilePath = folder ? `${folder}/${newFileName}` : newFileName;
-                
-                // Add simple duplicate resolution
-                let i = 1;
-                while (await this.app.vault.adapter.exists(newFilePath)) {
-                    newFileName = `${baseFileName} ${i}.md`;
-                    newFilePath = folder ? `${folder}/${newFileName}` : newFileName;
-                    i++;
-                }
-
-                const initialContent = `---\nyoutnote: true\n---\n\n`;
-                const newFile = await this.app.vault.create(newFilePath, initialContent);
-                
-                // Open the new file in a new tab directly in the Youtnote view
-                const leaf = this.app.workspace.getLeaf(true);
-                await leaf.openFile(newFile);
-                this.youtnoteFileModes[leaf.id ?? newFile.path] = VIEW_TYPE;
-                await this.setYoutnoteView(leaf);
+                await this.createYoutnoteInFolder(folder);
             }
         });
 
@@ -101,7 +82,7 @@ export default class YoutnotePlugin extends Plugin {
                             menu.addItem((item) => {
                                 item.setTitle('Open as youtnote view')
                                     .setIcon('youtnote')
-                                    .setSection('pane')
+                                    .setSection('open')
                                     .onClick(() => {
                                         const leaves = this.app.workspace.getLeavesOfType('markdown');
                                         for (const leaf of leaves) {
@@ -121,6 +102,15 @@ export default class YoutnotePlugin extends Plugin {
                                     });
                             });
                         }
+                    } else if (file instanceof TFolder) {
+                        menu.addItem((item) => {
+                            item.setTitle('Create new youtnote')
+                                .setIcon('youtnote')
+                                .setSection('action-primary')
+                                .onClick(() => {
+                                    void this.createYoutnoteInFolder(file.path);
+                                });
+                        });
                     }
                 })();
             })
@@ -222,6 +212,33 @@ export default class YoutnotePlugin extends Plugin {
     private isYoutnoteFileFromCache(file: TFile): boolean {
         const cache = this.app.metadataCache.getFileCache(file);
         return cache?.frontmatter?.['youtnote'] === true;
+    }
+
+    // Create a new Youtnote file inside the given folder (use '' for vault root),
+    // resolving name collisions with a numeric suffix, then open it in a new tab
+    // in the Youtnote view. Shared by the create-file command and the folder
+    // context-menu item.
+    private async createYoutnoteInFolder(folderPath: string): Promise<void> {
+        const baseFileName = 'Youtnote Untitled';
+        let newFileName = `${baseFileName}.md`;
+        let newFilePath = folderPath ? `${folderPath}/${newFileName}` : newFileName;
+
+        // Add simple duplicate resolution
+        let i = 1;
+        while (await this.app.vault.adapter.exists(newFilePath)) {
+            newFileName = `${baseFileName} ${i}.md`;
+            newFilePath = folderPath ? `${folderPath}/${newFileName}` : newFileName;
+            i++;
+        }
+
+        const initialContent = `---\nyoutnote: true\n---\n\n`;
+        const newFile = await this.app.vault.create(newFilePath, initialContent);
+
+        // Open the new file in a new tab directly in the Youtnote view
+        const leaf = this.app.workspace.getLeaf(true);
+        await leaf.openFile(newFile);
+        this.youtnoteFileModes[leaf.id ?? newFile.path] = VIEW_TYPE;
+        await this.setYoutnoteView(leaf);
     }
 
     async isYoutnoteFile(file: TFile): Promise<boolean> {
