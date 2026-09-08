@@ -58,7 +58,7 @@ Take timestamped Markdown notes with live preview editing across multiple embedd
 1. **Community Plugins (recommended once published)**
    - `Settings → Community Plugins → Browse → search for "Youtnote" → Install → Enable`.
 2. **BRAT (during beta)**
-   - Install the [BRAT plugin](https://obsidian.md/plugins?id=peppermint-brat).
+   - Install the [BRAT plugin](https://community.obsidian.md/plugins/obsidian42-brat).
    - Add this repo URL to BRAT and pull the latest build.
 3. **Manual install**
    - Download the latest release from the GitHub Releases page.
