@@ -16,14 +16,14 @@ Take timestamped Markdown notes with live preview editing across multiple embedd
 
 #### Add videos by URL and add timestamped notes to them.
 
-![Add videos and notes](docs/images/add-video-note.gif)
+![Add videos and notes](docs/images/demo-01.gif)
 
 
 ---
 
 #### Resizable panes, sortable videos list, and more..
 
-![UI overview](docs/images/ui-demo.gif)
+![UI overview](docs/images/demo-02.gif)
 
 
 ## Known issue: Error 153 on iOS and iPadOS
