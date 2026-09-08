@@ -28,43 +28,18 @@ Take timestamped Markdown notes with live preview editing across multiple embedd
 
 ## Known issue: Error 153 on iOS and iPadOS
 
-<div align="center">
-  <div style="
-    max-width: 700px;
-    margin: 2rem auto;
-    padding: 1.8rem 2rem;
-    background: #dbd1c0;
-    border-left: 8px solid #f97316;
-    border-radius: 20px;
-    box-shadow: 0 8px 20px rgba(0,0,0,0.08);
-    text-align: left;
-    font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-  ">
-    <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 1rem;">
-      <span style="font-size: 2rem;">⚠️</span>
-      <strong style="font-size: 1.4rem; color: #b45309;">Error 153 on iOS and iPadOS</strong>
-    </div>
-    <p style="margin: 0 0 0.75rem 0; font-size: 1rem; line-height: 1.5; color: #2c3e2f;">
-      The <strong>Youtnote plugin</strong> has a known issue on <strong>iOS</strong> and <strong>iPadOS</strong> that causes the YouTube player to fail to load and display  <strong>Error 153</strong>.
-    </p>
-    <p style="margin: 0 0 0.75rem 0; font-size: 1rem; line-height: 1.5; color: #2c3e2f;">
-      <strong>Please</strong> don't open a GitHub issue for this.
-    </p>
-    <p style="margin: 0 0 0.75rem 0; font-size: 1rem; line-height: 1.5; color: #2c3e2f;">
-      The issue is <strong>not a bug</strong> in the plugin's code. The root cause is <strong>missing or invalid HTTP <span style="background: #fde68a;  font-size: 0.9rem; padding: 4px 8px; border-radius: 10px;">Referer</span> headers</strong> in the YouTube API request that the plugin sends, due to a long‑standing bug in WKWebView (the web renderer used by Obsidian app on iOS and iPadOS).
-    </p>
-    <p style="margin: 0 0 0.75rem 0; font-size: 1rem; line-height: 1.5; color: #2c3e2f;">
-      <strong>Other plugins</strong> that do not have this issue on iOS and iPadOS most likely rely on Obsidian's embedding workaround, which does not provide access via the YouTube API to video controls (play, pause, seek) or the current playback time, features Youtnote requires.
-    </p>
-    <p style="margin: 0 0 0.75rem 0; font-size: 1rem; line-height: 1.5; color: #2c3e2f;">
-      For more details on this issue, please <a href="https://github.com/khaldevmedia/obsidian-youtnote/blob/main/docs/error-153-ios.md" style="color: #f97316; text-decoration: underline;"> read here </a>. 
-    </p>
-    <div style="margin-top: 1.4rem; font-size: 0.8rem; color: #7c5e3a; border-top: 1px solid #ffe0b5; padding-top: 0.8rem; display: flex; justify-content: space-between; align-items: center;">
-      <span>🔄 Last updated: September 15, 2025</span>
-      <span style="background: #fde68a; padding: 4px 10px; border-radius: 40px;">Please don't open a GitHub issue </span>
-    </div>
-  </div>
-</div>
+> [!IMPORTANT]
+> **Error 153 on iOS and iPadOS**
+>
+> The **Youtnote plugin** has a known issue on **iOS** and **iPadOS** that causes the YouTube player to fail to load and display **Error 153**.
+>
+> **Please** don't open a GitHub issue for this.
+>
+> The issue is **not a bug** in the plugin's code. The root cause is **missing or invalid HTTP `Referer` headers** in the YouTube API request that the plugin sends, due to a long-standing bug in WKWebView (the web renderer used by the Obsidian app on iOS and iPadOS).
+>
+> **Other plugins** that do not have this issue on iOS and iPadOS most likely rely on Obsidian's embedding workaround, which does not provide access via the YouTube API to video controls (play, pause, seek) or the current playback time, features Youtnote requires.
+>
+> For more details on this issue, please [read here](docs/error-153-ios.md).
 
 ## Features
 - **Multi-video timeline**: Track any number of YouTube videos inside the same file, reorder them with drag & drop, and jump between them instantly.
