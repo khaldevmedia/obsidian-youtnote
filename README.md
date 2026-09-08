@@ -26,18 +26,57 @@ Take timestamped Markdown notes with live preview editing across multiple embedd
 ![UI overview](docs/images/ui-demo.gif)
 
 
-> **Importnat:**
-> You need Obsidian version `1.10.3` or later. If you use an older version, embedded YouTube videos will display "Error 153". Obsidian fixed this error in [version 1.10.3](https://obsidian.md/changelog/2025-11-11-desktop-v1.10.3/)
+## Known issue: Error 153 on iOS and iPadOS
+
+<div align="center">
+  <div style="
+    max-width: 700px;
+    margin: 2rem auto;
+    padding: 1.8rem 2rem;
+    background: #dbd1c0;
+    border-left: 8px solid #f97316;
+    border-radius: 20px;
+    box-shadow: 0 8px 20px rgba(0,0,0,0.08);
+    text-align: left;
+    font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  ">
+    <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 1rem;">
+      <span style="font-size: 2rem;">⚠️</span>
+      <strong style="font-size: 1.4rem; color: #b45309;">Error 153 on iOS and iPadOS</strong>
+    </div>
+    <p style="margin: 0 0 0.75rem 0; font-size: 1rem; line-height: 1.5; color: #2c3e2f;">
+      The <strong>Youtnote plugin</strong> has a known issue on <strong>iOS</strong> and <strong>iPadOS</strong> that causes the YouTube player to fail to load and display  <strong>Error 153</strong>.
+    </p>
+    <p style="margin: 0 0 0.75rem 0; font-size: 1rem; line-height: 1.5; color: #2c3e2f;">
+      <strong>Please</strong> don't open a GitHub issue for this.
+    </p>
+    <p style="margin: 0 0 0.75rem 0; font-size: 1rem; line-height: 1.5; color: #2c3e2f;">
+      The issue is <strong>not a bug</strong> in the plugin's code. The root cause is <strong>missing or invalid HTTP <span style="background: #fde68a;  font-size: 0.9rem; padding: 4px 8px; border-radius: 10px;">Referer</span> headers</strong> in the YouTube API request that the plugin sends, due to a long‑standing bug in WKWebView (the web renderer used by Obsidian app on iOS and iPadOS).
+    </p>
+    <p style="margin: 0 0 0.75rem 0; font-size: 1rem; line-height: 1.5; color: #2c3e2f;">
+      <strong>Other plugins</strong> that do not have this issue on iOS and iPadOS most likely rely on Obsidian's embedding workaround, which does not provide access via the YouTube API to video controls (play, pause, seek) or the current playback time, features Youtnote requires.
+    </p>
+    <p style="margin: 0 0 0.75rem 0; font-size: 1rem; line-height: 1.5; color: #2c3e2f;">
+      For more details on this issue, please <a href="https://github.com/khaldevmedia/obsidian-youtnote/blob/main/docs/error-153-ios.md" style="color: #f97316; text-decoration: underline;"> read here </a>. 
+    </p>
+    <div style="margin-top: 1.4rem; font-size: 0.8rem; color: #7c5e3a; border-top: 1px solid #ffe0b5; padding-top: 0.8rem; display: flex; justify-content: space-between; align-items: center;">
+      <span>🔄 Last updated: September 15, 2025</span>
+      <span style="background: #fde68a; padding: 4px 10px; border-radius: 40px;">Please don't open a GitHub issue </span>
+    </div>
+  </div>
+</div>
 
 ## Features
-- **Multi-video timeline** – Track any number of YouTube videos inside the same file, reorder them with drag & drop, and jump between them instantly.
-- **Timestamped note cards** – Click any note to seek the YouTube iframe to that second (with optional autoplay) or edit timestamps inline with validation.
-- **Native Obsidian Live Preview editor** – The note editor embeds Obsidian's own CM6 Live Preview, so hotkeys, themes, and plugins work exactly as you expect.
-- **Sticky player on phones** – Keep the video visible while scrolling through long note stacks thanks to the "pin on phone" option.
-- **Duplicate timestamp merging** – Clean up messy sessions by merging duplicate timestamps into a single consolidated note.
-- **One-click exports** – Export the active video or every video in the file to Markdown, optionally opening the generated file automatically.
-- **Metadata fetch** – Paste any YouTube URL (Standard, Live, Shorts).
-- **Note stats** – Optional per-video word & character counts.
+- **Multi-video timeline**: Track any number of YouTube videos inside the same file, reorder them with drag & drop, and jump between them instantly.
+- **Timestamped note cards**: Click any note to seek the YouTube iframe to that second (with optional autoplay) or edit timestamps inline with validation.
+- **Native Obsidian Live Preview editor**: The note editor embeds Obsidian's own CM6 Live Preview, so hotkeys, themes, and plugins work exactly as you expect.
+- **Sticky player on phones**: Keep the video visible while scrolling through long note stacks thanks to the "pin on phone" option.
+- **Duplicate timestamp merging**: Clean up messy sessions by merging duplicate timestamps into a single consolidated note.
+- **One-click exports**: Export the active video or every video in the file to Markdown, optionally opening the generated file automatically.
+- **Metadata fetch**: Paste any YouTube URL (Standard, Live, Shorts).
+- **Note stats**: Optional per-video word & character counts.
+- **General notes**: Add one timestamp-less note per video for summaries, overviews, or context that doesn't belong to a specific moment. General notes sit at the top of the note list and are visually distinct.
+- **Search notes**: Filter notes for the active video by text content or timestamp. The search bar lives in the notes pane header and clears automatically when switching videos or adding new notes.
 
 
 ## Installation
@@ -55,24 +94,35 @@ Take timestamped Markdown notes with live preview editing across multiple embedd
 1. **Create a Youtnote file** via the ribbon icon or the `Create new youtnote` command. A file with `youtnote: true` frontmatter opens in the custom view.
 2. **Add videos** with the YouTube URL field. Duplicates are prevented automatically.
 3. **Select a video** to load it into the embedded iframe. Switching videos keeps the same player instance for smooth transitions.
-4. **Add notes** using the `+` (or keyboard shortcut) – Youtnote auto-grabs the current playback time.
+4. **Add notes** using the `+` (or keyboard shortcut): Youtnote auto-grabs the current playback time.
 5. **Edit in Live Preview** by double-clicking a note. Use the configured newline shortcut (`Enter` or `Shift+Enter`) to save.
-6. **Jump around** by clicking any timestamp – the player seeks (and optionally autoplays) to that moment.
-7. **Export** single-video or full-note markdown via the header buttons.
+6. **Jump around** by clicking any timestamp: the player seeks (and optionally autoplays) to that moment.
+7. **Add a general note** using the note icon in the notes header, perfect for video summaries or context without a timestamp. One per video.
+8. **Search notes** using the search bar in the notes header to filter by text or timestamp (e.g. `1:23`). Only filters the active video's notes.
+9. **Export** single-video or full-note markdown via the header buttons.
 
 ## Settings Overview
 All options live under `Settings → Plugin Options → Youtnote`:
-- **Pin video on phone** – Keep the iframe sticky while scrolling on mobile.
-- **Autoplay on note select** – Choose whether seeking should immediately play.
-- **Single expand mode** – Only one note stays expanded at a time.
-- **Persist expanded state** – Remember which notes were expanded when coming back to the video.
-- **New line trigger** – Decide whether `Enter` or `Shift+Enter` inserts a newline vs. saves.
-- **Open exported file** – Automatically open the generated Markdown file in a new tab.
-- **Show note statistics** – Display total word/character counts in the note list header.
+- **Pin video on phone**: Keep the iframe sticky while scrolling on mobile.
+- **Autoplay on note select**: Choose whether seeking should immediately play.
+- **Single expand mode**: Only one note stays expanded at a time.
+- **Persist expanded state**: Remember which notes were expanded when coming back to the video.
+- **New line trigger**: Decide whether `Enter` or `Shift+Enter` inserts a newline vs. saves.
+- **Open exported file**: Automatically open the generated Markdown file in a new tab.
+- **Show note statistics**: Display total word/character counts in the note list header.
 
 ## Exporting Notes
 - **Single video export**: each video gets its own Markdown file (with timestamps preserved) using the `Export` button beside the note counter.
 - **Full file export**: consolidates every video + note into one Markdown file using the header action or view action.
+- General notes are exported with a `**General note:**` heading, placed at the top of their video's section.
+
+## AI Agent Skill
+
+Youtnote ships with a ready-to-use **agent skill** that lets an AI coding assistant (Claude Code, Cursor, OpenCode, Codex, Devin, Copilot, etc.) convert a timestamped YouTube transcript into a valid Youtnote file for you. Hand the agent a fetched transcript and the video URL, and it writes a `.youtnote.md` file with correct frontmatter, timestamped notes, and an optional general-note summary, ready to open in Obsidian.
+
+The skill does **not** fetch transcripts itself; pair it with any transcript-fetching tool or skill you already use.
+
+**Install:** copy the entire [`create-youtnote`](docs/skills/create-youtnote) folder (the one containing [`SKILL.md`](docs/skills/create-youtnote/SKILL.md)) into your agent's skills directory, e.g. `.claude/skills/`, `.cursor/skills/`, `.opencode/skills/`, `.devin/skills/`, or `.agents/skills/`. The result should look like `<skills-dir>/create-youtnote/SKILL.md`.
 
 ## Support My Work
 Youtnote is a passion project maintained in spare hours. If it helps your research or learning workflow, consider sponsoring future development:
