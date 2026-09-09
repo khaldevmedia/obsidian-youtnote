@@ -6,7 +6,6 @@ import {
     getUnsupportedParams,
     isDebounced,
     MAX_URL_LENGTH,
-    MAX_URL_PARAM_LENGTH,
     MAX_TEXT_LENGTH,
     DEBOUNCE_MS,
 } from './uri-scheme';

@@ -2,9 +2,9 @@ import { Plugin, TFile, TFolder, ViewState, WorkspaceLeaf, addIcon, MarkdownView
 import { DEFAULT_SETTINGS, YoutnoteSettingTab } from './settings';
 import { YoutnoteView, VIEW_TYPE } from './view';
 import { PluginSettings, PluginData, MarkdownEditorClass, Video, Note, VideoId, NoteId } from './types';
-import { hasYoutnoteFrontmatter, extractYouTubeId, normalizeYouTubeUrl } from './utils';
+import { hasYoutnoteFrontmatter, extractYouTubeId, formatSecondsToDisplay } from './utils';
 import { getMarkdownEditorClass } from './markdownEditor';
-import { validateYoutnoteUriParams, isDebounced, getUnsupportedParams, YoutnoteUriMode, ParsedYoutnoteUriParams } from './uri-scheme';
+import { validateYoutnoteUriParams, isDebounced, getUnsupportedParams, ParsedYoutnoteUriParams } from './uri-scheme';
 import './styles.css';
 
 // Register custom icon
@@ -199,7 +199,7 @@ export default class YoutnotePlugin extends Plugin {
             // Check for unsupported params (security: reject, don't ignore)
             const unsupported = getUnsupportedParams(params);
             if (unsupported.length > 0) {
-                new Notice(`Youtnote URI scheme error: Unsupported parameter(s): ${unsupported.join(', ')}. Allowed: url, mode, timestamp, text.`, 0);
+                new Notice(`Youtnote uri scheme error: Unsupported parameter(s): ${unsupported.join(', ')}. Allowed: url, mode, timestamp, text.`, 0);
                 return;
             }
 
@@ -463,7 +463,7 @@ export default class YoutnotePlugin extends Plugin {
     }
 
     /**
-     * Add a timestamped note to a specific video in a YoutnoteView.
+     * Add a timestamped note to a specific video in a youtnoteView.
      */
     addNoteToView(view: YoutnoteView, videoId: VideoId, timestampSec: number, bodyMarkdown: string): Note {
         const newNote: Note = {
@@ -488,7 +488,7 @@ export default class YoutnotePlugin extends Plugin {
     }
 
     /**
-     * Add a general note to a specific video in a YoutnoteView.
+     * Add a general note to a specific video in a youtnoteView.
      * Returns false if a general note already exists for that video.
      */
     addGeneralNoteToView(view: YoutnoteView, videoId: VideoId, bodyMarkdown: string): boolean {
@@ -538,14 +538,14 @@ export default class YoutnotePlugin extends Plugin {
         const validated = validateYoutnoteUriParams(parsed, fullUrlLength);
 
         if (!validated.valid) {
-            new Notice(`Youtnote URI scheme error: ${validated.error}`, 0);
+            new Notice(`Youtnote uri scheme error: ${validated.error}`, 0);
             return;
         }
 
         const { normalizedUrl, mode, timestampSec, text } = validated;
 
         try {
-            switch (mode as YoutnoteUriMode) {
+            switch (mode) {
                 case 'new':
                     await this.handleUriSchemeNew(normalizedUrl!);
                     break;
@@ -561,7 +561,7 @@ export default class YoutnotePlugin extends Plugin {
             }
         } catch (error) {
             const message = error instanceof Error ? error.message : 'Unknown error';
-            new Notice(`Youtnote URI scheme error: ${message}`, 0);
+            new Notice(`Youtnote uri scheme error: ${message}`, 0);
         }
     }
 
@@ -599,7 +599,7 @@ export default class YoutnotePlugin extends Plugin {
         const existingVideo = view.videos.find(v => extractYouTubeId(v.url) === ytId);
         if (existingVideo) {
             view.handleSetActiveVideoId(existingVideo.id);
-            new Notice('Video already exists in this Youtnote.', 0);
+            new Notice('Video already exists in this youtnote.', 0);
             return;
         }
 
@@ -608,13 +608,20 @@ export default class YoutnotePlugin extends Plugin {
 
         // 10. Add video
         this.addVideoToView(view, normalizedUrl, metadata);
-        new Notice('Video added to Youtnote.', 0);
+        new Notice('Video added to youtnote.', 0);
     }
 
     /**
      * mode=note: Add a timestamped note to a specific video in the open Youtnote.
      * If the video doesn't exist, auto-add it first.
      * If no Youtnote is open, fall back to mode=new.
+     *
+     * The timestamp is validated against the video's actual duration before the
+     * note is added. If the duration is not yet known (durationSec === 0), the
+     * target video is selected as active to trigger the player to load it, then
+     * we wait for the duration to be populated. If the duration can't be
+     * determined (player fails or times out), the note is rejected rather than
+     * accepted with an unvalidated timestamp.
      */
     private async handleUriSchemeNote(normalizedUrl: string, timestampSec: number, text: string): Promise<void> {
         const view = this.getOpenYoutnoteView();
@@ -628,7 +635,7 @@ export default class YoutnotePlugin extends Plugin {
             const { leaf } = await this.createYoutnoteFile();
             const newView = leaf.view;
             if (!(newView instanceof YoutnoteView)) {
-                new Notice('Youtnote URI scheme error: Failed to open new Youtnote view.', 0);
+                new Notice('Youtnote uri scheme error: Failed to open new youtnote view.', 0);
                 return;
             }
             targetView = newView;
@@ -649,12 +656,55 @@ export default class YoutnotePlugin extends Plugin {
             }
         }
 
-        // Select the target video so the user sees the note appear
+        // Select the target video so the player loads it (populates durationSec)
+        // and so the user sees the note appear once added.
         targetView.handleSetActiveVideoId(videoId);
+
+        // Validate the timestamp against the video's actual duration.
+        const durationSec = await this.waitForVideoDuration(targetView, videoId);
+        if (durationSec === null) {
+            new Notice('Youtnote uri scheme error: Could not determine video duration. The video may be private, embedding-blocked, or the player failed to load. Open the video in a youtnote and try again.', 0);
+            return;
+        }
+        if (timestampSec > durationSec) {
+            new Notice(`Youtnote uri scheme error: Timestamp ${formatSecondsToDisplay(timestampSec, 0)} exceeds video duration (max: ${formatSecondsToDisplay(durationSec)}).`, 0);
+            return;
+        }
 
         // Add the note
         this.addNoteToView(targetView, videoId, timestampSec, text);
         new Notice('Note added to video.', 0);
+    }
+
+    /**
+     * Polls the view's videos array until the target video's `durationSec`
+     * becomes positive, or the timeout elapses.
+     *
+     * Selecting a video as active triggers the player to load it, which fires
+     * `handleDurationUpdate` in `YoutnoteView.tsx` and updates `durationSec`.
+     * This method waits for that update.
+     *
+     * Returns the duration in seconds, or `null` if the duration could not be
+     * determined within the timeout.
+     */
+    private async waitForVideoDuration(view: YoutnoteView, videoId: VideoId, timeoutMs = 10000): Promise<number | null> {
+        // Fast path: duration already known (video was played before)
+        const existing = view.videos.find(v => v.id === videoId);
+        if (existing && (existing.durationSec ?? 0) > 0) {
+            return existing.durationSec ?? 0;
+        }
+
+        // Poll until the player populates durationSec
+        const intervalMs = 200;
+        const start = Date.now();
+        while (Date.now() - start < timeoutMs) {
+            await new Promise(resolve => window.setTimeout(resolve, intervalMs));
+            const current = view.videos.find(v => v.id === videoId);
+            if (current && (current.durationSec ?? 0) > 0) {
+                return current.durationSec ?? 0;
+            }
+        }
+        return null;
     }
 
     /**
@@ -674,7 +724,7 @@ export default class YoutnotePlugin extends Plugin {
             const { leaf } = await this.createYoutnoteFile();
             const newView = leaf.view;
             if (!(newView instanceof YoutnoteView)) {
-                new Notice('Youtnote URI scheme error: Failed to open new Youtnote view.', 0);
+                new Notice('Youtnote uri scheme error: Failed to open new youtnote view.', 0);
                 return;
             }
             targetView = newView;

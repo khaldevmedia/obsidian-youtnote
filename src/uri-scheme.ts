@@ -162,7 +162,8 @@ export function validateYoutnoteUriParams(
         };
     }
 
-    // 7. If mode=note: validate timestamp (no duration cap — validated against video later)
+    // 7. If mode=note: validate timestamp format (syntax only — duration is
+    // validated against the actual video in main.ts after the player loads)
     let timestampSec: number | undefined;
     if (mode === 'note') {
         if (!params.timestamp) {
@@ -174,8 +175,9 @@ export function validateYoutnoteUriParams(
             };
         }
 
-        // Pass maxDuration=0 to disable the duration cap — duration is checked
-        // against the actual video when the note is added, same as manual editing.
+        // Pass maxDuration=0 for syntax-only validation (format, negativity).
+        // The actual duration check is performed in main.ts once the player
+        // loads the video and populates video.durationSec.
         const tsResult = parseTimestampInput(params.timestamp, 0);
         if (tsResult.error) {
             return {
