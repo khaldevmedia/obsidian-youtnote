@@ -84,6 +84,7 @@ export interface PluginSettings {
 	newLineTrigger: 'shift+enter' | 'enter';
 	openExportedFile: boolean;
 	showNoteStats: boolean;
+	uriSchemeEnabled: boolean;
 }
 
 export interface PluginData {

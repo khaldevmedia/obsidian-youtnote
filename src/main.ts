@@ -194,6 +194,13 @@ export default class YoutnotePlugin extends Plugin {
 
         // Register obsidian://youtnote URI scheme handler
         this.registerObsidianProtocolHandler('youtnote', (params) => {
+            // Security gate: the URI scheme is disabled by default.
+            // When disabled, no URI parameters are parsed or processed.
+            if (!this.settings.uriSchemeEnabled) {
+                new Notice('Youtnote uri scheme is disabled. Enable it in plugin settings to use this feature.', 0);
+                return;
+            }
+
             // params is a key-value object like { action: 'youtnote', url: '...', mode: '...' }
 
             // Check for unsupported params (security: reject, don't ignore)

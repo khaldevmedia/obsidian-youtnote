@@ -9,7 +9,8 @@ export const DEFAULT_SETTINGS: PluginSettings = {
 	persistExpandedState: false,
 	openExportedFile: true,
 	showNoteStats: true,
-	pinOnPhone: false
+	pinOnPhone: false,
+	uriSchemeEnabled: false,
 }
 
 export class YoutnoteSettingTab extends PluginSettingTab {
@@ -46,7 +47,7 @@ export class YoutnoteSettingTab extends PluginSettingTab {
 			desc: string,
 			key: keyof Pick<
 				PluginSettings,
-				'pinOnPhone' | 'autoplayOnNoteSelect' | 'singleExpandMode' | 'persistExpandedState' | 'openExportedFile' | 'showNoteStats'
+				'pinOnPhone' | 'autoplayOnNoteSelect' | 'singleExpandMode' | 'persistExpandedState' | 'openExportedFile' | 'showNoteStats' | 'uriSchemeEnabled'
 			>
 		) => {
 			new Setting(containerEl)
@@ -107,6 +108,17 @@ export class YoutnoteSettingTab extends PluginSettingTab {
 			'Keep the video player visible at the top while scrolling notes on mobile.',
 			'pinOnPhone'
 		);
+
+		// URI scheme section
+		new Setting(containerEl)
+			.setName("Other options")
+			.setHeading();
+
+		addToggleSetting(
+			'Enable uri scheme',
+			'Lets external tools add videos and notes to youtnotes in your vault programmatically. Enable only if you use automation tools that rely on this feature.',
+			'uriSchemeEnabled'
+		);
 	}
 
 	getControlValue(key: string): unknown {
@@ -166,6 +178,17 @@ export class YoutnoteSettingTab extends PluginSettingTab {
 						name: 'Pin video on phone (sticky)',
 						desc: 'Keep the video player visible at the top while scrolling notes on mobile.',
 						control: { type: 'toggle' as const, key: 'pinOnPhone' },
+					},
+				],
+			},
+			{
+				type: 'group' as const,
+				heading: 'Other options',
+				items: [
+					{
+						name: 'Enable uri scheme',
+						desc: 'Lets external tools add videos and notes to your vault programmatically. Enable only if you use automation tools that rely on this feature.',
+						control: { type: 'toggle' as const, key: 'uriSchemeEnabled' },
 					},
 				],
 			},
