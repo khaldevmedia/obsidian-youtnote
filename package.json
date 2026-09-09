@@ -29,7 +29,7 @@
     "@types/sortablejs": "^1.15.9",
     "@vitejs/plugin-react": "^6.0.2",
     "eslint": "^10.4.0",
-    "eslint-plugin-obsidianmd": "^0.3.0",
+    "eslint-plugin-obsidianmd": "^0.4.2",
     "obsidian": "^1.12.2",
     "prettier": "^3.8.1",
     "typescript": "^6.0.3",
