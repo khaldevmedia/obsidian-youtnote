@@ -38,8 +38,9 @@ Take timestamped Markdown notes with live preview editing across multiple embedd
 > The issue is **not a bug** in the plugin's code. The root cause is **missing or invalid HTTP `Referer` headers** in the YouTube API request that the plugin sends, due to a long-standing bug in WKWebView (the web renderer used by the Obsidian app on iOS and iPadOS).
 >
 > **Other plugins** that do not have this issue on iOS and iPadOS most likely rely on Obsidian's embedding workaround, which does not provide access via the YouTube API to video controls (play, pause, seek) or the current playback time, features Youtnote requires.
->
-> For more details on this issue, please **[read here](https://github.com/khaldevmedia/obsidian-youtnote/blob/main/docs/error-153-ios.md)**.
+
+### Read more
+For more details on this issue, please **[read here](docs/error-153-ios.md)**.
 
 ## Features
 - **Multi-video timeline**: Track any number of YouTube videos inside the same file, reorder them with drag & drop, and jump between them instantly.
