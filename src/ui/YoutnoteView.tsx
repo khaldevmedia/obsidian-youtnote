@@ -853,7 +853,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
                 className={classNames('youtnote-plugin__iframe', {
                     'youtnote-plugin__iframe-hidden': !activeVideo,
                 })}
-                allow="autoplay; encrypted-media"
+                allow="autoplay; encrypted-media; fullscreen"
                 referrerPolicy="strict-origin-when-cross-origin"
             />
             {!activeVideo && (
@@ -977,7 +977,6 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
                                         onClick={handleAddGeneralNote}
                                         disabled={hasGeneralNote}
                                         aria-label="Add general note"
-                                        title={hasGeneralNote ? 'A general note already exists for this video' : 'Add general note'}
                                     />
                                     {activeVideoNotes.length > 0 && (
                                         <>

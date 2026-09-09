@@ -10,7 +10,7 @@ const YT_STATE = {
 } as const;
 
 const NOCOOKIE_ORIGIN = 'https://www.youtube-nocookie.com';
-const YT_URL_PARAMETERS = '?enablejsapi=1&playsinline=1';
+const YT_URL_PARAMETERS = '?enablejsapi=1&playsinline=1&rel=0&cc_load_policy=0';
 
 interface YTMessageEvent {
     event?: string;
