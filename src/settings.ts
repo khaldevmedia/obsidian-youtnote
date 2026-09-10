@@ -13,6 +13,139 @@ export const DEFAULT_SETTINGS: PluginSettings = {
 	uriSchemeEnabled: false,
 }
 
+// ─── Shared setting definitions ──────────────────────────────────────────
+// This array is the single source of truth for all setting definitions.
+// Both display() (legacy, Obsidian < 1.13.0) and getSettingDefinitions()
+// (Obsidian 1.13.0+) consume it, so every setting's name, description, and
+// control type only needs to be defined once.
+//
+// Trade-off: display() and getSettingDefinitions() expect different object
+// shapes. Rather than forcing one shape, the shared array stores the raw
+// data and each method transforms it into its expected output. This keeps
+// strings DRY without breaking either API.
+//
+// The `desc` field can be a string or a function that returns a string or
+// DocumentFragment. Functions are used when the desc needs to be built
+// lazily (e.g. when it calls createFragment(), which must not run at module
+// load time). Both display() and getSettingDefinitions() resolve function
+// descs before rendering.
+
+type ToggleKey = keyof Pick<
+	PluginSettings,
+	'pinOnPhone' | 'autoplayOnNoteSelect' | 'singleExpandMode' | 'persistExpandedState' | 'openExportedFile' | 'showNoteStats' | 'uriSchemeEnabled'
+>;
+
+type Desc = string | (() => string | DocumentFragment);
+
+interface ToggleDef {
+	kind: 'toggle';
+	name: string;
+	desc: Desc;
+	key: ToggleKey;
+}
+
+interface DropdownDef {
+	kind: 'dropdown';
+	name: string;
+	desc: string;
+	key: 'newLineTrigger';
+	options: Record<string, string>;
+}
+
+type SettingItemDef = ToggleDef | DropdownDef;
+
+interface SettingGroupDef {
+	heading: string;
+	subtitle?: string;
+	items: SettingItemDef[];
+}
+
+const URI_SCHEME_GUIDE_URL = 'https://github.com/khaldevmedia/obsidian-youtnote/blob/develop/docs/uri-scheme-guide.md';
+
+function buildUriSchemeDesc(): DocumentFragment {
+	return createFragment(frag => {
+		frag.appendText('Lets external tools add videos and notes to youtnotes in your vault programmatically. Enable only if you use automation tools that rely on this feature. For a guide on using this feature, click ');
+		frag.createEl('a', {
+			text: 'Here',
+			attr: { href: URI_SCHEME_GUIDE_URL },
+		});
+		frag.appendText('.');
+	});
+}
+
+const SETTING_DEFINITIONS: SettingGroupDef[] = [
+	{
+		heading: 'Behavior',
+		subtitle: 'Configure plugin behavior and display options in your vault.',
+		items: [
+			{
+				kind: 'toggle',
+				name: 'Autoplay on note select',
+				desc: 'Automatically play the video when clicking on a note timestamp.',
+				key: 'autoplayOnNoteSelect',
+			},
+			{
+				kind: 'toggle',
+				name: 'Single expand mode',
+				desc: 'Only allow one note to be expanded at a time. Expanding a note will collapse others.',
+				key: 'singleExpandMode',
+			},
+			{
+				kind: 'dropdown',
+				name: 'New line trigger',
+				desc: 'Choose how to create a new line when editing notes.',
+				key: 'newLineTrigger',
+				options: {
+					'shift+enter': 'Shift+Enter (Enter to save)',
+					'enter': 'Enter (Shift+Enter to save)',
+				},
+			},
+			{
+				kind: 'toggle',
+				name: 'Persist expanded state',
+				desc: 'Remember which notes are expanded when switching between videos or reopening the file.',
+				key: 'persistExpandedState',
+			},
+			{
+				kind: 'toggle',
+				name: 'Open exported file',
+				desc: 'Automatically open the exported Markdown file in a new tab after creation.',
+				key: 'openExportedFile',
+			},
+			{
+				kind: 'toggle',
+				name: 'Show note statistics',
+				desc: 'Display word count and character count statistics in the note list header.',
+				key: 'showNoteStats',
+			},
+			{
+				kind: 'toggle',
+				name: 'Pin video on phone (sticky)',
+				desc: 'Keep the video player visible at the top while scrolling notes on mobile.',
+				key: 'pinOnPhone',
+			},
+		],
+	},
+	{
+		heading: 'Advanced',
+		items: [
+			{
+				kind: 'toggle',
+				name: 'Enable uri scheme',
+				// Lazy: createFragment must not run at module load time, only
+				// when the setting is actually rendered.
+				desc: buildUriSchemeDesc,
+				key: 'uriSchemeEnabled',
+			},
+		],
+	},
+];
+
+/** Resolves a Desc to a string or DocumentFragment, calling it if it's a function. */
+function resolveDesc(desc: Desc): string | DocumentFragment {
+	return typeof desc === 'function' ? desc() : desc;
+}
+
 export class YoutnoteSettingTab extends PluginSettingTab {
 	plugin: YoutnotePlugin;
 
@@ -32,106 +165,44 @@ export class YoutnoteSettingTab extends PluginSettingTab {
 			this.plugin.refreshAllViews();
 		};
 
-		// Title
-        new Setting(containerEl)
-            .setName("Behavior")
-            .setHeading();
-
-		// Subtitle
-		containerEl.createEl("p", {
-			text: "Configure plugin behavior and display options in your vault."
-		});
-
-		const addToggleSetting = (
-			name: string,
-			desc: string,
-			key: keyof Pick<
-				PluginSettings,
-				'pinOnPhone' | 'autoplayOnNoteSelect' | 'singleExpandMode' | 'persistExpandedState' | 'openExportedFile' | 'showNoteStats' | 'uriSchemeEnabled'
-			>
-		) => {
+		for (const group of SETTING_DEFINITIONS) {
 			new Setting(containerEl)
-				.setName(name)
-				.setDesc(desc)
-				.addToggle(toggle => toggle
-					.setValue(this.plugin.settings[key])
-					.onChange(async (value) => {
-						this.plugin.settings[key] = value;
-						await persistAndRefresh();
-					}));
-		};
+				.setName(group.heading)
+				.setHeading();
 
-		addToggleSetting(
-			'Autoplay on note select',
-			'Automatically play the video when clicking on a note timestamp.',
-			'autoplayOnNoteSelect'
-		);
+			if (group.subtitle) {
+				containerEl.createEl("p", { text: group.subtitle });
+			}
 
-		addToggleSetting(
-			'Single expand mode',
-			'Only allow one note to be expanded at a time. Expanding a note will collapse others.',
-			'singleExpandMode'
-		);
-
-		new Setting(containerEl)
-			.setName('New line trigger')
-			.setDesc('Choose how to create a new line when editing notes.')
-			.addDropdown(dropdown => dropdown
-				.addOption('shift+enter', 'Shift+Enter (Enter to save)')
-				.addOption('enter', 'Enter (Shift+Enter to save)')
-				.setValue(this.plugin.settings.newLineTrigger)
-				.onChange(async (value) => {
-					this.plugin.settings.newLineTrigger = value as 'enter' | 'shift+enter';
-					await persistAndRefresh();
-				}));
-
-		addToggleSetting(
-			'Persist expanded state',
-			'Remember which notes are expanded when switching between videos or reopening the file.',
-			'persistExpandedState'
-		);
-
-		addToggleSetting(
-			'Open exported file',
-			'Automatically open the exported Markdown file in a new tab after creation.',
-			'openExportedFile'
-		);
-
-		addToggleSetting(
-			'Show note statistics',
-			'Display word count and character count statistics in the note list header.',
-			'showNoteStats'
-		);
-
-		addToggleSetting(
-			'Pin video on phone (sticky)',
-			'Keep the video player visible at the top while scrolling notes on mobile.',
-			'pinOnPhone'
-		);
-
-		// URI scheme section
-		new Setting(containerEl)
-			.setName("Advanced")
-			.setHeading();
-
-		const uriSchemeDesc = createFragment(frag => {
-			frag.appendText('Lets external tools add videos and notes to youtnotes in your vault programmatically. Enable only if you use automation tools that rely on this feature. For a guide on using this feature, click ');
-			frag.createEl('a', {
-				text: 'Here',
-				attr: { href: 'https://github.com/khaldevmedia/obsidian-youtnote/blob/develop/docs/uri-scheme-guide.md' },
-			});
-			frag.appendText('.');
-		});
-
-		new Setting(containerEl)
-			.setName('Enable uri scheme')
-			.setDesc(uriSchemeDesc)
-			.addToggle(toggle => toggle
-				.setValue(this.plugin.settings.uriSchemeEnabled)
-				.onChange(async (value) => {
-					this.plugin.settings.uriSchemeEnabled = value;
-					await persistAndRefresh();
-				}));
+			for (const item of group.items) {
+				if (item.kind === 'toggle') {
+					new Setting(containerEl)
+						.setName(item.name)
+						.setDesc(resolveDesc(item.desc))
+						.addToggle(toggle => toggle
+							.setValue(this.plugin.settings[item.key])
+							.onChange(async (value) => {
+								this.plugin.settings[item.key] = value;
+								await persistAndRefresh();
+							}));
+				} else if (item.kind === 'dropdown') {
+					new Setting(containerEl)
+						.setName(item.name)
+						.setDesc(item.desc)
+						.addDropdown(dropdown => {
+							for (const [value, label] of Object.entries(item.options)) {
+								dropdown.addOption(value, label);
+							}
+							dropdown
+								.setValue(this.plugin.settings[item.key])
+								.onChange(async (value) => {
+									this.plugin.settings[item.key] = value as 'enter' | 'shift+enter';
+									await persistAndRefresh();
+								});
+						});
+				}
+			}
+		}
 	}
 
 	getControlValue(key: string): unknown {
@@ -145,76 +216,30 @@ export class YoutnoteSettingTab extends PluginSettingTab {
 	}
 
 	getSettingDefinitions() {
-		return [
-			{
-				type: 'group' as const,
-				heading: 'Behavior',
-				items: [
-					{
-						name: 'Autoplay on note select',
-						desc: 'Automatically play the video when clicking on a note timestamp.',
-						control: { type: 'toggle' as const, key: 'autoplayOnNoteSelect' },
+		// Transform the shared definitions into the shape expected by the
+		// Obsidian 1.13.0+ declarative settings API: groups have `type: 'group'`,
+		// items have a `control` property with `type` and `key`.
+		return SETTING_DEFINITIONS.map(group => ({
+			type: 'group' as const,
+			heading: group.heading,
+			items: group.items.map(item => {
+				if (item.kind === 'toggle') {
+					return {
+						name: item.name,
+						desc: resolveDesc(item.desc),
+						control: { type: 'toggle' as const, key: item.key },
+					};
+				}
+				return {
+					name: item.name,
+					desc: item.desc,
+					control: {
+						type: 'dropdown' as const,
+						key: item.key,
+						options: item.options,
 					},
-					{
-						name: 'Single expand mode',
-						desc: 'Only allow one note to be expanded at a time. Expanding a note will collapse others.',
-						control: { type: 'toggle' as const, key: 'singleExpandMode' },
-					},
-					{
-						name: 'New line trigger',
-						desc: 'Choose how to create a new line when editing notes.',
-						control: {
-							type: 'dropdown' as const,
-							key: 'newLineTrigger',
-							options: {
-								'shift+enter': 'Shift+Enter (Enter to save)',
-								'enter': 'Enter (Shift+Enter to save)',
-							},
-						},
-					},
-					{
-						name: 'Persist expanded state',
-						desc: 'Remember which notes are expanded when switching between videos or reopening the file.',
-						control: { type: 'toggle' as const, key: 'persistExpandedState' },
-					},
-					{
-						name: 'Open exported file',
-						desc: 'Automatically open the exported Markdown file in a new tab after creation.',
-						control: { type: 'toggle' as const, key: 'openExportedFile' },
-					},
-					{
-						name: 'Show note statistics',
-						desc: 'Display word count and character count statistics in the note list header.',
-						control: { type: 'toggle' as const, key: 'showNoteStats' },
-					},
-					{
-						name: 'Pin video on phone (sticky)',
-						desc: 'Keep the video player visible at the top while scrolling notes on mobile.',
-						control: { type: 'toggle' as const, key: 'pinOnPhone' },
-					},
-				],
-			},
-			{
-				type: 'group' as const,
-				heading: 'Advanced',
-				items: [
-					{
-						name: 'Enable uri scheme',
-						desc: (() => {
-							const frag = createFragment(f => {
-								f.appendText('Lets external tools add videos and notes to youtnotes in your vault programmatically. Enable only if you use automation tools that rely on this feature. For a guide on using this feature, click ');
-								f.createEl('a', {
-									text: 'Here',
-									attr: { href: 'https://github.com/khaldevmedia/obsidian-youtnote/blob/develop/docs/uri-scheme-guide.md' },
-								});
-								f.appendText('.');
-							});
-							return frag;
-						})(),
-						control: { type: 'toggle' as const, key: 'uriSchemeEnabled' },
-					},
-				],
-			},
-		];
+				};
+			}),
+		}));
 	}
 }
