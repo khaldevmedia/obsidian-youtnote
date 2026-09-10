@@ -202,7 +202,7 @@ export class YoutnoteSettingTab extends PluginSettingTab {
 						name: 'Enable uri scheme',
 						desc: (() => {
 							const frag = createFragment(f => {
-								f.appendText('Lets external tools add videos and notes to your vault programmatically. Enable only if you use automation tools that rely on this feature. For a guide on using this feature, click ');
+								f.appendText('Lets external tools add videos and notes to youtnotes in your vault programmatically. Enable only if you use automation tools that rely on this feature. For a guide on using this feature, click ');
 								f.createEl('a', {
 									text: 'Here',
 									attr: { href: 'https://github.com/khaldevmedia/obsidian-youtnote/blob/develop/docs/uri-scheme-guide.md' },
