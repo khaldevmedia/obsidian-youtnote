@@ -111,14 +111,27 @@ export class YoutnoteSettingTab extends PluginSettingTab {
 
 		// URI scheme section
 		new Setting(containerEl)
-			.setName("Other options")
+			.setName("Advanced")
 			.setHeading();
 
-		addToggleSetting(
-			'Enable uri scheme',
-			'Lets external tools add videos and notes to youtnotes in your vault programmatically. Enable only if you use automation tools that rely on this feature.',
-			'uriSchemeEnabled'
-		);
+		const uriSchemeDesc = createFragment(frag => {
+			frag.appendText('Lets external tools add videos and notes to youtnotes in your vault programmatically. Enable only if you use automation tools that rely on this feature. For a guide on using this feature, click ');
+			frag.createEl('a', {
+				text: 'Here',
+				attr: { href: 'https://github.com/khaldevmedia/obsidian-youtnote/blob/develop/docs/uri-scheme-guide.md' },
+			});
+			frag.appendText('.');
+		});
+
+		new Setting(containerEl)
+			.setName('Enable uri scheme')
+			.setDesc(uriSchemeDesc)
+			.addToggle(toggle => toggle
+				.setValue(this.plugin.settings.uriSchemeEnabled)
+				.onChange(async (value) => {
+					this.plugin.settings.uriSchemeEnabled = value;
+					await persistAndRefresh();
+				}));
 	}
 
 	getControlValue(key: string): unknown {
@@ -183,11 +196,21 @@ export class YoutnoteSettingTab extends PluginSettingTab {
 			},
 			{
 				type: 'group' as const,
-				heading: 'Other options',
+				heading: 'Advanced',
 				items: [
 					{
 						name: 'Enable uri scheme',
-						desc: 'Lets external tools add videos and notes to your vault programmatically. Enable only if you use automation tools that rely on this feature.',
+						desc: (() => {
+							const frag = createFragment(f => {
+								f.appendText('Lets external tools add videos and notes to your vault programmatically. Enable only if you use automation tools that rely on this feature. For a guide on using this feature, click ');
+								f.createEl('a', {
+									text: 'Here',
+									attr: { href: 'https://github.com/khaldevmedia/obsidian-youtnote/blob/develop/docs/uri-scheme-guide.md' },
+								});
+								f.appendText('.');
+							});
+							return frag;
+						})(),
 						control: { type: 'toggle' as const, key: 'uriSchemeEnabled' },
 					},
 				],

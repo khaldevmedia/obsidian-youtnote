@@ -53,6 +53,7 @@ For more details on this issue, please **[read here](docs/error-153-ios.md)**.
 - **Note stats**: Optional per-video word & character counts.
 - **General notes**: Add one timestamp-less note per video for summaries, overviews, or context that doesn't belong to a specific moment. General notes sit at the top of the note list and are visually distinct.
 - **Search notes**: Filter notes for the active video by text content or timestamp. The search bar lives in the notes pane header and clears automatically when switching videos or adding new notes.
+- **URI scheme**: Let external tools (scripts, browser bookmarks, automation) add videos and notes to youtnotes in your vault via `obsidian://youtnote` URIs. Disabled by default. See the [URI Scheme Guide](docs/uri-scheme-guide.md).
 
 
 ## Installation
@@ -86,6 +87,7 @@ All options live under `Settings → Plugin Options → Youtnote`:
 - **New line trigger**: Decide whether `Enter` or `Shift+Enter` inserts a newline vs. saves.
 - **Open exported file**: Automatically open the generated Markdown file in a new tab.
 - **Show note statistics**: Display total word/character counts in the note list header.
+- **Enable uri scheme**: Let external tools add videos and notes via `obsidian://youtnote` URIs. Disabled by default. See the [URI Scheme Guide](docs/uri-scheme-guide.md).
 
 ## Exporting Notes
 - **Single video export**: each video gets its own Markdown file (with timestamps preserved) using the `Export` button beside the note counter.
