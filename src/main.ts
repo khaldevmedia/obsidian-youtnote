@@ -28,6 +28,15 @@ const getLeafKey = (leaf: WorkspaceLeafWithId, fallback?: string): string | unde
     return leaf.id ?? fallback;
 };
 
+const asString = (v: unknown): string | undefined => typeof v === 'string' ? v : undefined;
+
+/** Persistent notice for URI scheme errors, styled with Obsidian's error text color. */
+const showUriSchemeError = (message: string): Notice => {
+    const notice = new Notice(`Youtnote uri scheme error: ${message}`, 0);
+    notice.messageEl.addClass('youtnote-plugin__notice-error');
+    return notice;
+};
+
 export default class YoutnotePlugin extends Plugin {
     settings!: PluginSettings;
     MarkdownEditor: MarkdownEditorClass | null = null;
@@ -206,22 +215,27 @@ export default class YoutnotePlugin extends Plugin {
             // Check for unsupported params (security: reject, don't ignore)
             const unsupported = getUnsupportedParams(params);
             if (unsupported.length > 0) {
-                new Notice(`Youtnote uri scheme error: Unsupported parameter(s): ${unsupported.join(', ')}. Allowed: url, mode, timestamp, text.`, 0);
+                showUriSchemeError(`Unsupported parameter(s): ${unsupported.join(', ')}. Allowed: url, mode, timestamp, text.`);
                 return;
             }
 
+            const url = asString(params.url);
+            const mode = asString(params.mode);
+            const timestamp = asString(params.timestamp);
+            const text = asString(params.text);
+
             const parsed: ParsedYoutnoteUriParams = {
-                url: params.url,
-                mode: params.mode,
-                timestamp: params.timestamp,
-                text: params.text,
+                url,
+                mode,
+                timestamp,
+                text,
             };
             // Reconstruct URL length for the safeguard check
             const searchParams = new URLSearchParams();
-            if (params.url) searchParams.set('url', params.url);
-            if (params.mode) searchParams.set('mode', params.mode);
-            if (params.timestamp) searchParams.set('timestamp', params.timestamp);
-            if (params.text) searchParams.set('text', params.text);
+            if (url) searchParams.set('url', url);
+            if (mode) searchParams.set('mode', mode);
+            if (timestamp) searchParams.set('timestamp', timestamp);
+            if (text) searchParams.set('text', text);
             const fullUrlLength = `obsidian://youtnote?${searchParams.toString()}`.length;
             void this.handleYoutnoteUriScheme(parsed, fullUrlLength);
         });
@@ -541,17 +555,17 @@ export default class YoutnotePlugin extends Plugin {
         }
         this.lastUriSchemeInvocation = now;
 
-        // 1-7. Validate (params already parsed by the protocol handler)
-        const validated = validateYoutnoteUriParams(parsed, fullUrlLength);
-
-        if (!validated.valid) {
-            new Notice(`Youtnote uri scheme error: ${validated.error}`, 0);
-            return;
-        }
-
-        const { normalizedUrl, mode, timestampSec, text } = validated;
-
         try {
+            // 1-7. Validate (params already parsed by the protocol handler)
+            const validated = validateYoutnoteUriParams(parsed, fullUrlLength);
+
+            if (!validated.valid) {
+                showUriSchemeError(validated.error ?? 'Invalid parameters.');
+                return;
+            }
+
+            const { normalizedUrl, mode, timestampSec, text } = validated;
+
             switch (mode) {
                 case 'new':
                     await this.handleUriSchemeNew(normalizedUrl!);
@@ -568,7 +582,7 @@ export default class YoutnotePlugin extends Plugin {
             }
         } catch (error) {
             const message = error instanceof Error ? error.message : 'Unknown error';
-            new Notice(`Youtnote uri scheme error: ${message}`, 0);
+            showUriSchemeError(message);
         }
     }
 
@@ -642,7 +656,7 @@ export default class YoutnotePlugin extends Plugin {
             const { leaf } = await this.createYoutnoteFile();
             const newView = leaf.view;
             if (!(newView instanceof YoutnoteView)) {
-                new Notice('Youtnote uri scheme error: Failed to open new youtnote view.', 0);
+                showUriSchemeError('Failed to open new youtnote view.');
                 return;
             }
             targetView = newView;
@@ -670,11 +684,11 @@ export default class YoutnotePlugin extends Plugin {
         // Validate the timestamp against the video's actual duration.
         const durationSec = await this.waitForVideoDuration(targetView, videoId);
         if (durationSec === null) {
-            new Notice('Youtnote uri scheme error: Could not determine video duration. The video may be private, embedding-blocked, or the player failed to load. Open the video in a youtnote and try again.', 0);
+            showUriSchemeError('Could not determine video duration. The video may be private, embedding-blocked, or the player failed to load. Open the video in a youtnote and try again.');
             return;
         }
         if (timestampSec > durationSec) {
-            new Notice(`Youtnote uri scheme error: Timestamp ${formatSecondsToDisplay(timestampSec, 0)} exceeds video duration (max: ${formatSecondsToDisplay(durationSec)}).`, 0);
+            showUriSchemeError(`Timestamp ${formatSecondsToDisplay(timestampSec, 0)} exceeds video duration (max: ${formatSecondsToDisplay(durationSec)}).`);
             return;
         }
 
@@ -731,7 +745,7 @@ export default class YoutnotePlugin extends Plugin {
             const { leaf } = await this.createYoutnoteFile();
             const newView = leaf.view;
             if (!(newView instanceof YoutnoteView)) {
-                new Notice('Youtnote uri scheme error: Failed to open new youtnote view.', 0);
+                showUriSchemeError('Failed to open new youtnote view.');
                 return;
             }
             targetView = newView;

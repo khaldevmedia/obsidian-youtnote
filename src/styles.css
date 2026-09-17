@@ -802,6 +802,11 @@ to avoid conflicts with other plugins */
     cursor: help;
 }
 
+/* URI scheme error notices */
+.youtnote-plugin__notice-error {
+    color: var(--text-error);
+}
+
 /* Add Note Button */
 .youtnote-plugin__add-note-btn {
     width: 100%;

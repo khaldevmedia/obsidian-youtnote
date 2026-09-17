@@ -43,12 +43,13 @@ const MarkdownNoteBody: React.FC<{ app: import('obsidian').App; body: string; so
                 }
                 
                 const target = e.target as HTMLElement;
-                if (target.tagName === 'A') {
+                const anchor = target.closest('a');
+                if (anchor && containerRef.current?.contains(anchor)) {
                     e.preventDefault();
                     e.stopPropagation();
-                    const href = target.getAttribute('href');
+                    const href = anchor.getAttribute('href');
                     if (href) {
-                        if (target.classList.contains('internal-link')) {
+                        if (anchor.classList.contains('internal-link')) {
                             void app.workspace.openLinkText(href, sourcePath, e.ctrlKey || e.metaKey);
                         } else if (isSafeExternalUrl(href)) {
                             activeWindow.open(href, '_blank', 'noopener,noreferrer');

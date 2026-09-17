@@ -17,10 +17,10 @@ const ALLOWED_PARAMS = ['url', 'mode', 'timestamp', 'text'];
 
 /** Raw parsed parameters from the URI (before validation). */
 export interface ParsedYoutnoteUriParams {
-    url?: string;
-    mode?: string;
-    timestamp?: string;
-    text?: string;
+    url?: string | undefined;
+    mode?: string | undefined;
+    timestamp?: string | undefined;
+    text?: string | undefined;
 }
 
 /** Result of validating parsed URI parameters. */
@@ -44,48 +44,26 @@ export function getUnsupportedParams(rawParams: Record<string, string>): string[
 }
 
 /**
- * Extracts `url`, `mode`, `timestamp`, and `text` from a youtnote:// URL string.
- * All other parameters are ignored (use getUnsupportedParams to detect them).
- */
-export function parseYoutnoteUriParams(url: string): ParsedYoutnoteUriParams {
-    const params: ParsedYoutnoteUriParams = {};
-
-    try {
-        const parsed = new URL(url);
-        const searchParams = parsed.searchParams;
-
-        const urlParam = searchParams.get('url');
-        if (urlParam !== null) {
-            params.url = urlParam;
-        }
-
-        const modeParam = searchParams.get('mode');
-        if (modeParam !== null) {
-            params.mode = modeParam;
-        }
-
-        const timestampParam = searchParams.get('timestamp');
-        if (timestampParam !== null) {
-            params.timestamp = timestampParam;
-        }
-
-        const textParam = searchParams.get('text');
-        if (textParam !== null) {
-            params.text = textParam;
-        }
-    } catch {
-        // Invalid URL — return empty params, validation will reject
-    }
-
-    return params;
-}
-
-/**
  * Checks if the text starts with a `---` frontmatter marker.
  * Such text is rejected (not stripped) for security reasons.
  */
 export function hasLeadingFrontmatter(text: string): boolean {
     return /^\s*---\s*\n?/.test(text);
+}
+
+/**
+ * Checks if any line of the text would be parsed as a youtnote section marker
+ * (video link, timestamp marker, or general-note marker). Such text is rejected
+ * because it would corrupt the file structure on the next load.
+ */
+export function hasStructuralDelimiter(text: string): boolean {
+    return text.split('\n').some(rawLine => {
+        const line = rawLine.trim();
+        if (line === '[general-note](general-note)') return true;
+        if (/^\[[\d:]+\]\(timestamp\)/.test(line)) return true;
+        const videoMatch = line.match(/^\[(.*?)\]\((.+)\)$/);
+        return videoMatch !== null && extractYouTubeId(videoMatch[2]) !== null;
+    });
 }
 
 /**
@@ -219,6 +197,16 @@ export function validateYoutnoteUriParams(
             return {
                 valid: false,
                 error: 'The "text" parameter contains a leading frontmatter marker (---), which is not allowed.',
+                mode,
+                normalizedUrl,
+                timestampSec,
+            };
+        }
+
+        if (hasStructuralDelimiter(params.text)) {
+            return {
+                valid: false,
+                error: 'The "text" parameter contains a line that would be interpreted as a youtnote section marker (video link, [mm:ss](timestamp), or [general-note](general-note)), which is not allowed.',
                 mode,
                 normalizedUrl,
                 timestampSec,

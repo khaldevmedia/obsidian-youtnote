@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
-    parseYoutnoteUriParams,
     validateYoutnoteUriParams,
     hasLeadingFrontmatter,
+    hasStructuralDelimiter,
     getUnsupportedParams,
     isDebounced,
     MAX_URL_LENGTH,
@@ -11,58 +11,6 @@ import {
 } from './uri-scheme';
 
 const VALID_YT_URL = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ';
-
-// ─── parseYoutnoteUriParams ─────────────────────────────────────────────────
-
-describe('parseYoutnoteUriParams', () => {
-    it('parses all four params correctly from a full URL', () => {
-        const url = `obsidian://youtnote?url=${encodeURIComponent(VALID_YT_URL)}&mode=note&timestamp=90&text=${encodeURIComponent('My note')}`;
-        const params = parseYoutnoteUriParams(url);
-
-        expect(params.url).toBe(VALID_YT_URL);
-        expect(params.mode).toBe('note');
-        expect(params.timestamp).toBe('90');
-        expect(params.text).toBe('My note');
-    });
-
-    it('handles missing optional params (mode, timestamp, text absent)', () => {
-        const url = `obsidian://youtnote?url=${encodeURIComponent(VALID_YT_URL)}`;
-        const params = parseYoutnoteUriParams(url);
-
-        expect(params.url).toBe(VALID_YT_URL);
-        expect(params.mode).toBeUndefined();
-        expect(params.timestamp).toBeUndefined();
-        expect(params.text).toBeUndefined();
-    });
-
-    it('handles empty url param', () => {
-        const url = 'obsidian://youtnote?url=&mode=new';
-        const params = parseYoutnoteUriParams(url);
-
-        expect(params.url).toBe('');
-        expect(params.mode).toBe('new');
-    });
-
-    it('ignores unknown params (path, file, command, etc.)', () => {
-        const url = `obsidian://youtnote?url=${encodeURIComponent(VALID_YT_URL)}&mode=new&path=/etc/passwd&file=secret.md&command=rm -rf`;
-        const params = parseYoutnoteUriParams(url);
-
-        expect(params.url).toBe(VALID_YT_URL);
-        expect(params.mode).toBe('new');
-        expect(params.timestamp).toBeUndefined();
-        expect(params.text).toBeUndefined();
-        // Unknown params are simply not in the result
-        expect(Object.keys(params)).toEqual(['url', 'mode']);
-    });
-
-    it('URL-decodes the text param', () => {
-        const rawText = 'Hello%20world%20with%20newlines%0Aand%20special%20chars%3A%20%2B%26%23';
-        const url = `obsidian://youtnote?url=${encodeURIComponent(VALID_YT_URL)}&mode=note&timestamp=10&text=${rawText}`;
-        const params = parseYoutnoteUriParams(url);
-
-        expect(params.text).toBe('Hello world with newlines\nand special chars: +&#');
-    });
-});
 
 // ─── getUnsupportedParams ───────────────────────────────────────────────────
 
@@ -259,6 +207,28 @@ describe('validateYoutnoteUriParams', () => {
         expect(result.valid).toBe(true);
         expect(result.text).toBe('Some text\n---\nMore text');
     });
+
+    it('rejects mode=note text containing a section marker', () => {
+        const params = { url: VALID_YT_URL, mode: 'note', timestamp: '10', text: '[general-note](general-note)' };
+        const result = validateYoutnoteUriParams(params, 200);
+
+        expect(result.valid).toBe(false);
+        expect(result.error).toContain('section marker');
+    });
+
+    it('rejects mode=general-note text containing a YouTube link line', () => {
+        const params = { url: VALID_YT_URL, mode: 'general-note', text: 'Summary\n[Other](https://www.youtube.com/watch?v=dQw4w9WgXcQ)' };
+        const result = validateYoutnoteUriParams(params, 200);
+
+        expect(result.valid).toBe(false);
+        expect(result.error).toContain('section marker');
+    });
+
+    it('throws on non-string url param (guarded by try/catch in main.ts)', () => {
+        const params = { url: ['a', 'b'] as unknown as string, mode: 'new' };
+
+        expect(() => validateYoutnoteUriParams(params, 100)).toThrow();
+    });
 });
 
 // ─── hasLeadingFrontmatter ──────────────────────────────────────────────────
@@ -282,6 +252,46 @@ describe('hasLeadingFrontmatter', () => {
 
     it('returns false for --- that appears later in the text', () => {
         expect(hasLeadingFrontmatter('Some text\n---\nMore text')).toBe(false);
+    });
+});
+
+// ─── hasStructuralDelimiter ─────────────────────────────────────────────────
+
+describe('hasStructuralDelimiter', () => {
+    it('returns true for a general-note marker', () => {
+        expect(hasStructuralDelimiter('[general-note](general-note)')).toBe(true);
+    });
+
+    it('returns true for a timestamp marker', () => {
+        expect(hasStructuralDelimiter('[01:23](timestamp)')).toBe(true);
+    });
+
+    it('returns true for a YouTube video link', () => {
+        expect(hasStructuralDelimiter('[Title](https://youtu.be/dQw4w9WgXcQ)')).toBe(true);
+    });
+
+    it('returns true when the marker is on a later line', () => {
+        expect(hasStructuralDelimiter('Normal text\n[general-note](general-note)')).toBe(true);
+    });
+
+    it('returns true with leading whitespace', () => {
+        expect(hasStructuralDelimiter('   [01:23](timestamp)')).toBe(true);
+    });
+
+    it('returns false for plain text', () => {
+        expect(hasStructuralDelimiter('This is a regular note.')).toBe(false);
+    });
+
+    it('returns false for a non-YouTube markdown link', () => {
+        expect(hasStructuralDelimiter('[docs](https://example.com)')).toBe(false);
+    });
+
+    it('returns false when the marker is not at line start', () => {
+        expect(hasStructuralDelimiter('see [01:23](timestamp) here')).toBe(false);
+    });
+
+    it('returns false for empty string', () => {
+        expect(hasStructuralDelimiter('')).toBe(false);
     });
 });
 

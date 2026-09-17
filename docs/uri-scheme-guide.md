@@ -12,6 +12,17 @@ The URI scheme is **disabled by default** for security. To enable it:
 
 When disabled, any `obsidian://youtnote` URI will show a notice and do nothing: no parameters are parsed or processed.
 
+## Security considerations
+
+The URI scheme is a write channel into your vault. Keep the following in mind:
+
+- **Any external source can trigger it while enabled.** Once the toggle is on, any webpage, document, bookmark, or script that opens an `obsidian://youtnote` URI will invoke the handler. A click is not always required (for example, a page can embed the URI in an image source).
+- **`mode=append`, `mode=note`, and `mode=general-note` write to the currently open youtnote** (or create a new one if none is open) without asking for confirmation.
+- **Leave it disabled when you are not using it.** Turn the toggle on only while your automation actually needs it.
+- **Do not click `obsidian://youtnote` links from sources you do not trust.**
+
+What the handler will never do: accept file paths, write outside the youtnote it targets, run commands, or accept parameters other than `url`, `mode`, `timestamp`, and `text`. See [Safeguards](#safeguards) below.
+
 ## URI format
 
 ```
@@ -25,7 +36,7 @@ obsidian://youtnote?url=<YouTube_URL>&mode=<MODE>&timestamp=<TIMESTAMP>&text=<NO
 | `url` | Yes | A valid YouTube URL. Accepts standard watch URLs, `youtu.be`, Shorts, Live, and embed URLs. |
 | `mode` | Yes | One of: `new`, `append`, `note`, `general-note`. |
 | `timestamp` | Only for `mode=note` | A timestamp string (e.g. `90`, `1:23`, `12:50`). Validated against the video's actual duration before the note is added. |
-| `text` | Only for `mode=note` and `mode=general-note` | The note content, URL-encoded. Stored as-is in the note body. Max 1000 characters. Must not start with `---` (frontmatter marker). |
+| `text` | Only for `mode=note` and `mode=general-note` | The note content, URL-encoded. Stored as-is in the note body. Max 1000 characters. Must not start with `---` (frontmatter marker) and must not contain a line that looks like a youtnote section marker (`[mm:ss](timestamp)`, `[general-note](general-note)`, or a `[title](YouTube URL)` link). |
 
 All other parameters are rejected with an error notice.
 
@@ -119,4 +130,5 @@ All URI scheme outcomes (both successes and errors) display a **persistent notic
 - **No file paths**: The handler never accepts `path`, `file`, or `filename` parameters. Filenames are always generated internally.
 - **No unsupported parameters**: Any parameter other than `url`, `mode`, `timestamp`, and `text` is rejected.
 - **No frontmatter injection**: Note text starting with `---` is rejected.
+- **No section-marker injection**: Note text containing a line that would be parsed as a video link, `[mm:ss](timestamp)`, or `[general-note](general-note)` is rejected.
 - **One note per call**: No bulk operations.

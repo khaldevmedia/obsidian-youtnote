@@ -60,11 +60,11 @@ interface SettingGroupDef {
 	items: SettingItemDef[];
 }
 
-const URI_SCHEME_GUIDE_URL = 'https://github.com/khaldevmedia/obsidian-youtnote/blob/develop/docs/uri-scheme-guide.md';
+const URI_SCHEME_GUIDE_URL = 'https://github.com/khaldevmedia/obsidian-youtnote/blob/feature/uri-scheme/docs/uri-scheme-guide.md';
 
 function buildUriSchemeDesc(): DocumentFragment {
 	return createFragment(frag => {
-		frag.appendText('Lets external tools add videos and notes to youtnotes in your vault programmatically. Enable only if you use automation tools that rely on this feature. For a guide on using this feature, click ');
+		frag.appendText('Lets external tools add videos and notes to youtnotes in your vault programmatically. While enabled, any link, webpage, or script that opens an obsidian://youtnote URI can add videos or notes to your open youtnote or create new youtnotes. Enable only if you use automation tools that rely on this feature. For a guide on using this feature, click ');
 		frag.createEl('a', {
 			text: 'Here',
 			attr: { href: URI_SCHEME_GUIDE_URL },
