@@ -60,7 +60,7 @@ interface SettingGroupDef {
 	items: SettingItemDef[];
 }
 
-const URI_SCHEME_GUIDE_URL = 'https://github.com/khaldevmedia/obsidian-youtnote/blob/feature/uri-scheme/docs/uri-scheme-guide.md';
+const URI_SCHEME_GUIDE_URL = 'https://github.com/khaldevmedia/obsidian-youtnote/blob/develop/docs/uri-scheme-guide.md';
 
 function buildUriSchemeDesc(): DocumentFragment {
 	return createFragment(frag => {
