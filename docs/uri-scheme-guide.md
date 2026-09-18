@@ -33,12 +33,31 @@ obsidian://youtnote?url=<YouTube_URL>&mode=<MODE>&timestamp=<TIMESTAMP>&text=<NO
 
 | Parameter | Required | Description |
 |---|---|---|
-| `url` | Yes | A valid YouTube URL. Accepts standard watch URLs, `youtu.be`, Shorts, Live, and embed URLs. |
+| `url` | Yes | A valid YouTube URL. Accepts standard watch URLs, `youtu.be`, Shorts, Live, and embed URLs. On Obsidian older than `1.13.4` the value must be URL-encoded (see below). |
 | `mode` | Yes | One of: `new`, `append`, `note`, `general-note`. |
 | `timestamp` | Only for `mode=note` | A timestamp string (e.g. `90`, `1:23`, `12:50`). Validated against the video's actual duration before the note is added. |
 | `text` | Only for `mode=note` and `mode=general-note` | The note content, URL-encoded. Stored as-is in the note body. Max 1000 characters. Must not start with `---` (frontmatter marker) and must not contain a line that looks like a youtnote section marker (`[mm:ss](timestamp)`, `[general-note](general-note)`, or a `[title](YouTube URL)` link). |
 
 All other parameters are rejected with an error notice.
+
+### Encoding the `url` parameter on Obsidian older than 1.13.4
+
+Obsidian versions before `1.13.4` cut a parameter value off at its second `=`. A raw `watch?v=` URL therefore arrives as `https://www.youtube.com/watch?v` and is rejected with `The "url" parameter is not a valid YouTube URL.` To support these versions, URL-encode the `url` value (e.g. `encodeURIComponent()` in JavaScript):
+
+#### Raw: works on Obsidian 1.13.4 and later only
+```
+obsidian://youtnote?url=https://www.youtube.com/watch?v=dQw4w9WgXcQ&mode=new
+```
+#### Encoded: works on every supported Obsidian version
+```
+obsidian://youtnote?url=https%3A%2F%2Fwww.youtube.com%2Fwatch%3Fv%3DdQw4w9WgXcQ&mode=new
+```
+> [!IMPORTANT]
+> **On every version of Obsidian**
+>
+> Encoding is required on **every version** when the YouTube URL itself contains `&` (for example a `&list=` playlist parameter); otherwise the part after `&` is treated as a separate, unsupported parameter. The examples in the rest of this guide use raw URLs for readability.
+>
+> It is recommended to always use encoding to avoid issues.
 
 ## Modes
 
