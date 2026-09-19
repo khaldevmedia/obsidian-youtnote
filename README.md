@@ -54,6 +54,7 @@ For more details on this issue, please **[read here](docs/error-153-ios.md)**.
 - **General notes**: Add one timestamp-less note per video for summaries, overviews, or context that doesn't belong to a specific moment. General notes sit at the top of the note list and are visually distinct.
 - **Search notes**: Filter notes for the active video by text content or timestamp. The search bar lives in the notes pane header and clears automatically when switching videos or adding new notes.
 - **URI scheme**: Let external tools (scripts, browser bookmarks, automation) add videos and notes to youtnotes in your vault via `obsidian://youtnote` URIs. Disabled by default. See the [URI Scheme Guide](docs/uri-scheme-guide.md).
+- **Video transcripts**: Fetch a video's YouTube captions into the youtnote (pick the caption track when several exist), browse them alongside the player, click a timestamp to seek, copy captions, edit caption text, and create notes directly from any caption. Stored in the file in a plain, greppable `[timestamp](transcript) text` syntax.
 
 
 ## Installation
@@ -76,7 +77,8 @@ For more details on this issue, please **[read here](docs/error-153-ios.md)**.
 6. **Jump around** by clicking any timestamp: the player seeks (and optionally autoplays) to that moment.
 7. **Add a general note** using the note icon in the notes header, perfect for video summaries or context without a timestamp. One per video.
 8. **Search notes** using the search bar in the notes header to filter by text or timestamp (e.g. `1:23`). Only filters the active video's notes.
-9. **Export** single-video or full-note markdown via the header buttons.
+9. **Fetch the transcript** with the captions icon in the notes header. In the transcript view, click a timestamp to seek, hover a caption to copy it, edit its text, or turn it into a note; use the search bar to filter captions and the re-fetch icon to reload them from YouTube.
+10. **Export** single-video or full-note markdown via the header buttons.
 
 ## Settings Overview
 All options live under `Settings → Plugin Options → Youtnote`:

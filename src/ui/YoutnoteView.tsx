@@ -3,12 +3,20 @@ import classNames from 'classnames';
 import { requestUrl, setIcon, Notice, Platform } from 'obsidian';
 import Sortable, { SortableEvent } from 'sortablejs';
 import { YouTubeIframeAdapter } from '../PlayerAdapter';
-import { VideoId, NoteId, Video, Note } from '../types';
+import { VideoId, NoteId, Video, Note, TranscriptEntry } from '../types';
 import { VideoListItem } from './VideoListItem';
 import { NoteListItem } from './NoteListItem';
+import { TranscriptListItem } from './TranscriptListItem';
 import { AlertModal, ConfirmModal } from './MessageBoxes';
+import { pickCaptionTrack } from './CaptionTrackModal';
 import { YoutubePluginViewProps } from '../types';
+import { fetchCaptionTracks, fetchTranscriptEntries } from '../transcriptFetch';
 import {
+    formatTranscriptTimestamp,
+    transcriptUsesHours
+} from '../transcript';
+import {
+    compareNotes,
     extractYouTubeId,
     normalizeYouTubeUrl,
     parseTimestampInput,
@@ -35,13 +43,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
     const activeVideoNotes = useMemo(
         () => notes
             .filter(n => n.videoId === activeVideoId)
-            .sort((a, b) => {
-                const aGeneral = a.isGeneral === true || a.timestampSec === -1;
-                const bGeneral = b.isGeneral === true || b.timestampSec === -1;
-                if (aGeneral && !bGeneral) return -1;
-                if (!aGeneral && bGeneral) return 1;
-                return a.timestampSec - b.timestampSec;
-            }),
+            .sort(compareNotes),
         [notes, activeVideoId]
     );
     const activeVideo = useMemo(
@@ -76,6 +78,20 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
         };
     }, [activeVideoNotes]);
 
+    const activeTranscript = useMemo(() => activeVideo?.transcript ?? [], [activeVideo]);
+    const hasTranscript = activeTranscript.length > 0;
+    const transcriptUseHours = transcriptUsesHours(activeTranscript, maxDuration);
+    const filteredTranscript = useMemo(() => {
+        const q = searchQuery.trim().toLowerCase();
+        return activeTranscript
+            .map((entry, index) => ({
+                entry,
+                index,
+                display: formatTranscriptTimestamp(entry.timestampSec, transcriptUseHours),
+            }))
+            .filter(item => !q || item.entry.text.toLowerCase().includes(q) || item.display.includes(q));
+    }, [activeTranscript, searchQuery, transcriptUseHours]);
+
     const iframeRef = useRef<HTMLIFrameElement>(null);
     const playerAdapterRef = useRef<YouTubeIframeAdapter | null>(null);
     const adapterIframeRef = useRef<HTMLIFrameElement | null>(null);
@@ -91,6 +107,12 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
     // State for new video input
     const [newVideoUrl, setNewVideoUrl] = useState('');
     const [isFetchingMetadata, setIsFetchingMetadata] = useState(false);
+
+    // State for transcript view
+    const [showTranscript, setShowTranscript] = useState(false);
+    const [isFetchingTranscript, setIsFetchingTranscript] = useState(false);
+    const [activeTranscriptIndex, setActiveTranscriptIndex] = useState<number | null>(null);
+    const [editingTranscriptIndex, setEditingTranscriptIndex] = useState<number | null>(null);
 
     // State for expanded notes
     const [expandedNotes, setExpandedNotes] = useState<Set<NoteId>>(new Set());
@@ -139,7 +161,15 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
         }
         // Clear search query when switching to a different video
         setSearchQuery('');
+        setActiveTranscriptIndex(null);
+        setEditingTranscriptIndex(null);
     }, [activeVideoId, settings.persistExpandedState]);
+
+    // Clear search and caption editing state when toggling between notes and transcript
+    useEffect(() => {
+        setSearchQuery('');
+        setEditingTranscriptIndex(null);
+    }, [showTranscript]);
     
     // Handle singleExpandMode changes - collapse extra notes when switching to single mode
     useEffect(() => {
@@ -211,7 +241,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
         if (addGeneralNoteButtonRef.current) {
             setIcon(addGeneralNoteButtonRef.current, 'file-plus');
         }
-    }, [activeVideoId, activeVideoNotes.length, videos.length, notes.length, hasGeneralNote]);
+    }, [activeVideoId, activeVideoNotes.length, videos.length, notes.length, hasGeneralNote, showTranscript]);
 
     useEffect(() => {
         if (videoListRef.current) {
@@ -294,7 +324,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
                 const duration = await adapter.getDuration();
                 // Read from the view's videos (source of truth) instead of videosRef.current
                 // which can be stale if an external caller (e.g. URI scheme) updated videos
-                const latestVideos = (view as unknown as { videos: Video[] }).videos;
+                const latestVideos = view.videos;
                 const latestVideo = latestVideos.find(v => v.id === videoId);
                 if (latestVideo && duration > 0 && duration !== latestVideo.durationSec) {
                     const updatedVideos = latestVideos.map(v =>
@@ -516,13 +546,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
             updatedAt: new Date().toISOString(),
         };
 
-        const newNotes = [...notes, newNote].sort((a, b) => {
-            const aGeneral = a.isGeneral === true || a.timestampSec === -1;
-            const bGeneral = b.isGeneral === true || b.timestampSec === -1;
-            if (aGeneral && !bGeneral) return -1;
-            if (!aGeneral && bGeneral) return 1;
-            return a.timestampSec - b.timestampSec;
-        });
+        const newNotes = [...notes, newNote].sort(compareNotes);
         onUpdateNotes(newNotes);
 
         // Clear search so the new note is visible
@@ -805,6 +829,123 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
         ).open();
     };
 
+    const handleFetchTranscript = async () => {
+        if (!activeVideo) return;
+        const ytId = extractYouTubeId(activeVideo.url);
+        if (!ytId) return;
+        const targetVideoId = activeVideo.id;
+
+        setIsFetchingTranscript(true);
+        try {
+            const tracks = await fetchCaptionTracks(ytId);
+            if (tracks.length === 0) {
+                new AlertModal(app, 'No transcript available', 'YouTube has no captions for this video.').open();
+                return;
+            }
+            let track = tracks[0];
+            if (tracks.length > 1) {
+                setIsFetchingTranscript(false);
+                const picked = await pickCaptionTrack(app, tracks);
+                if (!picked) return;
+                track = picked;
+                setIsFetchingTranscript(true);
+            }
+            const entries = await fetchTranscriptEntries(track);
+            if (entries.length === 0) {
+                new AlertModal(app, 'Transcript is empty', 'The selected caption track contains no text.').open();
+                return;
+            }
+            // Read from view.videos (source of truth) to avoid clobbering concurrent updates
+            onUpdateVideos(view.videos.map(v => v.id === targetVideoId ? { ...v, transcript: entries } : v));
+            setActiveTranscriptIndex(null);
+            setEditingTranscriptIndex(null);
+            setSearchQuery('');
+            new Notice(`Transcript fetched (${entries.length} captions)`, 2000);
+        } catch (err) {
+            console.error('Error fetching transcript:', err);
+            new AlertModal(
+                app,
+                'Unable to fetch transcript',
+                err instanceof Error && err.message ? err.message : 'Check your internet connection and try again.'
+            ).open();
+        } finally {
+            setIsFetchingTranscript(false);
+        }
+    };
+
+    const handleRefetchTranscript = () => {
+        new ConfirmModal(
+            app,
+            'Re-fetch transcript?',
+            'This will replace the current transcript, including any edits you made.',
+            () => { void handleFetchTranscript(); },
+            'Re-fetch',
+            'Cancel'
+        ).open();
+    };
+
+    const handleTranscriptSeek = (index: number, timestampSec: number) => {
+        setActiveTranscriptIndex(index);
+        void seekToTimestamp(timestampSec);
+    };
+
+    const handleCopyCaption = async (entry: TranscriptEntry, displayTimestamp: string) => {
+        try {
+            await navigator.clipboard.writeText(`${displayTimestamp} ${entry.text}`);
+            new Notice('Caption copied to the clipboard!', 2000);
+        } catch (err) {
+            console.error('Failed to copy caption:', err);
+            new Notice('Failed to copy caption!', 2000);
+        }
+    };
+
+    const handleCreateNoteFromCaption = (entry: TranscriptEntry, displayTimestamp: string) => {
+        if (!activeVideoId) return;
+
+        const newNoteId = crypto.randomUUID() as NoteId;
+        const newNote: Note = {
+            id: newNoteId,
+            videoId: activeVideoId,
+            timestampSec: entry.timestampSec,
+            bodyMarkdown: entry.text,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+        };
+
+        onUpdateNotes([...notes, newNote].sort(compareNotes));
+        new Notice(`Note created from timestamp ${displayTimestamp}`, 2000);
+
+        if (settings.switchToNotesAfterTranscriptNote) {
+            setShowTranscript(false);
+            setSearchQuery('');
+            setNewlyCreatedNoteId(newNoteId);
+            setActiveNoteId(newNoteId);
+            setExpandedNotes(prev => {
+                const next = new Set(prev);
+                if (settings.singleExpandMode) {
+                    next.clear();
+                }
+                next.add(newNoteId);
+                return next;
+            });
+        }
+    };
+
+    const handleSaveTranscriptEdit = (index: number, rawText: string) => {
+        const text = rawText.replace(/\s+/g, ' ').trim();
+        const current = activeTranscript[index];
+        if (!text || !current || text === current.text) {
+            setEditingTranscriptIndex(null);
+            return;
+        }
+        onUpdateVideos(view.videos.map(v =>
+            v.id === activeVideoId && v.transcript
+                ? { ...v, transcript: v.transcript.map((e, i) => (i === index ? { ...e, text } : e)) }
+                : v
+        ));
+        setEditingTranscriptIndex(null);
+    };
+
     // Resize handlers
     const handleMouseDown = (e: React.MouseEvent) => {
         e.preventDefault();
@@ -958,58 +1099,107 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
                 <div className="youtnote-plugin__note-list-header">
                     <div className="youtnote-plugin__note-list-header-row">
                         <div className="youtnote-plugin__note-list-header-content">
-                            Notes: <span>{activeVideoNotes.length}</span>
-                            {settings.showNoteStats && activeVideoNotes.length > 0 && (
+                            {showTranscript ? (
+                                <>Transcript: <span>{activeTranscript.length}</span></>
+                            ) : (
                                 <>
-                                    {' • '}
-                                    Total words: <span>{activeVideoStats.words}</span>
-                                    {' • '}
-                                    Total characters: <span>{activeVideoStats.characters}</span>
+                                    Notes: <span>{activeVideoNotes.length}</span>
+                                    {settings.showNoteStats && activeVideoNotes.length > 0 && (
+                                        <>
+                                            {' • '}
+                                            Total words: <span>{activeVideoStats.words}</span>
+                                            {' • '}
+                                            Total characters: <span>{activeVideoStats.characters}</span>
+                                        </>
+                                    )}
                                 </>
                             )}
                         </div>
                         {activeVideoId && (
                             <div className="youtnote-plugin__note-list-header-actions">
                                 <div className="youtnote-plugin__note-list-action-btns-container">
-                                    <button
-                                        ref={addGeneralNoteButtonRef}
-                                        className="youtnote-plugin__add-general-note-btn"
-                                        onClick={handleAddGeneralNote}
-                                        disabled={hasGeneralNote}
-                                        aria-label="Add general note"
-                                    />
-                                    {activeVideoNotes.length > 0 && (
+                                    {showTranscript ? (
                                         <>
                                             <button
-                                                ref={mergeNotesButtonRef}
-                                                className="youtnote-plugin__merge-notes-btn"
-                                                onClick={handleMergeDuplicateNotes}
-                                                aria-label="Merge notes with the same timestamp"
+                                                ref={(el) => {
+                                                    if (el) {
+                                                        el.empty();
+                                                        setIcon(el, 'arrow-left');
+                                                    }
+                                                }}
+                                                className="youtnote-plugin__transcript-back-btn"
+                                                onClick={() => setShowTranscript(false)}
+                                                aria-label="Back to notes"
+                                            />
+                                            {hasTranscript && (
+                                                <button
+                                                    ref={(el) => {
+                                                        if (el) {
+                                                            el.empty();
+                                                            setIcon(el, 'list-restart');
+                                                        }
+                                                    }}
+                                                    className="youtnote-plugin__transcript-refetch-btn"
+                                                    onClick={handleRefetchTranscript}
+                                                    disabled={isFetchingTranscript}
+                                                    aria-label="Re-fetch transcript from YouTube"
+                                                />
+                                            )}
+                                        </>
+                                    ) : (
+                                        <>
+                                            <button
+                                                ref={(el) => {
+                                                    if (el) {
+                                                        el.empty();
+                                                        setIcon(el, 'captions');
+                                                    }
+                                                }}
+                                                className="youtnote-plugin__transcript-btn"
+                                                onClick={() => setShowTranscript(true)}
+                                                aria-label="Show transcript"
                                             />
                                             <button
-                                                ref={exportButtonRef}
-                                                className="youtnote-plugin__export-btn"
-                                                onClick={() => { void onExportSingleVideo(activeVideoId); }}
-                                                aria-label="Export the notes of selected video as Markdown"
+                                                ref={addGeneralNoteButtonRef}
+                                                className="youtnote-plugin__add-general-note-btn"
+                                                onClick={handleAddGeneralNote}
+                                                disabled={hasGeneralNote}
+                                                aria-label="Add general note"
                                             />
+                                            {activeVideoNotes.length > 0 && (
+                                                <>
+                                                    <button
+                                                        ref={mergeNotesButtonRef}
+                                                        className="youtnote-plugin__merge-notes-btn"
+                                                        onClick={handleMergeDuplicateNotes}
+                                                        aria-label="Merge notes with the same timestamp"
+                                                    />
+                                                    <button
+                                                        ref={exportButtonRef}
+                                                        className="youtnote-plugin__export-btn"
+                                                        onClick={() => { void onExportSingleVideo(activeVideoId); }}
+                                                        aria-label="Export the notes of selected video as Markdown"
+                                                    />
+                                                </>
+                                            )}
                                         </>
                                     )}
                                 </div>
                             </div>
                         )}
                     </div>
-                    {activeVideoId && activeVideoNotes.length > 0 && (
+                    {activeVideoId && ((!showTranscript && activeVideoNotes.length > 0) || (showTranscript && hasTranscript)) && (
                         <div className="youtnote-plugin__note-search-container">
                             <input
                                 className="youtnote-plugin__note-search-input"
-                                placeholder="Search notes..."
+                                placeholder={showTranscript ? 'Search transcript...' : 'Search notes...'}
                                 value={searchQuery}
                                 onChange={(e) => setSearchQuery(e.target.value)}
                                 onKeyDown={(e) => {
                                     // Prevent editor shortcuts from being hijacked
                                     e.stopPropagation();
                                 }}
-                                aria-label="Search notes"
+                                aria-label={showTranscript ? 'Search transcript' : 'Search notes'}
                             />
                             {searchQuery && (
                                 <button
@@ -1028,6 +1218,47 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
                         </div>
                     )}
                 </div>
+                {showTranscript ? (
+                    <div className="youtnote-plugin__transcript-list">
+                        {isFetchingTranscript ? (
+                            <div className="youtnote-plugin__transcript-empty">
+                                <div className="youtnote-plugin__dot-pulse" />
+                                <div className="youtnote-plugin__loading-text">Fetching transcript...</div>
+                            </div>
+                        ) : !hasTranscript ? (
+                            <div className="youtnote-plugin__transcript-empty">
+                                <div>No transcript fetched for this video yet.</div>
+                                <button
+                                    className="mod-cta youtnote-plugin__transcript-fetch-btn"
+                                    onClick={() => { void handleFetchTranscript(); }}
+                                >
+                                    Fetch transcript
+                                </button>
+                            </div>
+                        ) : filteredTranscript.length === 0 ? (
+                            <div className="youtnote-plugin__transcript-empty">
+                                No captions match your search.
+                            </div>
+                        ) : (
+                            filteredTranscript.map(item => (
+                                <TranscriptListItem
+                                    key={item.index}
+                                    entry={item.entry}
+                                    index={item.index}
+                                    displayTimestamp={item.display}
+                                    isActive={activeTranscriptIndex === item.index}
+                                    isEditing={editingTranscriptIndex === item.index}
+                                    onSeek={handleTranscriptSeek}
+                                    onCopy={(entry, display) => { void handleCopyCaption(entry, display); }}
+                                    onCreateNote={handleCreateNoteFromCaption}
+                                    onStartEdit={setEditingTranscriptIndex}
+                                    onSaveEdit={handleSaveTranscriptEdit}
+                                    onCancelEdit={() => setEditingTranscriptIndex(null)}
+                                />
+                            ))
+                        )}
+                    </div>
+                ) : (
                 <div className="youtnote-plugin__notes-list">
                     {filteredVideoNotes.map(note => (
                         <div
@@ -1067,6 +1298,8 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
                         </div>
                     ))}
                 </div>
+                )}
+                {!showTranscript && (
                 <button
                     ref={(el) => {
                         if (el) {
@@ -1079,6 +1312,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
                     aria-label="Add note"
                 >
                 </button>
+                )}
             </div>
         </div>
     );

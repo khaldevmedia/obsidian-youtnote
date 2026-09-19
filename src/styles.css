@@ -261,7 +261,10 @@ to avoid conflicts with other plugins */
 }
 
 .youtnote-plugin__export-btn,
-.youtnote-plugin__merge-notes-btn {
+.youtnote-plugin__merge-notes-btn,
+.youtnote-plugin__transcript-btn,
+.youtnote-plugin__transcript-back-btn,
+.youtnote-plugin__transcript-refetch-btn {
     background: transparent;
     border: none;
     color: var(--text-muted);
@@ -276,9 +279,17 @@ to avoid conflicts with other plugins */
 }
 
 .youtnote-plugin__export-btn:hover,
-.youtnote-plugin__merge-notes-btn:hover {
+.youtnote-plugin__merge-notes-btn:hover,
+.youtnote-plugin__transcript-btn:hover,
+.youtnote-plugin__transcript-back-btn:hover,
+.youtnote-plugin__transcript-refetch-btn:hover {
     color: var(--text-normal);
     background-color: var(--background-modifier-hover);
+}
+
+.youtnote-plugin__transcript-refetch-btn:disabled {
+    opacity: 0.3;
+    pointer-events: none;
 }
 
 .is-mobile .youtnote-plugin__video-list-header .youtnote-plugin__export-btn{
@@ -451,6 +462,135 @@ to avoid conflicts with other plugins */
     flex: 0 1 auto;
     max-height: 100%;
     padding-right: 8px; /* For scrollbar */
+}
+
+/* Transcript view */
+.youtnote-plugin__transcript-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    overflow-y: auto;
+    flex: 1 1 auto;
+    min-height: 0;
+    padding-right: 8px;
+}
+
+.is-mobile .youtnote-plugin__transcript-list {
+    overflow-y: visible;
+    max-height: none;
+    padding: 0;
+}
+
+.youtnote-plugin__transcript-card {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 6px 8px;
+    border-radius: 6px;
+}
+
+.youtnote-plugin__transcript-card:hover {
+    background-color: var(--background-modifier-hover);
+}
+
+.youtnote-plugin__transcript-timestamp {
+    font-family: var(--font-monospace);
+    font-size: 13px;
+    color: var(--text-muted);
+    cursor: pointer;
+    flex-shrink: 0;
+    line-height: 1.5;
+    padding-top: 1px;
+}
+
+.youtnote-plugin__transcript-timestamp:hover {
+    color: var(--interactive-accent);
+}
+
+.youtnote-plugin__transcript-card.youtnote-plugin__active .youtnote-plugin__transcript-timestamp {
+    color: var(--interactive-accent);
+    font-weight: 600;
+}
+
+.youtnote-plugin__transcript-text {
+    flex: 1;
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--text-normal);
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+}
+
+.youtnote-plugin__transcript-text-editing {
+    outline: none;
+    cursor: text;
+    border-bottom: 1px solid var(--interactive-accent);
+}
+
+.youtnote-plugin__transcript-actions {
+    display: flex;
+    gap: 4px;
+    flex-shrink: 0;
+    opacity: 0;
+    transition: opacity 0.15s ease;
+}
+
+.youtnote-plugin__transcript-card:hover .youtnote-plugin__transcript-actions {
+    opacity: 1;
+}
+
+.youtnote-plugin__transcript-actions button {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s ease;
+}
+
+.youtnote-plugin__transcript-actions button:hover {
+    color: var(--text-normal);
+    background-color: var(--background-modifier-hover);
+}
+
+.is-mobile .youtnote-plugin__transcript-actions {
+    display: none;
+}
+
+.youtnote-plugin__transcript-mobile-save-btn {
+    flex-shrink: 0;
+    background-color: var(--interactive-accent);
+    color: var(--text-on-accent);
+    border: none;
+    border-radius: 4px;
+    padding: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    line-height: 1;
+}
+
+.youtnote-plugin__transcript-empty {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    padding: 24px;
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 14px;
+}
+
+.youtnote-plugin__caption-track-meta {
+    font-size: var(--font-ui-smaller);
+    color: var(--text-muted);
 }
 
 .youtnote-plugin__note-card {

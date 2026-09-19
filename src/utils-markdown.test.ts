@@ -120,6 +120,147 @@ First timestamped note.
         expect(generalIdx).toBeLessThan(tsIdx);
     });
 
+    it('parses transcript caption lines into the video transcript', () => {
+        const markdown = `---
+youtnote: true
+---
+
+[Test Video](https://www.youtube.com/watch?v=dQw4w9WgXcQ)
+
+[0:05](timestamp)
+A note.
+
+[0](transcript) Hello everyone, in this video
+[5](transcript) I will show you how to design
+[1:55](transcript) That's it for now guys
+`;
+
+        const parsed = parseMarkdownToData(markdown);
+
+        expect(parsed.videos).toHaveLength(1);
+        expect(parsed.notes).toHaveLength(1);
+        // Transcript lines must not leak into the preceding note's body
+        expect(parsed.notes[0].bodyMarkdown).toBe('A note.');
+        expect(parsed.videos[0].transcript).toEqual([
+            { timestampSec: 0, text: 'Hello everyone, in this video' },
+            { timestampSec: 5, text: 'I will show you how to design' },
+            { timestampSec: 115, text: "That's it for now guys" },
+        ]);
+    });
+
+    it('treats caption text ending with ) as a transcript entry, not a link', () => {
+        const markdown = `---
+youtnote: true
+---
+
+[Test Video](https://www.youtube.com/watch?v=dQw4w9WgXcQ)
+
+[5](transcript) Watch this (really)
+`;
+
+        const parsed = parseMarkdownToData(markdown);
+
+        expect(parsed.videos).toHaveLength(1);
+        expect(parsed.notes).toHaveLength(0);
+        expect(parsed.videos[0].transcript).toEqual([
+            { timestampSec: 5, text: 'Watch this (really)' },
+        ]);
+    });
+
+    it('serializes the transcript block after the video notes and before the next video', () => {
+        const markdown = `---
+youtnote: true
+---
+
+[First Video](https://www.youtube.com/watch?v=dQw4w9WgXcQ)
+
+[0:05](timestamp)
+A note.
+
+[5](transcript) first caption
+[1:55](transcript) second caption
+
+[Second Video](https://www.youtube.com/watch?v=abcdefghijk)
+
+[0:10](timestamp)
+Another note.
+`;
+
+        const parsed = parseMarkdownToData(markdown);
+        const serialized = serializeDataToMarkdown(parsed.videos, parsed.notes);
+
+        const noteIdx = serialized.indexOf('[5](timestamp)');
+        const transcriptIdx = serialized.indexOf('[5](transcript) first caption');
+        const nextVideoIdx = serialized.indexOf('[Second Video]');
+        expect(noteIdx).toBeGreaterThan(-1);
+        expect(transcriptIdx).toBeGreaterThan(noteIdx);
+        expect(transcriptIdx).toBeGreaterThan(-1);
+        expect(nextVideoIdx).toBeGreaterThan(transcriptIdx);
+        expect(serialized).toContain('[1:55](transcript) second caption');
+    });
+
+    it('round-trips transcript entries through parse and serialize', () => {
+        const markdown = `---
+youtnote: true
+---
+
+[Test Video](https://www.youtube.com/watch?v=dQw4w9WgXcQ)
+
+[0:05](timestamp)
+A note.
+
+[0](transcript) Hello everyone, in this video
+[5](transcript) I will show you how to design
+[1:55](transcript) That's it for now guys
+`;
+
+        const parsed = parseMarkdownToData(markdown);
+        const serialized = serializeDataToMarkdown(parsed.videos, parsed.notes);
+        const reparsed = parseMarkdownToData(serialized);
+
+        expect(reparsed.videos[0].transcript).toEqual(parsed.videos[0].transcript);
+        expect(reparsed.notes).toHaveLength(parsed.notes.length);
+    });
+
+    it('leaves transcript undefined for files without transcript lines', () => {
+        const markdown = `---
+youtnote: true
+---
+
+[Test Video](https://www.youtube.com/watch?v=dQw4w9WgXcQ)
+
+[0:05](timestamp)
+A note.
+`;
+
+        const parsed = parseMarkdownToData(markdown);
+        expect(parsed.videos[0].transcript).toBeUndefined();
+
+        const serialized = serializeDataToMarkdown(parsed.videos, parsed.notes);
+        expect(serialized).not.toContain('(transcript)');
+        expect(serialized).toContain('[5](timestamp)');
+    });
+
+    it('parses and serializes a video that has a transcript and zero notes', () => {
+        const markdown = `---
+youtnote: true
+---
+
+[Test Video](https://www.youtube.com/watch?v=dQw4w9WgXcQ)
+
+[5](transcript) only captions here
+`;
+
+        const parsed = parseMarkdownToData(markdown);
+        expect(parsed.notes).toHaveLength(0);
+        expect(parsed.videos[0].transcript).toEqual([
+            { timestampSec: 5, text: 'only captions here' },
+        ]);
+
+        const serialized = serializeDataToMarkdown(parsed.videos, parsed.notes);
+        expect(serialized).toContain('[5](transcript) only captions here');
+    });
+
     it('exports general notes with a "General note:" heading before timestamped notes', () => {
         const markdown = `---
 youtnote: true

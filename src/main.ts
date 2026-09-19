@@ -2,7 +2,7 @@ import { Plugin, TFile, TFolder, ViewState, WorkspaceLeaf, addIcon, MarkdownView
 import { DEFAULT_SETTINGS, YoutnoteSettingTab } from './settings';
 import { YoutnoteView, VIEW_TYPE } from './view';
 import { PluginSettings, PluginData, MarkdownEditorClass, Video, Note, VideoId, NoteId } from './types';
-import { hasYoutnoteFrontmatter, extractYouTubeId, formatSecondsToDisplay } from './utils';
+import { hasYoutnoteFrontmatter, extractYouTubeId, formatSecondsToDisplay, compareNotes } from './utils';
 import { getMarkdownEditorClass } from './markdownEditor';
 import { validateYoutnoteUriParams, isDebounced, getUnsupportedParams, ParsedYoutnoteUriParams } from './uri-scheme';
 import './styles.css';
@@ -496,13 +496,7 @@ export default class YoutnotePlugin extends Plugin {
             updatedAt: new Date().toISOString(),
         };
 
-        const sortedNotes = [...view.notes, newNote].sort((a, b) => {
-            const aGeneral = a.isGeneral === true || a.timestampSec === -1;
-            const bGeneral = b.isGeneral === true || b.timestampSec === -1;
-            if (aGeneral && !bGeneral) return -1;
-            if (!aGeneral && bGeneral) return 1;
-            return a.timestampSec - b.timestampSec;
-        });
+        const sortedNotes = [...view.notes, newNote].sort(compareNotes);
 
         view.handleUpdateNotes(sortedNotes);
         return newNote;
@@ -529,13 +523,7 @@ export default class YoutnotePlugin extends Plugin {
             updatedAt: new Date().toISOString(),
         };
 
-        const sortedNotes = [...view.notes, newNote].sort((a, b) => {
-            const aGeneral = a.isGeneral === true || a.timestampSec === -1;
-            const bGeneral = b.isGeneral === true || b.timestampSec === -1;
-            if (aGeneral && !bGeneral) return -1;
-            if (!aGeneral && bGeneral) return 1;
-            return a.timestampSec - b.timestampSec;
-        });
+        const sortedNotes = [...view.notes, newNote].sort(compareNotes);
 
         view.handleUpdateNotes(sortedNotes);
         return true;

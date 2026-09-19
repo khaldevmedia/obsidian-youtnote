@@ -1,5 +1,6 @@
 import { Video, Note, VideoId, NoteId } from './types';
 import {
+    compareNotes,
     extractYouTubeId,
     formatSecondsToDisplay,
     parseTimestampInput
@@ -18,14 +19,8 @@ function buildSortedNotesByVideo(notes: Note[]): Map<VideoId, Note[]> {
     }
 
     notesByVideo.forEach((videoNotes) => {
-        videoNotes.sort((a, b) => {
-            // General notes (timestampSec === -1) always come first
-            const aGeneral = a.isGeneral === true || a.timestampSec === -1;
-            const bGeneral = b.isGeneral === true || b.timestampSec === -1;
-            if (aGeneral && !bGeneral) return -1;
-            if (!aGeneral && bGeneral) return 1;
-            return a.timestampSec - b.timestampSec;
-        });
+        // General notes (timestampSec === -1) always come first
+        videoNotes.sort(compareNotes);
     });
 
     return notesByVideo;
@@ -76,6 +71,22 @@ export function parseMarkdownToData(markdown: string): { videos: Video[], notes:
         if (inFrontmatter) {
             if (line === '---') {
                 inFrontmatter = false;
+            }
+            continue;
+        }
+
+        // Match Transcript caption: [1:23](transcript) caption text
+        // Checked before the video-link regex because a caption whose text
+        // ends with ')' would otherwise match it.
+        const transcriptMatch = line.match(/^\[([\d:]+)\]\(transcript\) ?(.*)$/);
+        if (transcriptMatch) {
+            if (currentVideo) {
+                commitNote();
+                const result = parseTimestampInput(transcriptMatch[1], 0);
+                if (!currentVideo.transcript) {
+                    currentVideo.transcript = [];
+                }
+                currentVideo.transcript.push({ timestampSec: result.seconds, text: transcriptMatch[2] });
             }
             continue;
         }
@@ -181,7 +192,14 @@ export function serializeDataToMarkdown(videos: Video[], notes: Note[]): string 
             lines.push(note.bodyMarkdown);
             lines.push('');
         }
-        
+
+        if (video.transcript?.length) {
+            for (const entry of video.transcript) {
+                lines.push(`[${formatSecondsToDisplay(entry.timestampSec, 0)}](transcript) ${entry.text}`);
+            }
+            lines.push('');
+        }
+
         lines.push(''); // Extra spacing between videos
     }
 

@@ -9,6 +9,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
 	persistExpandedState: false,
 	openExportedFile: true,
 	showNoteStats: true,
+	switchToNotesAfterTranscriptNote: false,
 	pinOnPhone: false,
 	uriSchemeEnabled: false,
 }
@@ -32,7 +33,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
 
 type ToggleKey = keyof Pick<
 	PluginSettings,
-	'pinOnPhone' | 'autoplayOnNoteSelect' | 'singleExpandMode' | 'persistExpandedState' | 'openExportedFile' | 'showNoteStats' | 'uriSchemeEnabled'
+	'pinOnPhone' | 'autoplayOnNoteSelect' | 'singleExpandMode' | 'persistExpandedState' | 'openExportedFile' | 'showNoteStats' | 'switchToNotesAfterTranscriptNote' | 'uriSchemeEnabled'
 >;
 
 type Desc = string | (() => string | DocumentFragment);
@@ -117,6 +118,12 @@ const SETTING_DEFINITIONS: SettingGroupDef[] = [
 				name: 'Show note statistics',
 				desc: 'Display word count and character count statistics in the note list header.',
 				key: 'showNoteStats',
+			},
+			{
+				kind: 'toggle',
+				name: 'Switch to notes after creating a note from transcript',
+				desc: 'When creating a note from a transcript timestamp, go back to the note list and select the new note. When off, the note is added without leaving the transcript view.',
+				key: 'switchToNotesAfterTranscriptNote',
 			},
 			{
 				kind: 'toggle',

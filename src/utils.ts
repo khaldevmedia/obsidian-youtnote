@@ -1,3 +1,5 @@
+import { Note } from './types';
+
 /**
  * Formats seconds to display string without using Date objects.
  * Supports videos of any length (including 200+ hours).
@@ -266,6 +268,18 @@ export function parseTimestampInput(input: string, maxDuration: number): { secon
     }
 
     return { seconds: totalSeconds };
+}
+
+/**
+ * Sorts notes for display/serialization: general notes (timestampSec === -1)
+ * first, then all other notes by ascending timestamp.
+ */
+export function compareNotes(a: Note, b: Note): number {
+    const aGeneral = a.isGeneral === true || a.timestampSec === -1;
+    const bGeneral = b.isGeneral === true || b.timestampSec === -1;
+    if (aGeneral && !bGeneral) return -1;
+    if (!aGeneral && bGeneral) return 1;
+    return a.timestampSec - b.timestampSec;
 }
 
 /**
