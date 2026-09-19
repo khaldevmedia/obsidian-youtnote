@@ -487,6 +487,9 @@ to avoid conflicts with other plugins */
     gap: 10px;
     padding: 6px 8px;
     border-radius: 6px;
+    position: relative;
+    content-visibility: auto;
+    contain-intrinsic-size: auto 2.4em;
 }
 
 .youtnote-plugin__transcript-card:hover {
@@ -528,15 +531,14 @@ to avoid conflicts with other plugins */
 }
 
 .youtnote-plugin__transcript-actions {
+    position: absolute;
+    right: 4px;
+    top: 2px;
     display: flex;
     gap: 4px;
-    flex-shrink: 0;
-    opacity: 0;
-    transition: opacity 0.15s ease;
-}
-
-.youtnote-plugin__transcript-card:hover .youtnote-plugin__transcript-actions {
-    opacity: 1;
+    padding: 2px;
+    border-radius: 4px;
+    background-color: var(--background-modifier-hover);
 }
 
 .youtnote-plugin__transcript-actions button {
@@ -549,7 +551,7 @@ to avoid conflicts with other plugins */
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: all 0.15s ease;
+    transition: color 0.15s ease, background-color 0.15s ease;
 }
 
 .youtnote-plugin__transcript-actions button:hover {

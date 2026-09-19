@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import classNames from 'classnames';
 import { requestUrl, setIcon, Notice, Platform } from 'obsidian';
 import Sortable, { SortableEvent } from 'sortablejs';
@@ -432,7 +432,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
         };
     }, []);
 
-    const seekToTimestamp = async (timestampSec: number) => {
+    const seekToTimestamp = useCallback(async (timestampSec: number) => {
         const playerAdapter = playerAdapterRef.current;
         if (!playerAdapter) return;
 
@@ -442,7 +442,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
         } else {
             await playerAdapter.seekAndPause(timestampSec);
         }
-    };
+    }, [settings.autoplayOnNoteSelect]);
 
     const handleNoteClick = async (e: React.MouseEvent, noteId: NoteId, timestampSec: number) => {
         // Prevent clicking if we're clicking an action button inside the note
@@ -884,12 +884,12 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
         ).open();
     };
 
-    const handleTranscriptSeek = (index: number, timestampSec: number) => {
+    const handleTranscriptSeek = useCallback((index: number, timestampSec: number) => {
         setActiveTranscriptIndex(index);
         void seekToTimestamp(timestampSec);
-    };
+    }, [seekToTimestamp]);
 
-    const handleCopyCaption = async (entry: TranscriptEntry, displayTimestamp: string) => {
+    const handleCopyCaption = useCallback(async (entry: TranscriptEntry, displayTimestamp: string) => {
         try {
             await navigator.clipboard.writeText(`${displayTimestamp} ${entry.text}`);
             new Notice('Caption copied to the clipboard!', 2000);
@@ -897,9 +897,13 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
             console.error('Failed to copy caption:', err);
             new Notice('Failed to copy caption!', 2000);
         }
-    };
+    }, []);
 
-    const handleCreateNoteFromCaption = (entry: TranscriptEntry, displayTimestamp: string) => {
+    const handleCopyCaptionClick = useCallback((entry: TranscriptEntry, displayTimestamp: string) => {
+        void handleCopyCaption(entry, displayTimestamp);
+    }, [handleCopyCaption]);
+
+    const handleCreateNoteFromCaption = useCallback((entry: TranscriptEntry, displayTimestamp: string) => {
         if (!activeVideoId) return;
 
         const newNoteId = crypto.randomUUID() as NoteId;
@@ -929,9 +933,9 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
                 return next;
             });
         }
-    };
+    }, [activeVideoId, notes, onUpdateNotes, settings.switchToNotesAfterTranscriptNote, settings.singleExpandMode]);
 
-    const handleSaveTranscriptEdit = (index: number, rawText: string) => {
+    const handleSaveTranscriptEdit = useCallback((index: number, rawText: string) => {
         const text = rawText.replace(/\s+/g, ' ').trim();
         const current = activeTranscript[index];
         if (!text || !current || text === current.text) {
@@ -944,7 +948,9 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
                 : v
         ));
         setEditingTranscriptIndex(null);
-    };
+    }, [activeTranscript, activeVideoId, onUpdateVideos, view]);
+
+    const handleCancelTranscriptEdit = useCallback(() => setEditingTranscriptIndex(null), []);
 
     // Resize handlers
     const handleMouseDown = (e: React.MouseEvent) => {
@@ -1249,11 +1255,11 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
                                     isActive={activeTranscriptIndex === item.index}
                                     isEditing={editingTranscriptIndex === item.index}
                                     onSeek={handleTranscriptSeek}
-                                    onCopy={(entry, display) => { void handleCopyCaption(entry, display); }}
+                                    onCopy={handleCopyCaptionClick}
                                     onCreateNote={handleCreateNoteFromCaption}
                                     onStartEdit={setEditingTranscriptIndex}
                                     onSaveEdit={handleSaveTranscriptEdit}
-                                    onCancelEdit={() => setEditingTranscriptIndex(null)}
+                                    onCancelEdit={handleCancelTranscriptEdit}
                                 />
                             ))
                         )}

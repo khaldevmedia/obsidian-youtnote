@@ -1,4 +1,4 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useState } from 'react';
 import classNames from 'classnames';
 import { setIcon, Menu, Platform } from 'obsidian';
 import { TranscriptListItemProps } from '../types';
@@ -19,6 +19,7 @@ export const TranscriptListItem: React.FC<TranscriptListItemProps> = React.memo(
     const textEditRef = useRef<HTMLSpanElement>(null);
     const hasInitializedEdit = useRef(false);
     const skipNextSaveOnBlurRef = useRef(false);
+    const [isHovered, setIsHovered] = useState(false);
 
     // Set initial text and place the caret at the end when entering edit mode
     useEffect(() => {
@@ -82,6 +83,10 @@ export const TranscriptListItem: React.FC<TranscriptListItemProps> = React.memo(
         <div
             className={classNames('youtnote-plugin__transcript-card', { 'youtnote-plugin__active': isActive })}
             onContextMenu={handleContextMenu}
+            {...(Platform.isMobile ? {} : {
+                onMouseEnter: () => setIsHovered(true),
+                onMouseLeave: () => setIsHovered(false),
+            })}
         >
             <span
                 className="youtnote-plugin__transcript-timestamp"
@@ -148,7 +153,7 @@ export const TranscriptListItem: React.FC<TranscriptListItemProps> = React.memo(
                     {entry.text}
                 </span>
             )}
-            {!isEditing && (
+            {isHovered && !isEditing && !Platform.isMobile && (
                 <div className="youtnote-plugin__transcript-actions">
                     <button
                         ref={(el) => {
