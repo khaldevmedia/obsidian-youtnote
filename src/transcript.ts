@@ -132,24 +132,113 @@ export function parseJson3Transcript(json: unknown): TranscriptEntry[] {
         if (!text) {
             continue;
         }
-        const tStartMs = typeof event.tStartMs === 'number' ? event.tStartMs : 0;
-        entries.push({ timestampSec: Math.floor(tStartMs / 1000), text });
+        const startMs = typeof event.tStartMs === 'number' && Number.isFinite(event.tStartMs)
+            ? Math.max(0, Math.round(event.tStartMs))
+            : 0;
+        const entry: TranscriptEntry = { startMs, text };
+        if (typeof event.dDurationMs === 'number' && Number.isFinite(event.dDurationMs)) {
+            const durationMs = Math.round(event.dDurationMs);
+            if (durationMs > 0) {
+                entry.durationMs = durationMs;
+            }
+        }
+        entries.push(entry);
     }
 
-    entries.sort((a, b) => a.timestampSec - b.timestampSec);
+    entries.sort((a, b) => a.startMs - b.startMs);
     return entries;
 }
 
-/** Formats a caption timestamp as m:ss, or h:mm:ss when useHours is set. */
-export function formatTranscriptTimestamp(sec: number, useHours: boolean): string {
-    const h = Math.floor(sec / 3600);
-    const m = Math.floor((sec % 3600) / 60);
-    const s = Math.floor(sec % 60);
+/** Formats a caption timestamp for display as m:ss, or h:mm:ss when useHours is set. */
+export function formatTranscriptTimestamp(startMs: number, useHours: boolean): string {
+    const totalSec = Math.floor(startMs / 1000);
+    const h = Math.floor(totalSec / 3600);
+    const m = Math.floor((totalSec % 3600) / 60);
+    const s = totalSec % 60;
     const pad = (num: number) => num.toString().padStart(2, '0');
     if (useHours) {
         return `${h}:${pad(m)}:${pad(s)}`;
     }
     return `${m}:${pad(s)}`;
+}
+
+export function formatCaptionFileTimestamp(startMs: number): string {
+    const totalMs = Math.max(0, Math.round(startMs));
+    const ms = totalMs % 1000;
+    const totalSec = Math.floor(totalMs / 1000);
+    const h = Math.floor(totalSec / 3600);
+    const m = Math.floor((totalSec % 3600) / 60);
+    const s = totalSec % 60;
+    const pad = (num: number) => num.toString().padStart(2, '0');
+
+    if (ms !== 0) {
+        const msStr = ms.toString().padStart(3, '0');
+        if (h > 0) {
+            return `${h}:${pad(m)}:${pad(s)}.${msStr}`;
+        }
+        return `${m}:${pad(s)}.${msStr}`;
+    }
+
+    if (h > 0) {
+        return `${h}:${pad(m)}:${pad(s)}`;
+    }
+    if (m > 0) {
+        return `${m}:${pad(s)}`;
+    }
+    return `${s}`;
+}
+
+export function parseCaptionFileTimestamp(value: string): number | null {
+    const match = /^(\d+)(?::([0-5]\d):([0-5]\d)|:([0-5]\d))?(?:\.(\d{1,3}))?$/.exec(value.trim());
+    if (!match) {
+        return null;
+    }
+
+    const first = Number(match[1]);
+    if (!Number.isFinite(first)) {
+        return null;
+    }
+
+    let totalMs: number;
+    if (match[2] !== undefined && match[3] !== undefined) {
+        totalMs = (first * 3600 + Number(match[2]) * 60 + Number(match[3])) * 1000;
+    } else if (match[4] !== undefined) {
+        totalMs = (first * 60 + Number(match[4])) * 1000;
+    } else {
+        totalMs = first * 1000;
+    }
+
+    if (match[5] !== undefined) {
+        totalMs += Number(match[5].padEnd(3, '0'));
+    }
+
+    return totalMs;
+}
+
+export function findActiveCaptionIndex(entries: TranscriptEntry[], currentTimeMs: number): number | null {
+    let lo = 0;
+    let hi = entries.length - 1;
+    let candidate = -1;
+    while (lo <= hi) {
+        const mid = (lo + hi) >> 1;
+        if (entries[mid].startMs <= currentTimeMs) {
+            candidate = mid;
+            lo = mid + 1;
+        } else {
+            hi = mid - 1;
+        }
+    }
+
+    if (candidate === -1) {
+        return null;
+    }
+
+    const entry = entries[candidate];
+    if (entry.durationMs !== undefined && currentTimeMs >= entry.startMs + entry.durationMs) {
+        return null;
+    }
+
+    return candidate;
 }
 
 /** Captions should use hour format when the video or the last caption reaches 1h+. */
@@ -158,6 +247,6 @@ export function transcriptUsesHours(entries: TranscriptEntry[], durationSec: num
         return true;
     }
     const last = entries[entries.length - 1];
-    return last !== undefined && last.timestampSec >= 3600;
+    return last !== undefined && last.startMs >= 3_600_000;
 }
 

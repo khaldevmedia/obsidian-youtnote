@@ -264,7 +264,8 @@ to avoid conflicts with other plugins */
 .youtnote-plugin__merge-notes-btn,
 .youtnote-plugin__transcript-btn,
 .youtnote-plugin__transcript-back-btn,
-.youtnote-plugin__transcript-refetch-btn {
+.youtnote-plugin__transcript-refetch-btn,
+.youtnote-plugin__transcript-sync-btn {
     background: transparent;
     border: none;
     color: var(--text-muted);
@@ -282,7 +283,8 @@ to avoid conflicts with other plugins */
 .youtnote-plugin__merge-notes-btn:hover,
 .youtnote-plugin__transcript-btn:hover,
 .youtnote-plugin__transcript-back-btn:hover,
-.youtnote-plugin__transcript-refetch-btn:hover {
+.youtnote-plugin__transcript-refetch-btn:hover,
+.youtnote-plugin__transcript-sync-btn:hover {
     color: var(--text-normal);
     background-color: var(--background-modifier-hover);
 }
@@ -290,6 +292,11 @@ to avoid conflicts with other plugins */
 .youtnote-plugin__transcript-refetch-btn:disabled {
     opacity: 0.3;
     pointer-events: none;
+}
+
+.youtnote-plugin__transcript-sync-btn.youtnote-plugin__active {
+    color: var(--interactive-accent);
+    background-color: var(--background-modifier-active-hover);
 }
 
 .is-mobile .youtnote-plugin__video-list-header .youtnote-plugin__export-btn{
@@ -508,6 +515,10 @@ to avoid conflicts with other plugins */
 
 .youtnote-plugin__transcript-timestamp:hover {
     color: var(--interactive-accent);
+}
+
+.youtnote-plugin__transcript-card.youtnote-plugin__active {
+    background-color: var(--background-modifier-active-hover);
 }
 
 .youtnote-plugin__transcript-card.youtnote-plugin__active .youtnote-plugin__transcript-timestamp {

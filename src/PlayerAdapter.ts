@@ -24,6 +24,8 @@ interface YTInfoPayload {
     muted?: boolean;
 }
 
+type TimeUpdateListener = (currentTimeSec: number) => void;
+
 export class YouTubeIframeAdapter implements PlayerAdapter {
     private iframeElement: HTMLIFrameElement;
     private videoId: string;
@@ -40,6 +42,7 @@ export class YouTubeIframeAdapter implements PlayerAdapter {
     private cachedMuted: boolean = false;
 
     private boundMessageHandler: (event: MessageEvent) => void;
+    private timeUpdateListeners = new Set<TimeUpdateListener>();
     private pendingLoadErrorHandler: ((errorCode: number) => void) | null = null;
     private pendingAutoPause: {
         timestamp: number;
@@ -117,7 +120,10 @@ export class YouTubeIframeAdapter implements PlayerAdapter {
             case 'initialDelivery': {
                 const info = data.info as YTInfoPayload | undefined;
                 if (info && typeof info === 'object') {
-                    if (typeof info.currentTime === 'number') this.cachedCurrentTime = info.currentTime;
+                    if (typeof info.currentTime === 'number') {
+                        this.cachedCurrentTime = info.currentTime;
+                        this.notifyTimeUpdate();
+                    }
                     if (typeof info.duration === 'number' && info.duration > 0) this.cachedDuration = info.duration;
                     if (typeof info.playerState === 'number') this.cachedPlayerState = info.playerState;
                     if (typeof info.muted === 'boolean') this.cachedMuted = info.muted;
@@ -177,6 +183,8 @@ export class YouTubeIframeAdapter implements PlayerAdapter {
         // on a stale value from the previous video.
         this.cachedPlayerState = YT_STATE.CUED;
         this.cachedDuration = 0;
+        this.cachedCurrentTime = 0;
+        this.notifyTimeUpdate();
 
         return new Promise((resolve, reject) => {
             let settled = false;
@@ -243,6 +251,7 @@ export class YouTubeIframeAdapter implements PlayerAdapter {
     destroy(): void {
         this.destroyed = true;
         this.pendingLoadErrorHandler = null;
+        this.timeUpdateListeners.clear();
         this.ownerWindow.removeEventListener('message', this.boundMessageHandler);
         this.ready = false;
         console.debug('[PlayerAdapter] Destroyed player for video:', this.videoId);
@@ -275,6 +284,7 @@ export class YouTubeIframeAdapter implements PlayerAdapter {
             console.debug('[PlayerAdapter] Seeking to:', timestampSec);
             this.sendCommand('seekTo', [timestampSec, true]);
             this.cachedCurrentTime = timestampSec;
+            this.notifyTimeUpdate();
 
             // Verify seek worked by checking current time after a short delay
             await new Promise(r => window.setTimeout(r, 200));
@@ -285,9 +295,23 @@ export class YouTubeIframeAdapter implements PlayerAdapter {
                 console.warn('[PlayerAdapter] Seek verification failed. Expected:', timestampSec, 'Got:', currentTime, 'Retrying...');
                 this.sendCommand('seekTo', [timestampSec, true]);
                 this.cachedCurrentTime = timestampSec;
+                this.notifyTimeUpdate();
             }
         } catch (err) {
             console.error('[PlayerAdapter] Error seeking to timestamp:', err);
+        }
+    }
+
+    subscribeToTimeUpdates(listener: TimeUpdateListener): () => void {
+        this.timeUpdateListeners.add(listener);
+        return () => {
+            this.timeUpdateListeners.delete(listener);
+        };
+    }
+
+    private notifyTimeUpdate(): void {
+        for (const listener of this.timeUpdateListeners) {
+            listener(this.cachedCurrentTime);
         }
     }
 

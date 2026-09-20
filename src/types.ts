@@ -85,6 +85,7 @@ export interface PluginSettings {
 	openExportedFile: boolean;
 	showNoteStats: boolean;
 	switchToNotesAfterTranscriptNote: boolean;
+	autoScrollTranscript: boolean;
 	exportIncludeNotes: boolean;
 	exportIncludeTranscripts: boolean;
 	uriSchemeEnabled: boolean;
@@ -157,7 +158,8 @@ export interface NoteListItemProps {
 }
 
 export interface TranscriptEntry {
-    timestampSec: number;
+    startMs: number;
+    durationMs?: number;
     text: string;
 }
 
@@ -196,7 +198,7 @@ export interface TranscriptListItemProps {
     displayTimestamp: string;
     isActive: boolean;
     isEditing: boolean;
-    onSeek: (index: number, timestampSec: number) => void;
+    onSeek: (index: number, startMs: number) => void;
     onCopy: (entry: TranscriptEntry, displayTimestamp: string) => void;
     onCreateNote: (entry: TranscriptEntry, displayTimestamp: string) => void;
     onStartEdit: (index: number) => void;
@@ -220,6 +222,7 @@ export interface YoutubePluginViewProps {
 
 export interface PlayerAdapter {
     seek(timestampSec: number): Promise<void>;
+    subscribeToTimeUpdates(listener: (currentTimeSec: number) => void): () => void;
     getCurrentTime(): Promise<number>;
     getDuration(): Promise<number>;
     play(): Promise<void>;

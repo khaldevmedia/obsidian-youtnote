@@ -82,6 +82,7 @@ export const TranscriptListItem: React.FC<TranscriptListItemProps> = React.memo(
     return (
         <div
             className={classNames('youtnote-plugin__transcript-card', { 'youtnote-plugin__active': isActive })}
+            data-caption-index={index}
             onContextMenu={handleContextMenu}
             {...(Platform.isMobile ? {} : {
                 onMouseEnter: () => setIsHovered(true),
@@ -92,7 +93,7 @@ export const TranscriptListItem: React.FC<TranscriptListItemProps> = React.memo(
                 className="youtnote-plugin__transcript-timestamp"
                 onClick={(e) => {
                     e.stopPropagation();
-                    onSeek(index, entry.timestampSec);
+                    onSeek(index, entry.startMs);
                 }}
                 aria-label="Jump to timestamp"
             >

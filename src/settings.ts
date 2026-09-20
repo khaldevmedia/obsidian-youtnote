@@ -10,6 +10,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
 	openExportedFile: true,
 	showNoteStats: true,
 	switchToNotesAfterTranscriptNote: false,
+	autoScrollTranscript: true,
 	exportIncludeNotes: true,
 	exportIncludeTranscripts: true,
 	pinOnPhone: false,
@@ -35,7 +36,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
 
 type ToggleKey = keyof Pick<
 	PluginSettings,
-	'pinOnPhone' | 'autoplayOnNoteSelect' | 'singleExpandMode' | 'persistExpandedState' | 'openExportedFile' | 'showNoteStats' | 'switchToNotesAfterTranscriptNote' | 'uriSchemeEnabled'
+	'pinOnPhone' | 'autoplayOnNoteSelect' | 'singleExpandMode' | 'persistExpandedState' | 'openExportedFile' | 'showNoteStats' | 'autoScrollTranscript' | 'switchToNotesAfterTranscriptNote' | 'uriSchemeEnabled'
 >;
 
 type Desc = string | (() => string | DocumentFragment);
@@ -120,6 +121,12 @@ const SETTING_DEFINITIONS: SettingGroupDef[] = [
 				name: 'Show note statistics',
 				desc: 'Display word count and character count statistics in the note list header.',
 				key: 'showNoteStats',
+			},
+			{
+				kind: 'toggle',
+				name: 'Auto-scroll transcript during playback',
+				desc: 'Keep the active caption centered while the video plays. Turn this off to stop auto-scrolling. The sync button remains available.',
+				key: 'autoScrollTranscript',
 			},
 			{
 				kind: 'toggle',

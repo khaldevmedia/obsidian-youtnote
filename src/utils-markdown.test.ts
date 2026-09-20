@@ -121,7 +121,7 @@ First timestamped note.
         expect(generalIdx).toBeLessThan(tsIdx);
     });
 
-    it('parses transcript caption lines into the video transcript', () => {
+    it('parses caption lines into the video transcript', () => {
         const markdown = `---
 youtnote: true
 ---
@@ -131,32 +131,52 @@ youtnote: true
 [0:05](timestamp)
 A note.
 
-[0](transcript) Hello everyone, in this video
-[5](transcript) I will show you how to design
-[1:55](transcript) That's it for now guys
+[0](caption) Hello everyone, in this video
+[5](caption) I will show you how to design
+[1:55](caption) That's it for now guys
 `;
 
         const parsed = parseMarkdownToData(markdown);
 
         expect(parsed.videos).toHaveLength(1);
         expect(parsed.notes).toHaveLength(1);
-        // Transcript lines must not leak into the preceding note's body
+        // Caption lines must not leak into the preceding note's body
         expect(parsed.notes[0].bodyMarkdown).toBe('A note.');
         expect(parsed.videos[0].transcript).toEqual([
-            { timestampSec: 0, text: 'Hello everyone, in this video' },
-            { timestampSec: 5, text: 'I will show you how to design' },
-            { timestampSec: 115, text: "That's it for now guys" },
+            { startMs: 0, text: 'Hello everyone, in this video' },
+            { startMs: 5000, text: 'I will show you how to design' },
+            { startMs: 115000, text: "That's it for now guys" },
         ]);
     });
 
-    it('treats caption text ending with ) as a transcript entry, not a link', () => {
+    it('parses the exact millisecond and duration caption form', () => {
         const markdown = `---
 youtnote: true
 ---
 
 [Test Video](https://www.youtube.com/watch?v=dQw4w9WgXcQ)
 
-[5](transcript) Watch this (really)
+[0:00.320](caption?durationMs=14260) [Music]
+[5](caption) no duration
+`;
+
+        const parsed = parseMarkdownToData(markdown);
+
+        expect(parsed.videos[0].transcript).toEqual([
+            { startMs: 320, durationMs: 14260, text: '[Music]' },
+            { startMs: 5000, text: 'no duration' },
+        ]);
+        expect(parsed.videos[0].transcript?.[1]).not.toHaveProperty('durationMs');
+    });
+
+    it('treats caption text ending with ) as a caption entry, not a link', () => {
+        const markdown = `---
+youtnote: true
+---
+
+[Test Video](https://www.youtube.com/watch?v=dQw4w9WgXcQ)
+
+[5](caption) Watch this (really)
 `;
 
         const parsed = parseMarkdownToData(markdown);
@@ -164,7 +184,7 @@ youtnote: true
         expect(parsed.videos).toHaveLength(1);
         expect(parsed.notes).toHaveLength(0);
         expect(parsed.videos[0].transcript).toEqual([
-            { timestampSec: 5, text: 'Watch this (really)' },
+            { startMs: 5000, text: 'Watch this (really)' },
         ]);
     });
 
@@ -178,8 +198,8 @@ youtnote: true
 [0:05](timestamp)
 A note.
 
-[5](transcript) first caption
-[1:55](transcript) second caption
+[5](caption) first caption
+[1:55](caption) second caption
 
 [Second Video](https://www.youtube.com/watch?v=abcdefghijk)
 
@@ -191,16 +211,17 @@ Another note.
         const serialized = serializeDataToMarkdown(parsed.videos, parsed.notes);
 
         const noteIdx = serialized.indexOf('[5](timestamp)');
-        const transcriptIdx = serialized.indexOf('[5](transcript) first caption');
+        const transcriptIdx = serialized.indexOf('[5](caption) first caption');
         const nextVideoIdx = serialized.indexOf('[Second Video]');
         expect(noteIdx).toBeGreaterThan(-1);
         expect(transcriptIdx).toBeGreaterThan(noteIdx);
         expect(transcriptIdx).toBeGreaterThan(-1);
         expect(nextVideoIdx).toBeGreaterThan(transcriptIdx);
-        expect(serialized).toContain('[1:55](transcript) second caption');
+        expect(serialized).toContain('[1:55](caption) second caption');
+        expect(serialized).not.toContain('(transcript)');
     });
 
-    it('round-trips transcript entries through parse and serialize', () => {
+    it('round-trips transcript entries through parse and serialize, including durations', () => {
         const markdown = `---
 youtnote: true
 ---
@@ -210,20 +231,43 @@ youtnote: true
 [0:05](timestamp)
 A note.
 
-[0](transcript) Hello everyone, in this video
-[5](transcript) I will show you how to design
-[1:55](transcript) That's it for now guys
+[0](caption) Hello everyone, in this video
+[0:00.320](caption?durationMs=14260) [Music]
+[1:55](caption) That's it for now guys
 `;
 
         const parsed = parseMarkdownToData(markdown);
         const serialized = serializeDataToMarkdown(parsed.videos, parsed.notes);
         const reparsed = parseMarkdownToData(serialized);
 
+        expect(serialized).toContain('[0:00.320](caption?durationMs=14260) [Music]');
+        expect(serialized).not.toContain('(transcript)');
         expect(reparsed.videos[0].transcript).toEqual(parsed.videos[0].transcript);
         expect(reparsed.notes).toHaveLength(parsed.notes.length);
     });
 
-    it('leaves transcript undefined for files without transcript lines', () => {
+    it('sorts out-of-order caption lines by start time when parsing', () => {
+        const markdown = `---
+youtnote: true
+---
+
+[Test Video](https://www.youtube.com/watch?v=dQw4w9WgXcQ)
+
+[1:55](caption) late caption
+[0:00.320](caption?durationMs=14260) early caption
+[5](caption) middle caption
+`;
+
+        const parsed = parseMarkdownToData(markdown);
+
+        expect(parsed.videos[0].transcript).toEqual([
+            { startMs: 320, durationMs: 14260, text: 'early caption' },
+            { startMs: 5000, text: 'middle caption' },
+            { startMs: 115000, text: 'late caption' },
+        ]);
+    });
+
+    it('leaves transcript undefined for files without caption lines', () => {
         const markdown = `---
 youtnote: true
 ---
@@ -238,6 +282,7 @@ A note.
         expect(parsed.videos[0].transcript).toBeUndefined();
 
         const serialized = serializeDataToMarkdown(parsed.videos, parsed.notes);
+        expect(serialized).not.toContain('(caption)');
         expect(serialized).not.toContain('(transcript)');
         expect(serialized).toContain('[5](timestamp)');
     });
@@ -249,17 +294,17 @@ youtnote: true
 
 [Test Video](https://www.youtube.com/watch?v=dQw4w9WgXcQ)
 
-[5](transcript) only captions here
+[5](caption) only captions here
 `;
 
         const parsed = parseMarkdownToData(markdown);
         expect(parsed.notes).toHaveLength(0);
         expect(parsed.videos[0].transcript).toEqual([
-            { timestampSec: 5, text: 'only captions here' },
+            { startMs: 5000, text: 'only captions here' },
         ]);
 
         const serialized = serializeDataToMarkdown(parsed.videos, parsed.notes);
-        expect(serialized).toContain('[5](transcript) only captions here');
+        expect(serialized).toContain('[5](caption) only captions here');
     });
 
     it('exports general notes with a "General note:" heading before timestamped notes', () => {
@@ -300,15 +345,15 @@ Summary note.
 [1:23](timestamp)
 Timestamped note.
 
-[5](transcript) first caption
-[1:55](transcript) second caption
+[5](caption) first caption
+[1:55.125](caption?durationMs=2600) second caption
 
 [Second Video](https://www.youtube.com/watch?v=abcdefghijk)
 
 [0:10](timestamp)
 Another note.
 
-[7](transcript) other caption
+[7](caption) other caption
 `;
 
     it('includes notes and transcript sections by default', () => {

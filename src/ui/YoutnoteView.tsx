@@ -12,6 +12,7 @@ import { pickCaptionTrack } from './CaptionTrackModal';
 import { YoutubePluginViewProps } from '../types';
 import { fetchCaptionTracks, fetchTranscriptEntries } from '../transcriptFetch';
 import {
+    findActiveCaptionIndex,
     formatTranscriptTimestamp,
     transcriptUsesHours
 } from '../transcript';
@@ -87,7 +88,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
             .map((entry, index) => ({
                 entry,
                 index,
-                display: formatTranscriptTimestamp(entry.timestampSec, transcriptUseHours),
+                display: formatTranscriptTimestamp(entry.startMs, transcriptUseHours),
             }))
             .filter(item => !q || item.entry.text.toLowerCase().includes(q) || item.display.includes(q));
     }, [activeTranscript, searchQuery, transcriptUseHours]);
@@ -96,6 +97,8 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
     const playerAdapterRef = useRef<YouTubeIframeAdapter | null>(null);
     const adapterIframeRef = useRef<HTMLIFrameElement | null>(null);
     const videoListRef = useRef<HTMLDivElement>(null);
+    const transcriptListRef = useRef<HTMLDivElement>(null);
+    const transcriptSyncButtonRef = useRef<HTMLButtonElement>(null);
     const exportButtonRef = useRef<HTMLButtonElement>(null);
     const exportAllButtonRef = useRef<HTMLButtonElement>(null);
     const mergeNotesButtonRef = useRef<HTMLButtonElement>(null);
@@ -113,6 +116,9 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
     const [isFetchingTranscript, setIsFetchingTranscript] = useState(false);
     const [activeTranscriptIndex, setActiveTranscriptIndex] = useState<number | null>(null);
     const [editingTranscriptIndex, setEditingTranscriptIndex] = useState<number | null>(null);
+    const [followTranscriptPlayback, setFollowTranscriptPlayback] = useState(true);
+    const [captionCenterRequest, setCaptionCenterRequest] = useState<number | null>(null);
+    const isTranscriptFollowing = settings.autoScrollTranscript && followTranscriptPlayback;
 
     // State for expanded notes
     const [expandedNotes, setExpandedNotes] = useState<Set<NoteId>>(new Set());
@@ -163,12 +169,16 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
         setSearchQuery('');
         setActiveTranscriptIndex(null);
         setEditingTranscriptIndex(null);
+        setFollowTranscriptPlayback(true);
+        setCaptionCenterRequest(null);
     }, [activeVideoId, settings.persistExpandedState]);
 
     // Clear search and caption editing state when toggling between notes and transcript
     useEffect(() => {
         setSearchQuery('');
         setEditingTranscriptIndex(null);
+        setFollowTranscriptPlayback(true);
+        setCaptionCenterRequest(null);
     }, [showTranscript]);
     
     // Handle singleExpandMode changes - collapse extra notes when switching to single mode
@@ -241,7 +251,10 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
         if (addGeneralNoteButtonRef.current) {
             setIcon(addGeneralNoteButtonRef.current, 'file-plus');
         }
-    }, [activeVideoId, activeVideoNotes.length, videos.length, notes.length, hasGeneralNote, showTranscript]);
+        if (transcriptSyncButtonRef.current) {
+            setIcon(transcriptSyncButtonRef.current, 'locate-fixed');
+        }
+    }, [activeVideoId, activeVideoNotes.length, videos.length, notes.length, hasGeneralNote, showTranscript, hasTranscript]);
 
     useEffect(() => {
         if (videoListRef.current) {
@@ -431,6 +444,37 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
             }
         };
     }, []);
+
+    useEffect(() => {
+        const adapter = playerAdapterRef.current;
+        if (!showTranscript || !hasTranscript || !adapter || !adapter.isReady()) {
+            return;
+        }
+
+        let isActive = true;
+        let lastIndex: number | null = null;
+
+        const updateActiveCaption = (currentTimeSec: number) => {
+            const index = findActiveCaptionIndex(activeTranscript, Math.round(currentTimeSec * 1000));
+            if (index !== lastIndex) {
+                lastIndex = index;
+                setActiveTranscriptIndex(index);
+            }
+        };
+
+        void adapter.getCurrentTime().then(currentTime => {
+            if (isActive) {
+                updateActiveCaption(currentTime);
+            }
+        });
+
+        const unsubscribe = adapter.subscribeToTimeUpdates(updateActiveCaption);
+
+        return () => {
+            isActive = false;
+            unsubscribe();
+        };
+    }, [showTranscript, hasTranscript, activeTranscript, activeVideoId, isPlayerReady]);
 
     const seekToTimestamp = useCallback(async (timestampSec: number) => {
         const playerAdapter = playerAdapterRef.current;
@@ -885,9 +929,9 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
         ).open();
     };
 
-    const handleTranscriptSeek = useCallback((index: number, timestampSec: number) => {
+    const handleTranscriptSeek = useCallback((index: number, startMs: number) => {
         setActiveTranscriptIndex(index);
-        void seekToTimestamp(timestampSec);
+        void seekToTimestamp(startMs / 1000);
     }, [seekToTimestamp]);
 
     const handleCopyCaption = useCallback(async (entry: TranscriptEntry, displayTimestamp: string) => {
@@ -911,7 +955,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
         const newNote: Note = {
             id: newNoteId,
             videoId: activeVideoId,
-            timestampSec: entry.timestampSec,
+            timestampSec: Math.floor(entry.startMs / 1000),
             bodyMarkdown: entry.text,
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
@@ -952,6 +996,64 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
     }, [activeTranscript, activeVideoId, onUpdateVideos, view]);
 
     const handleCancelTranscriptEdit = useCallback(() => setEditingTranscriptIndex(null), []);
+
+    const centerTranscriptCaption = useCallback((index: number, behavior: ScrollBehavior) => {
+        const list = transcriptListRef.current;
+        if (!list) return;
+        const row = list.querySelector<HTMLElement>(`[data-caption-index="${index}"]`);
+        if (!row) return;
+
+        if (list.scrollHeight > list.clientHeight + 1) {
+            const listRect = list.getBoundingClientRect();
+            const rowRect = row.getBoundingClientRect();
+            const top = list.scrollTop + (rowRect.top - listRect.top) - (list.clientHeight - rowRect.height) / 2;
+            list.scrollTo({ top, behavior });
+        } else {
+            row.scrollIntoView({ block: 'center', behavior });
+        }
+    }, []);
+
+    useEffect(() => {
+        if (!showTranscript || searchQuery.trim() !== '') return;
+
+        if (captionCenterRequest !== null) {
+            centerTranscriptCaption(captionCenterRequest, 'instant');
+            setCaptionCenterRequest(null);
+            return;
+        }
+
+        if (!settings.autoScrollTranscript || !followTranscriptPlayback || activeTranscriptIndex === null) return;
+        centerTranscriptCaption(activeTranscriptIndex, 'instant');
+    }, [
+        showTranscript,
+        searchQuery,
+        captionCenterRequest,
+        settings.autoScrollTranscript,
+        followTranscriptPlayback,
+        activeTranscriptIndex,
+        centerTranscriptCaption,
+    ]);
+
+    const handleTranscriptManualScroll = useCallback(() => {
+        setFollowTranscriptPlayback(false);
+    }, []);
+
+    const handleSyncTranscriptPlayback = useCallback(async () => {
+        let index = activeTranscriptIndex;
+        const adapter = playerAdapterRef.current;
+        if (adapter && adapter.isReady()) {
+            try {
+                const currentTime = await adapter.getCurrentTime();
+                index = findActiveCaptionIndex(activeTranscript, Math.round(currentTime * 1000));
+                setActiveTranscriptIndex(index);
+            } catch (err) {
+                console.warn('Could not get current time from player adapter', err);
+            }
+        }
+        setSearchQuery('');
+        setFollowTranscriptPlayback(true);
+        setCaptionCenterRequest(index);
+    }, [activeTranscript, activeTranscriptIndex]);
 
     // Resize handlers
     const handleMouseDown = (e: React.MouseEvent) => {
@@ -1152,6 +1254,18 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
                                                     aria-label="Re-fetch transcript from YouTube"
                                                 />
                                             )}
+                                            {hasTranscript && (
+                                                <button
+                                                    ref={transcriptSyncButtonRef}
+                                                    className={classNames('youtnote-plugin__transcript-sync-btn', {
+                                                        'youtnote-plugin__active': isTranscriptFollowing,
+                                                    })}
+                                                    onClick={() => { void handleSyncTranscriptPlayback(); }}
+                                                    aria-pressed={isTranscriptFollowing}
+                                                    aria-label={isTranscriptFollowing ? 'Following playback' : 'Sync transcript with playback'}
+                                                    title={isTranscriptFollowing ? 'Following playback' : 'Sync transcript with playback'}
+                                                />
+                                            )}
                                         </>
                                     ) : (
                                         <>
@@ -1226,7 +1340,17 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
                     )}
                 </div>
                 {showTranscript ? (
-                    <div className="youtnote-plugin__transcript-list">
+                    <div
+                        ref={transcriptListRef}
+                        className="youtnote-plugin__transcript-list"
+                        onWheel={handleTranscriptManualScroll}
+                        onTouchMove={handleTranscriptManualScroll}
+                        onPointerDown={(e) => {
+                            if (e.target === e.currentTarget) {
+                                handleTranscriptManualScroll();
+                            }
+                        }}
+                    >
                         {isFetchingTranscript ? (
                             <div className="youtnote-plugin__transcript-empty">
                                 <div className="youtnote-plugin__dot-pulse" />

@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import type { CaptionTrack } from './types';
+import type { CaptionTrack, TranscriptEntry } from './types';
 import {
     buildTranscriptUrl,
     extractCaptionTracks,
+    findActiveCaptionIndex,
+    formatCaptionFileTimestamp,
     formatTranscriptTimestamp,
     getPlayabilityError,
+    parseCaptionFileTimestamp,
     parseJson3Transcript,
     sortCaptionTracks,
     transcriptUsesHours,
@@ -178,18 +181,37 @@ describe('parseJson3Transcript', () => {
         const entries = parseJson3Transcript(ASR_JSON3);
 
         expect(entries).toEqual([
-            { timestampSec: 0, text: '[Music]' },
-            { timestampSec: 18, text: "We're no strangers to" },
-            { timestampSec: 22, text: '♪ You know the rules and so do I ♪' },
-            { timestampSec: 27, text: 'Tom & Jerry' },
+            { startMs: 320, durationMs: 14260, text: '[Music]' },
+            { startMs: 18800, durationMs: 7160, text: "We're no strangers to" },
+            { startMs: 22640, durationMs: 4320, text: '♪ You know the rules and so do I ♪' },
+            { startMs: 27040, durationMs: 4000, text: 'Tom & Jerry' },
         ]);
     });
 
-    it('floors millisecond timestamps to seconds', () => {
+    it('preserves exact start and duration milliseconds', () => {
         const entries = parseJson3Transcript({
-            events: [{ tStartMs: 65999, segs: [{ utf8: 'late' }] }],
+            events: [{ tStartMs: 65999.4, dDurationMs: 1234.6, segs: [{ utf8: 'late' }] }],
         });
-        expect(entries[0].timestampSec).toBe(65);
+        expect(entries[0]).toEqual({ startMs: 65999, durationMs: 1235, text: 'late' });
+    });
+
+    it('omits durationMs when absent or non-positive', () => {
+        const entries = parseJson3Transcript({
+            events: [
+                { tStartMs: 100, segs: [{ utf8: 'a' }] },
+                { tStartMs: 200, dDurationMs: 0, segs: [{ utf8: 'b' }] },
+                { tStartMs: 300, dDurationMs: -50, segs: [{ utf8: 'c' }] },
+                { tStartMs: 400, dDurationMs: 0.4, segs: [{ utf8: 'd' }] },
+            ],
+        });
+        expect(entries).toEqual([
+            { startMs: 100, text: 'a' },
+            { startMs: 200, text: 'b' },
+            { startMs: 300, text: 'c' },
+            { startMs: 400, text: 'd' },
+        ]);
+        expect(entries[0]).not.toHaveProperty('durationMs');
+        expect(entries[3]).not.toHaveProperty('durationMs');
     });
 
     it('returns [] for invalid input', () => {
@@ -202,28 +224,118 @@ describe('parseJson3Transcript', () => {
 
 describe('formatTranscriptTimestamp', () => {
     it('formats m:ss when not using hours', () => {
-        expect(formatTranscriptTimestamp(5, false)).toBe('0:05');
-        expect(formatTranscriptTimestamp(115, false)).toBe('1:55');
+        expect(formatTranscriptTimestamp(5000, false)).toBe('0:05');
+        expect(formatTranscriptTimestamp(115125, false)).toBe('1:55');
     });
 
     it('formats h:mm:ss when using hours', () => {
-        expect(formatTranscriptTimestamp(3725, true)).toBe('1:02:05');
-        expect(formatTranscriptTimestamp(5, true)).toBe('0:00:05');
+        expect(formatTranscriptTimestamp(3725125, true)).toBe('1:02:05');
+        expect(formatTranscriptTimestamp(5000, true)).toBe('0:00:05');
+    });
+});
+
+describe('formatCaptionFileTimestamp', () => {
+    it('uses the compact clock style for whole-second values', () => {
+        expect(formatCaptionFileTimestamp(5000)).toBe('5');
+        expect(formatCaptionFileTimestamp(115000)).toBe('1:55');
+        expect(formatCaptionFileTimestamp(3725000)).toBe('1:02:05');
+    });
+
+    it('emits .mmm for fractional values', () => {
+        expect(formatCaptionFileTimestamp(320)).toBe('0:00.320');
+        expect(formatCaptionFileTimestamp(18800)).toBe('0:18.800');
+        expect(formatCaptionFileTimestamp(115125)).toBe('1:55.125');
+        expect(formatCaptionFileTimestamp(3725125)).toBe('1:02:05.125');
+    });
+});
+
+describe('parseCaptionFileTimestamp', () => {
+    it('parses seconds, m:ss and h:mm:ss with optional milliseconds', () => {
+        expect(parseCaptionFileTimestamp('5')).toBe(5000);
+        expect(parseCaptionFileTimestamp('1:55')).toBe(115000);
+        expect(parseCaptionFileTimestamp('1:02:05')).toBe(3725000);
+        expect(parseCaptionFileTimestamp('0:00.320')).toBe(320);
+        expect(parseCaptionFileTimestamp('0:18.8')).toBe(18800);
+        expect(parseCaptionFileTimestamp('1:55.125')).toBe(115125);
+        expect(parseCaptionFileTimestamp('1:02:05.005')).toBe(3725005);
+    });
+
+    it('rejects invalid minute/second ranges, malformed fractions, and garbage', () => {
+        expect(parseCaptionFileTimestamp('1:60')).toBeNull();
+        expect(parseCaptionFileTimestamp('1:62:00')).toBeNull();
+        expect(parseCaptionFileTimestamp('5.1234')).toBeNull();
+        expect(parseCaptionFileTimestamp('5.')).toBeNull();
+        expect(parseCaptionFileTimestamp('abc')).toBeNull();
+        expect(parseCaptionFileTimestamp('-5')).toBeNull();
+        expect(parseCaptionFileTimestamp('')).toBeNull();
+    });
+});
+
+describe('findActiveCaptionIndex', () => {
+    const CAPTIONS: TranscriptEntry[] = [
+        { startMs: 1000, durationMs: 2000, text: 'a' },
+        { startMs: 4000, durationMs: 2000, text: 'b' },
+        { startMs: 8000, text: 'c' },
+        { startMs: 12000, text: 'd' },
+    ];
+
+    it('returns null before the first caption', () => {
+        expect(findActiveCaptionIndex(CAPTIONS, 500)).toBeNull();
+        expect(findActiveCaptionIndex([], 1000)).toBeNull();
+    });
+
+    it('activates a caption at its exact start and during its duration', () => {
+        expect(findActiveCaptionIndex(CAPTIONS, 1000)).toBe(0);
+        expect(findActiveCaptionIndex(CAPTIONS, 2500)).toBe(0);
+    });
+
+    it('returns null at an exact end boundary and inside gaps', () => {
+        expect(findActiveCaptionIndex(CAPTIONS, 3000)).toBeNull();
+        expect(findActiveCaptionIndex(CAPTIONS, 3500)).toBeNull();
+        expect(findActiveCaptionIndex(CAPTIONS, 7000)).toBeNull();
+    });
+
+    it('activates a timed caption when another caption starts at its end', () => {
+        const contiguous: TranscriptEntry[] = [
+            { startMs: 1000, durationMs: 1000, text: 'a' },
+            { startMs: 2000, durationMs: 1000, text: 'b' },
+        ];
+        expect(findActiveCaptionIndex(contiguous, 2000)).toBe(1);
+    });
+
+    it('keeps a caption without duration active until the next start', () => {
+        expect(findActiveCaptionIndex(CAPTIONS, 9000)).toBe(2);
+        expect(findActiveCaptionIndex(CAPTIONS, 11999)).toBe(2);
+        expect(findActiveCaptionIndex(CAPTIONS, 12000)).toBe(3);
+    });
+
+    it('keeps the final no-duration caption active', () => {
+        expect(findActiveCaptionIndex(CAPTIONS, 999999)).toBe(3);
+    });
+
+    it('resolves duplicate start times to the last one', () => {
+        const dupes: TranscriptEntry[] = [
+            { startMs: 1000, text: 'first' },
+            { startMs: 1000, text: 'second' },
+            { startMs: 2000, text: 'third' },
+        ];
+        expect(findActiveCaptionIndex(dupes, 1000)).toBe(1);
+        expect(findActiveCaptionIndex(dupes, 1500)).toBe(1);
     });
 });
 
 describe('transcriptUsesHours', () => {
     it('is true when the video duration is an hour or more', () => {
         expect(transcriptUsesHours([], 3600)).toBe(true);
-        expect(transcriptUsesHours([{ timestampSec: 5, text: 'x' }], 4000)).toBe(true);
+        expect(transcriptUsesHours([{ startMs: 5000, text: 'x' }], 4000)).toBe(true);
     });
 
     it('is true when the last caption reaches an hour or more', () => {
-        expect(transcriptUsesHours([{ timestampSec: 3700, text: 'x' }], 0)).toBe(true);
+        expect(transcriptUsesHours([{ startMs: 3_700_000, text: 'x' }], 0)).toBe(true);
     });
 
     it('is false for short videos and transcripts', () => {
-        expect(transcriptUsesHours([{ timestampSec: 100, text: 'x' }], 300)).toBe(false);
+        expect(transcriptUsesHours([{ startMs: 100_000, text: 'x' }], 300)).toBe(false);
         expect(transcriptUsesHours([], 0)).toBe(false);
     });
 });

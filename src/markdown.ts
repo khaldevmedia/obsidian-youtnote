@@ -1,4 +1,5 @@
-import { Video, Note, VideoId, NoteId, ExportOptions } from './types';
+import { Video, Note, VideoId, NoteId, ExportOptions, TranscriptEntry } from './types';
+import { formatCaptionFileTimestamp, parseCaptionFileTimestamp } from './transcript';
 import {
     compareNotes,
     extractYouTubeId,
@@ -75,18 +76,28 @@ export function parseMarkdownToData(markdown: string): { videos: Video[], notes:
             continue;
         }
 
-        // Match Transcript caption: [1:23](transcript) caption text
+        // Match caption: [1:23](caption) caption text, optionally with a
+        // ?durationMs=<ms> marker
         // Checked before the video-link regex because a caption whose text
         // ends with ')' would otherwise match it.
-        const transcriptMatch = line.match(/^\[([\d:]+)\]\(transcript\) ?(.*)$/);
-        if (transcriptMatch) {
+        const captionMatch = line.match(/^\[([\d:.]+)\]\(caption(?:\?durationMs=(\d+))?\) ?(.*)$/);
+        if (captionMatch) {
             if (currentVideo) {
                 commitNote();
-                const result = parseTimestampInput(transcriptMatch[1], 0);
-                if (!currentVideo.transcript) {
-                    currentVideo.transcript = [];
+                const startMs = parseCaptionFileTimestamp(captionMatch[1]);
+                if (startMs !== null) {
+                    const entry: TranscriptEntry = { startMs, text: captionMatch[3] };
+                    if (captionMatch[2] !== undefined) {
+                        const durationMs = Number(captionMatch[2]);
+                        if (Number.isFinite(durationMs) && durationMs > 0) {
+                            entry.durationMs = durationMs;
+                        }
+                    }
+                    if (!currentVideo.transcript) {
+                        currentVideo.transcript = [];
+                    }
+                    currentVideo.transcript.push(entry);
                 }
-                currentVideo.transcript.push({ timestampSec: result.seconds, text: transcriptMatch[2] });
             }
             continue;
         }
@@ -163,6 +174,10 @@ export function parseMarkdownToData(markdown: string): { videos: Video[], notes:
 
     commitNote();
 
+    for (const video of videos) {
+        video.transcript?.sort((a, b) => a.startMs - b.startMs);
+    }
+
     return { videos, notes };
 }
 
@@ -195,7 +210,8 @@ export function serializeDataToMarkdown(videos: Video[], notes: Note[]): string 
 
         if (video.transcript?.length) {
             for (const entry of video.transcript) {
-                lines.push(`[${formatSecondsToDisplay(entry.timestampSec, 0)}](transcript) ${entry.text}`);
+                const durationQuery = entry.durationMs === undefined ? '' : `?durationMs=${entry.durationMs}`;
+                lines.push(`[${formatCaptionFileTimestamp(entry.startMs)}](caption${durationQuery}) ${entry.text}`);
             }
             lines.push('');
         }
@@ -253,10 +269,10 @@ function generateExportContent(videos: Video[], notes: Note[], options: ExportOp
             lines.push('');
 
             for (const entry of video.transcript) {
-                const timeStr = formatSecondsToDisplay(entry.timestampSec, 0);
+                const timeStr = formatSecondsToDisplay(entry.startMs / 1000, 0);
 
                 const timestampUrl = ytId
-                    ? `https://youtu.be/${ytId}?t=${Math.floor(entry.timestampSec)}`
+                    ? `https://youtu.be/${ytId}?t=${Math.floor(entry.startMs / 1000)}`
                     : video.url;
 
                 lines.push(`[${timeStr}](${timestampUrl}) ${entry.text}`);
