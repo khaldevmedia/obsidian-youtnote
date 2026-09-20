@@ -85,7 +85,14 @@ export interface PluginSettings {
 	openExportedFile: boolean;
 	showNoteStats: boolean;
 	switchToNotesAfterTranscriptNote: boolean;
+	exportIncludeNotes: boolean;
+	exportIncludeTranscripts: boolean;
 	uriSchemeEnabled: boolean;
+}
+
+export interface ExportOptions {
+	includeNotes: boolean;
+	includeTranscripts: boolean;
 }
 
 export interface PluginData {

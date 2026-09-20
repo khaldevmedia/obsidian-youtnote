@@ -9,6 +9,7 @@ import {
     parseMarkdownToData,
     serializeDataToMarkdown,
     exportSingleVideoToMarkdown,
+    exportToMarkdown,
 } from './markdown';
 
 describe('YouTube URL utilities', () => {
@@ -283,5 +284,86 @@ First timestamped note.
         expect(generalIdx).toBeGreaterThan(-1);
         expect(tsIdx).toBeGreaterThan(-1);
         expect(generalIdx).toBeLessThan(tsIdx);
+    });
+});
+
+describe('Markdown export options', () => {
+    const EXPORT_MD = `---
+youtnote: true
+---
+
+[First Video](https://www.youtube.com/watch?v=dQw4w9WgXcQ)
+
+[general-note](general-note)
+Summary note.
+
+[1:23](timestamp)
+Timestamped note.
+
+[5](transcript) first caption
+[1:55](transcript) second caption
+
+[Second Video](https://www.youtube.com/watch?v=abcdefghijk)
+
+[0:10](timestamp)
+Another note.
+
+[7](transcript) other caption
+`;
+
+    it('includes notes and transcript sections by default', () => {
+        const parsed = parseMarkdownToData(EXPORT_MD);
+        const exported = exportToMarkdown(parsed.videos, parsed.notes);
+
+        expect(exported).toContain('**General note:**');
+        expect(exported).toContain('Summary note.');
+        expect(exported).toContain('[1:23](https://youtu.be/dQw4w9WgXcQ?t=83)');
+        expect(exported).toContain('Timestamped note.');
+        expect(exported).toContain('**Transcript:**');
+        expect(exported).toContain('[5](https://youtu.be/dQw4w9WgXcQ?t=5) first caption');
+        expect(exported).toContain('[1:55](https://youtu.be/dQw4w9WgXcQ?t=115) second caption');
+    });
+
+    it('excludes the transcript when only notes are requested', () => {
+        const parsed = parseMarkdownToData(EXPORT_MD);
+        const exported = exportSingleVideoToMarkdown(parsed.videos[0], parsed.notes, {
+            includeNotes: true,
+            includeTranscripts: false,
+        });
+
+        expect(exported).toContain('**General note:**');
+        expect(exported).toContain('Timestamped note.');
+        expect(exported).not.toContain('**Transcript:**');
+        expect(exported).not.toContain('first caption');
+    });
+
+    it('excludes notes when only the transcript is requested', () => {
+        const parsed = parseMarkdownToData(EXPORT_MD);
+        const exported = exportSingleVideoToMarkdown(parsed.videos[0], parsed.notes, {
+            includeNotes: false,
+            includeTranscripts: true,
+        });
+
+        expect(exported).toContain('[First Video](https://www.youtube.com/watch?v=dQw4w9WgXcQ)');
+        expect(exported).toContain('**Transcript:**');
+        expect(exported).toContain('[5](https://youtu.be/dQw4w9WgXcQ?t=5) first caption');
+        expect(exported).not.toContain('**General note:**');
+        expect(exported).not.toContain('Summary note.');
+        expect(exported).not.toContain('Timestamped note.');
+        expect(exported).not.toContain('https://youtu.be/dQw4w9WgXcQ?t=83');
+    });
+
+    it('applies the options across all videos', () => {
+        const parsed = parseMarkdownToData(EXPORT_MD);
+        const exported = exportToMarkdown(parsed.videos, parsed.notes, {
+            includeNotes: false,
+            includeTranscripts: true,
+        });
+
+        expect(exported.match(/\*\*Transcript:\*\*/g)).toHaveLength(2);
+        expect(exported).toContain('[5](https://youtu.be/dQw4w9WgXcQ?t=5) first caption');
+        expect(exported).toContain('[7](https://youtu.be/abcdefghijk?t=7) other caption');
+        expect(exported).not.toContain('Another note.');
+        expect(exported).not.toContain('**General note:**');
     });
 });

@@ -60,7 +60,7 @@ export const TranscriptListItem: React.FC<TranscriptListItemProps> = React.memo(
 
         menu.addItem((item) => {
             item
-                .setTitle('Create note at this timestamp')
+                .setTitle('Create note from this caption')
                 .setIcon('square-plus')
                 .onClick(() => {
                     onCreateNote(entry, displayTimestamp);
@@ -179,7 +179,7 @@ export const TranscriptListItem: React.FC<TranscriptListItemProps> = React.memo(
                             e.stopPropagation();
                             onCreateNote(entry, displayTimestamp);
                         }}
-                        aria-label="Create note at this timestamp"
+                        aria-label="Create note from this caption"
                     />
                     <button
                         ref={(el) => {

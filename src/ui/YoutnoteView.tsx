@@ -1043,12 +1043,12 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
                     <div className="youtnote-plugin__video-list-header-content">
                         Videos: <span>{videos.length}</span>
                     </div>
-                    {videos.length > 0 && notes.length > 0 && (
+                    {videos.length > 0 && (notes.length > 0 || videos.some(video => (video.transcript?.length ?? 0) > 0)) && (
                         <button
                             ref={exportAllButtonRef}
                             className="youtnote-plugin__export-btn"
                             onClick={() => { void onExportAllVideos(); }}
-                            aria-label="Export the notes of all videos as Markdown"
+                            aria-label="Export all videos as Markdown"
                         />
                     )}
                 </div>
@@ -1173,20 +1173,20 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
                                                 aria-label="Add general note"
                                             />
                                             {activeVideoNotes.length > 0 && (
-                                                <>
-                                                    <button
-                                                        ref={mergeNotesButtonRef}
-                                                        className="youtnote-plugin__merge-notes-btn"
-                                                        onClick={handleMergeDuplicateNotes}
-                                                        aria-label="Merge notes with the same timestamp"
-                                                    />
-                                                    <button
-                                                        ref={exportButtonRef}
-                                                        className="youtnote-plugin__export-btn"
-                                                        onClick={() => { void onExportSingleVideo(activeVideoId); }}
-                                                        aria-label="Export the notes of selected video as Markdown"
-                                                    />
-                                                </>
+                                                <button
+                                                    ref={mergeNotesButtonRef}
+                                                    className="youtnote-plugin__merge-notes-btn"
+                                                    onClick={handleMergeDuplicateNotes}
+                                                    aria-label="Merge notes with the same timestamp"
+                                                />
+                                            )}
+                                            {(activeVideoNotes.length > 0 || hasTranscript) && (
+                                                <button
+                                                    ref={exportButtonRef}
+                                                    className="youtnote-plugin__export-btn"
+                                                    onClick={() => { void onExportSingleVideo(activeVideoId); }}
+                                                    aria-label="Export selected video as Markdown"
+                                                />
                                             )}
                                         </>
                                     )}

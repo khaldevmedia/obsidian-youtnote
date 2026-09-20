@@ -1,4 +1,4 @@
-import { Video, Note, VideoId, NoteId } from './types';
+import { Video, Note, VideoId, NoteId, ExportOptions } from './types';
 import {
     compareNotes,
     extractYouTubeId,
@@ -206,11 +206,13 @@ export function serializeDataToMarkdown(videos: Video[], notes: Note[]): string 
     return lines.join('\n').trim() + '\n';
 }
 
+const DEFAULT_EXPORT_OPTIONS: ExportOptions = { includeNotes: true, includeTranscripts: true };
+
 /**
  * Helper function to generate export content for a list of videos and their notes.
  * Creates markdown with YouTube timestamp links.
  */
-function generateExportContent(videos: Video[], notes: Note[]): string {
+function generateExportContent(videos: Video[], notes: Note[], options: ExportOptions = DEFAULT_EXPORT_OPTIONS): string {
     const lines: string[] = [];
     const notesByVideo = buildSortedNotesByVideo(notes);
 
@@ -222,28 +224,46 @@ function generateExportContent(videos: Video[], notes: Note[]): string {
         const videoNotes = notesByVideo.get(video.id) || [];
         const ytId = extractYouTubeId(video.url);
 
-        for (const note of videoNotes) {
-            const isGeneral = note.isGeneral === true || note.timestampSec === -1;
+        if (options.includeNotes) {
+            for (const note of videoNotes) {
+                const isGeneral = note.isGeneral === true || note.timestampSec === -1;
 
-            if (isGeneral) {
-                lines.push('**General note:**');
+                if (isGeneral) {
+                    lines.push('**General note:**');
+                    lines.push(note.bodyMarkdown);
+                    lines.push('');
+                    continue;
+                }
+
+                const timeStr = formatSecondsToDisplay(note.timestampSec, 0);
+
+                // Create YouTube timestamp link
+                const timestampUrl = ytId
+                    ? `https://youtu.be/${ytId}?t=${Math.floor(note.timestampSec)}`
+                    : video.url;
+
+                lines.push(`[${timeStr}](${timestampUrl})`);
                 lines.push(note.bodyMarkdown);
                 lines.push('');
-                continue;
             }
+        }
 
-            const timeStr = formatSecondsToDisplay(note.timestampSec, 0);
-            
-            // Create YouTube timestamp link
-            const timestampUrl = ytId 
-                ? `https://youtu.be/${ytId}?t=${Math.floor(note.timestampSec)}`
-                : video.url;
-            
-            lines.push(`[${timeStr}](${timestampUrl})`);
-            lines.push(note.bodyMarkdown);
+        if (options.includeTranscripts && video.transcript?.length) {
+            lines.push('**Transcript:**');
+            lines.push('');
+
+            for (const entry of video.transcript) {
+                const timeStr = formatSecondsToDisplay(entry.timestampSec, 0);
+
+                const timestampUrl = ytId
+                    ? `https://youtu.be/${ytId}?t=${Math.floor(entry.timestampSec)}`
+                    : video.url;
+
+                lines.push(`[${timeStr}](${timestampUrl}) ${entry.text}`);
+            }
             lines.push('');
         }
-        
+
         lines.push(''); // Extra spacing between videos
     }
 
@@ -253,13 +273,13 @@ function generateExportContent(videos: Video[], notes: Note[]): string {
 /**
  * Export all videos and notes to markdown format.
  */
-export function exportToMarkdown(videos: Video[], notes: Note[]): string {
-    return generateExportContent(videos, notes);
+export function exportToMarkdown(videos: Video[], notes: Note[], options?: ExportOptions): string {
+    return generateExportContent(videos, notes, options);
 }
 
 /**
  * Export a single video and its notes to markdown format.
  */
-export function exportSingleVideoToMarkdown(video: Video, notes: Note[]): string {
-    return generateExportContent([video], notes);
+export function exportSingleVideoToMarkdown(video: Video, notes: Note[], options?: ExportOptions): string {
+    return generateExportContent([video], notes, options);
 }

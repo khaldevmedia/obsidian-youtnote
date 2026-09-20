@@ -2,7 +2,8 @@ import { TextFileView, WorkspaceLeaf, Notice } from 'obsidian';
 import * as React from 'react';
 import * as ReactDOM from 'react-dom/client';
 import { YoutubePluginView } from './ui/YoutnoteView';
-import { Video, Note, VideoId } from './types';
+import { ExportOptionsModal } from './ui/MessageBoxes';
+import { Video, Note, VideoId, ExportOptions } from './types';
 import { parseMarkdownToData, serializeDataToMarkdown, exportToMarkdown, exportSingleVideoToMarkdown } from './markdown';
 import { extractYouTubeId } from './utils';
 import YoutnotePlugin from './main';
@@ -91,18 +92,7 @@ export class YoutnoteView extends TextFileView {
         
         // Add a button to export as Markdown
         this.addAction('file-down', 'Export as Markdown', () => {
-            void (async () => {
-                if (!this.file) return;
-                
-                // Generate export content
-                const exportContent = exportToMarkdown(this.videos, this.notes);
-                
-                // Create filename: original name + " - Export.md"
-                const baseName = this.file.basename;
-                const exportFileName = `${baseName} - Export`;
-                
-                await this.createExportFile(exportFileName, exportContent);
-            })();
+            void this.handleExportAllVideos();
         });
         
         // Add a button to the view header to switch back to markdown
@@ -143,28 +133,55 @@ export class YoutnoteView extends TextFileView {
         const video = this.videos.find(v => v.id === videoId);
         if (!video) return;
 
-        // Generate export content for single video
-        const exportContent = exportSingleVideoToMarkdown(video, this.notes);
-        
-        // Create filename: Youtnote-<video id>
-        const ytId = extractYouTubeId(video.url);
-        const exportFileName = ytId ? `Youtnote-${ytId}-Export` : `Youtnote-${videoId}-Export`;
-        
-        await this.createExportFile(exportFileName, exportContent);
+        this.openExportDialog(false, videoId);
     };
 
     handleExportAllVideos = async () => {
         if (!this.file) return;
-        
-        // Generate export content for all videos
-        const exportContent = exportToMarkdown(this.videos, this.notes);
-        
-        // Create filename: original name + " - Export"
-        const baseName = this.file.basename;
-        const exportFileName = `${baseName} - Export`;
-        
-        await this.createExportFile(exportFileName, exportContent);
+
+        this.openExportDialog(true);
     };
+
+    private openExportDialog(exportAllVideos: boolean, videoId?: VideoId): void {
+        new ExportOptionsModal(
+            this.app,
+            exportAllVideos,
+            {
+                includeNotes: this.plugin.settings.exportIncludeNotes,
+                includeTranscripts: this.plugin.settings.exportIncludeTranscripts,
+            },
+            async (options) => {
+                this.plugin.settings.exportIncludeNotes = options.includeNotes;
+                this.plugin.settings.exportIncludeTranscripts = options.includeTranscripts;
+                await this.plugin.saveDataState();
+                await this.performExport(exportAllVideos, options, videoId);
+            }
+        ).open();
+    }
+
+    private async performExport(exportAllVideos: boolean, options: ExportOptions, videoId?: VideoId): Promise<void> {
+        if (!this.file) return;
+
+        if (exportAllVideos) {
+            const exportContent = exportToMarkdown(this.videos, this.notes, options);
+            const baseName = this.file.basename;
+            await this.createExportFile(`${baseName} - Export`, exportContent);
+            return;
+        }
+
+        if (!videoId) return;
+        const video = this.videos.find(v => v.id === videoId);
+        if (!video) return;
+
+        // Generate export content for single video
+        const exportContent = exportSingleVideoToMarkdown(video, this.notes, options);
+
+        // Create filename: Youtnote-<video id>
+        const ytId = extractYouTubeId(video.url);
+        const exportFileName = ytId ? `Youtnote-${ytId}-Export` : `Youtnote-${videoId}-Export`;
+
+        await this.createExportFile(exportFileName, exportContent);
+    }
 
     // Public method to refresh the view (e.g., when settings change)
     refresh() {

@@ -10,6 +10,8 @@ export const DEFAULT_SETTINGS: PluginSettings = {
 	openExportedFile: true,
 	showNoteStats: true,
 	switchToNotesAfterTranscriptNote: false,
+	exportIncludeNotes: true,
+	exportIncludeTranscripts: true,
 	pinOnPhone: false,
 	uriSchemeEnabled: false,
 }
