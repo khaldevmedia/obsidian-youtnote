@@ -1,6 +1,8 @@
 import { App, Modal } from 'obsidian';
 import { ExportOptions } from '../types';
 
+type ModalAction = () => void | Promise<void>;
+
 export abstract class BaseModal extends Modal {
     protected title: string;
     protected message: string;
@@ -14,6 +16,30 @@ export abstract class BaseModal extends Modal {
     protected abstract renderButtons(buttonsEl: HTMLElement): void;
 
     protected renderContent(_contentEl: HTMLElement): void {}
+
+    protected createButton(
+        buttonsEl: HTMLElement,
+        text: string,
+        classes: string,
+        action?: ModalAction,
+        autofocus: boolean = false
+    ): HTMLButtonElement {
+        const button = buttonsEl.createEl('button', { text, cls: classes });
+        button.addEventListener('click', () => {
+            if (action) {
+                try {
+                    void Promise.resolve(action()).catch(err => {
+                        console.error('Modal action failed:', err);
+                    });
+                } catch (err) {
+                    console.error('Modal action failed:', err);
+                }
+            }
+            this.close();
+        });
+        if (autofocus) button.focus();
+        return button;
+    }
 
     onOpen() {
         const { contentEl } = this;
@@ -53,14 +79,13 @@ export class AlertModal extends BaseModal {
     }
 
     protected renderButtons(buttonsEl: HTMLElement): void {
-        const okBtn = buttonsEl.createEl('button', {
-            text: this.buttonText,
-            cls: 'youtnote-plugin__alert-ok'
-        });
-        okBtn.addEventListener('click', () => {
-            this.close();
-        });
-        okBtn.focus();
+        this.createButton(
+            buttonsEl,
+            this.buttonText,
+            'youtnote-plugin__modal-button youtnote-plugin__modal-button--primary',
+            undefined,
+            true
+        );
     }
 }
 
@@ -84,24 +109,19 @@ export class ConfirmModal extends BaseModal {
     }
 
     protected renderButtons(buttonsEl: HTMLElement): void {
-        const cancelBtn = buttonsEl.createEl('button', {
-            text: this.cancelText,
-            cls: 'youtnote-plugin__confirm-cancel'
-        });
-        cancelBtn.addEventListener('click', () => {
-            this.close();
-        });
-        
-        const confirmBtn = buttonsEl.createEl('button', {
-            text: this.confirmText,
-            cls: 'youtnote-plugin__confirm-confirm mod-warning'
-        });
-        confirmBtn.addEventListener('click', () => {
-            this.onConfirm();
-            this.close();
-        });
-        
-        confirmBtn.focus();
+        this.createButton(
+            buttonsEl,
+            this.cancelText,
+            'youtnote-plugin__modal-button youtnote-plugin__modal-button--secondary'
+        );
+
+        this.createButton(
+            buttonsEl,
+            this.confirmText,
+            'youtnote-plugin__modal-button youtnote-plugin__modal-button--danger mod-warning',
+            this.onConfirm,
+            true
+        );
     }
 }
 
@@ -158,30 +178,21 @@ export class ExportOptionsModal extends BaseModal {
     }
 
     protected renderButtons(buttonsEl: HTMLElement): void {
-        const cancelBtn = buttonsEl.createEl('button', {
-            text: 'Cancel',
-            cls: 'youtnote-plugin__confirm-cancel'
-        });
-        cancelBtn.addEventListener('click', () => {
-            this.close();
-        });
+        this.createButton(
+            buttonsEl,
+            'Cancel',
+            'youtnote-plugin__modal-button youtnote-plugin__modal-button--secondary'
+        );
 
-        this.exportBtn = buttonsEl.createEl('button', {
-            text: 'Export',
-            cls: 'youtnote-plugin__confirm-confirm'
-        });
-        this.exportBtn.addEventListener('click', () => {
-            const options: ExportOptions = {
+        this.exportBtn = this.createButton(
+            buttonsEl,
+            'Export',
+            'youtnote-plugin__modal-button youtnote-plugin__modal-button--primary',
+            () => this.onExport({
                 includeNotes: this.notesCheckbox.checked,
                 includeTranscripts: this.transcriptsCheckbox.checked,
-            };
-            void Promise.resolve()
-                .then(() => this.onExport(options))
-                .catch(err => {
-                    console.error('Export failed:', err);
-                });
-            this.close();
-        });
+            })
+        );
 
         this.updateExportDisabled();
         this.exportBtn.focus();
