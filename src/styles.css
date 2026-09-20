@@ -1054,25 +1054,25 @@ button.youtnote-plugin__add-btn {
     transition: background-color 0.2s;
 }
 
-.youtnote-plugin__modal-button--secondary {
+.youtnote-plugin__base-modal-buttons .youtnote-plugin__modal-button--secondary {
     background-color: var(--interactive-normal);
     color: var(--text-normal);
 }
 
-.youtnote-plugin__modal-button--secondary:hover:not(:disabled) {
+.youtnote-plugin__base-modal-buttons .youtnote-plugin__modal-button--secondary:hover:not(:disabled) {
     background-color: var(--interactive-hover);
 }
 
-.youtnote-plugin__modal-button--danger {
+.youtnote-plugin__base-modal-buttons .youtnote-plugin__modal-button--danger {
     background-color: var(--background-modifier-error);
     color: var(--text-on-accent);
 }
 
-.youtnote-plugin__modal-button--danger:hover:not(:disabled) {
+.youtnote-plugin__base-modal-buttons .youtnote-plugin__modal-button--danger:hover:not(:disabled) {
     background-color: var(--background-modifier-error-hover);
 }
 
-.youtnote-plugin__modal-button:disabled {
+.youtnote-plugin__base-modal-buttons .youtnote-plugin__modal-button:disabled {
     opacity: 0.5;
     cursor: default;
 }
@@ -1098,13 +1098,18 @@ button.youtnote-plugin__add-btn {
 }
 
 /* Alert Modal */
-.youtnote-plugin__modal-button--primary {
+.youtnote-plugin__base-modal-buttons .youtnote-plugin__modal-button--primary {
     background-color: var(--interactive-accent);
     color: var(--text-on-accent);
 }
 
-.youtnote-plugin__modal-button--primary:hover:not(:disabled) {
+.youtnote-plugin__base-modal-buttons .youtnote-plugin__modal-button--primary:hover:not(:disabled) {
     background-color: var(--interactive-accent-hover);
+}
+
+.youtnote-plugin__base-modal-buttons .youtnote-plugin__modal-button--primary:disabled {
+    background-color: var(--interactive-normal);
+    color: var(--text-muted);
 }
 
 

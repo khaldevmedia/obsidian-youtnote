@@ -2,6 +2,7 @@ import { App, Modal } from 'obsidian';
 import { ExportOptions } from '../types';
 
 type ModalAction = () => void | Promise<void>;
+type ConfirmButtonVariant = 'primary' | 'danger';
 
 export abstract class BaseModal extends Modal {
     protected title: string;
@@ -93,6 +94,7 @@ export class ConfirmModal extends BaseModal {
     private onConfirm: () => void;
     private confirmText: string;
     private cancelText: string;
+    private confirmVariant: ConfirmButtonVariant;
 
     constructor(
         app: App,
@@ -100,12 +102,14 @@ export class ConfirmModal extends BaseModal {
         message: string,
         onConfirm: () => void,
         confirmText: string = 'Confirm',
-        cancelText: string = 'Cancel'
+        cancelText: string = 'Cancel',
+        confirmVariant: ConfirmButtonVariant = 'danger'
     ) {
         super(app, title, message);
         this.onConfirm = onConfirm;
         this.confirmText = confirmText;
         this.cancelText = cancelText;
+        this.confirmVariant = confirmVariant;
     }
 
     protected renderButtons(buttonsEl: HTMLElement): void {
@@ -115,10 +119,14 @@ export class ConfirmModal extends BaseModal {
             'youtnote-plugin__modal-button youtnote-plugin__modal-button--secondary'
         );
 
+        const confirmClass = this.confirmVariant === 'danger'
+            ? 'youtnote-plugin__modal-button--danger'
+            : 'youtnote-plugin__modal-button--primary';
+
         this.createButton(
             buttonsEl,
             this.confirmText,
-            'youtnote-plugin__modal-button youtnote-plugin__modal-button--danger mod-warning',
+            `youtnote-plugin__modal-button ${confirmClass}`,
             this.onConfirm,
             true
         );

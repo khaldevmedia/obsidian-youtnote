@@ -825,7 +825,8 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
                 new Notice(`Merged ${mergedTargetIds.length} group(s) of duplicates`, 2000);
             },
             'Merge',
-            'Cancel'
+            'Cancel',
+            'primary'
         ).open();
     };
 

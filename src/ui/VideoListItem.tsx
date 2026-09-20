@@ -86,12 +86,10 @@ export const VideoListItem: React.FC<VideoListItemProps> = React.memo(({
             item
                 .setTitle('Delete video')
                 .setIcon('trash')
+                .setWarning(true)
                 .onClick(() => {
                     confirmDeleteVideo();
                 });
-            const typedItem = item as unknown as { dom?: HTMLElement; iconEl?: HTMLElement };
-            typedItem.dom?.classList.add('mod-warning', 'mod-danger');
-            typedItem.iconEl?.classList.add('mod-warning', 'mod-danger');
         });
         
         menu.showAtMouseEvent(e.nativeEvent);

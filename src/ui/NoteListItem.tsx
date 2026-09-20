@@ -168,12 +168,10 @@ export const NoteListItem: React.FC<NoteListItemProps> = React.memo(({
             item
                 .setTitle('Delete note')
                 .setIcon('trash')
+                .setWarning(true)
                 .onClick(() => {
                     confirmDeleteNote();
                 });
-            const typedItem = item as unknown as { dom?: HTMLElement; iconEl?: HTMLElement };
-            typedItem.dom?.classList.add('mod-warning', 'mod-danger');
-            typedItem.iconEl?.classList.add('mod-warning', 'mod-danger');
         });
         
         menu.showAtMouseEvent(e.nativeEvent);
