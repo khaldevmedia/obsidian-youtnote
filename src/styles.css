@@ -265,7 +265,8 @@ to avoid conflicts with other plugins */
 .youtnote-plugin__transcript-btn,
 .youtnote-plugin__transcript-back-btn,
 .youtnote-plugin__transcript-refetch-btn,
-.youtnote-plugin__transcript-sync-btn {
+.youtnote-plugin__transcript-sync-btn,
+.youtnote-plugin__ai-generate-btn {
     background: transparent;
     border: none;
     color: var(--text-muted);
@@ -284,7 +285,8 @@ to avoid conflicts with other plugins */
 .youtnote-plugin__transcript-btn:hover,
 .youtnote-plugin__transcript-back-btn:hover,
 .youtnote-plugin__transcript-refetch-btn:hover,
-.youtnote-plugin__transcript-sync-btn:hover {
+.youtnote-plugin__transcript-sync-btn:hover,
+.youtnote-plugin__ai-generate-btn:hover {
     color: var(--text-normal);
     background-color: var(--background-modifier-hover);
 }
@@ -292,6 +294,81 @@ to avoid conflicts with other plugins */
 .youtnote-plugin__transcript-refetch-btn:disabled {
     opacity: 0.3;
     pointer-events: none;
+}
+
+.youtnote-plugin__ai-generate-btn:disabled {
+    opacity: 0.3;
+    pointer-events: none;
+}
+
+.youtnote-plugin__ai-generation-status {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin: 0 8px 8px;
+    padding: 6px 10px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 6px;
+    color: var(--text-muted);
+    font-size: var(--font-ui-small);
+}
+
+.youtnote-plugin__ai-generation-status-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.youtnote-plugin__ai-generation-cancel {
+    flex-shrink: 0;
+    cursor: pointer;
+}
+
+.youtnote-plugin__ai-generation {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.youtnote-plugin__ai-generation-field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.youtnote-plugin__ai-generation-label {
+    font-weight: 600;
+    color: var(--text-normal);
+}
+
+.youtnote-plugin__ai-generation-textarea {
+    width: 100%;
+    min-height: 80px;
+    resize: vertical;
+}
+
+.youtnote-plugin__ai-generation-number {
+    width: 100%;
+}
+
+.youtnote-plugin__ai-generation-mode {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.youtnote-plugin__ai-generation-radio {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.youtnote-plugin__ai-generation-warning {
+    margin-left: 24px;
+    color: var(--text-warning);
+    font-size: var(--font-ui-smaller);
 }
 
 .youtnote-plugin__transcript-sync-btn.youtnote-plugin__active {
@@ -960,6 +1037,10 @@ to avoid conflicts with other plugins */
 /* URI scheme error notices */
 .youtnote-plugin__notice-error {
     color: var(--text-error);
+}
+
+.youtnote-plugin__settings-warning .setting-item-description {
+    color: var(--text-warning);
 }
 
 /* Add Note Button */

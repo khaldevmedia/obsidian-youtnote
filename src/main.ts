@@ -1,7 +1,14 @@
 import { Plugin, TFile, TFolder, ViewState, WorkspaceLeaf, addIcon, MarkdownView, Notice, requestUrl } from 'obsidian';
-import { DEFAULT_SETTINGS, YoutnoteSettingTab } from './settings';
+import { YoutnoteSettingTab, mergePluginSettings } from './settings';
 import { YoutnoteView, VIEW_TYPE } from './view';
-import { PluginSettings, PluginData, MarkdownEditorClass, Video, Note, VideoId, NoteId } from './types';
+import { PluginSettings, PluginData, MarkdownEditorClass, Video, Note, VideoId, NoteId, TranscriptEntry } from './types';
+import { createAIProvider } from './ai/registry';
+import type { AIProviderFactoryConfig } from './ai/registry';
+import { migrateLegacyAICredentials } from './ai/credentials';
+import { generateNotesFromTranscript } from './ai/notes';
+import type { GeneratedNoteDraft, GenerateNotesOptions } from './ai/notes';
+import { AIProviderError } from './ai/types';
+import type { AIProvider, ConfiguredAIProviderId } from './ai/types';
 import { hasYoutnoteFrontmatter, extractYouTubeId, formatSecondsToDisplay, compareNotes } from './utils';
 import { getMarkdownEditorClass } from './markdownEditor';
 import { validateYoutnoteUriParams, isDebounced, getUnsupportedParams, ParsedYoutnoteUriParams } from './uri-scheme';
@@ -45,6 +52,7 @@ export default class YoutnotePlugin extends Plugin {
     youtnoteFileModes: Record<string, string> = {};
     private didFinishOnload = false;
     private lastUriSchemeInvocation = 0;
+    private dataStateExtras: Record<string, unknown> = {};
 
     async onload() {
         await this.loadDataState();
@@ -248,12 +256,65 @@ export default class YoutnotePlugin extends Plugin {
     }
 
     async loadDataState() {
-        const data: PluginData = (await this.loadData() as PluginData | null) ?? ({} as PluginData);
-        this.settings = Object.assign({}, DEFAULT_SETTINGS, data.settings || {});
+        const rawData = (await this.loadData() as Record<string, unknown> | null) ?? {};
+        const migration = migrateLegacyAICredentials(rawData, this.app.secretStorage);
+        if (migration.changed) {
+            await this.saveData(rawData);
+        }
+        if (migration.failures.length > 0) {
+            new Notice(
+                'Youtnote could not verify migration of stored API keys to Obsidian Keychain. ' +
+                'Plaintext keys were left in data.json. Select or create a Keychain secret in Youtnote settings.',
+                0,
+            );
+        }
+        this.settings = mergePluginSettings(rawData.settings);
+        const extras: Record<string, unknown> = {};
+        for (const key of Object.keys(rawData)) {
+            if (key !== 'settings') {
+                extras[key] = rawData[key];
+            }
+        }
+        this.dataStateExtras = extras;
+    }
+
+    private createConfiguredAIProvider(providerId: ConfiguredAIProviderId): AIProvider {
+        const ai = this.settings.ai;
+        const secretName = ai.secretNames[providerId].trim();
+        const apiKey = secretName ? this.app.secretStorage.getSecret(secretName) : null;
+        const timeoutSeconds = providerId === 'custom' ? ai.customTimeoutSeconds : ai.hostedTimeoutSeconds;
+        const config: AIProviderFactoryConfig = {
+            provider: providerId,
+            apiKey,
+            model: ai.models[providerId],
+            timeoutMs: timeoutSeconds * 1000,
+        };
+        if (providerId === 'custom') {
+            config.customBaseUrl = ai.customBaseUrl;
+        }
+        return createAIProvider(config);
+    }
+
+    async listAIModels(provider: ConfiguredAIProviderId, signal?: AbortSignal): Promise<string[]> {
+        return this.createConfiguredAIProvider(provider).listModels(signal);
+    }
+
+    async generateAINotes(transcript: TranscriptEntry[], options: GenerateNotesOptions): Promise<GeneratedNoteDraft[]> {
+        const ai = this.settings.ai;
+        if (!ai.enabled) {
+            throw new AIProviderError('invalid-config', 'AI-generated notes are disabled. Enable them in Youtnote settings.');
+        }
+        if (ai.provider === 'none') {
+            throw new AIProviderError('invalid-config', 'No AI provider is configured. Select one in Youtnote settings.');
+        }
+        const provider = this.createConfiguredAIProvider(ai.provider);
+        const result = await generateNotesFromTranscript(provider, transcript, options);
+        return result.notes;
     }
 
     async saveDataState() {
         const data: PluginData = {
+            ...this.dataStateExtras,
             settings: this.settings,
         };
         await this.saveData(data);

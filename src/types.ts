@@ -1,5 +1,7 @@
 import React from 'react';
 import { App, Component, TFile } from 'obsidian';
+import type { AIProviderId, ConfiguredAIProviderId } from './ai/types';
+import type { GenerateNotesOptions, GeneratedNoteDraft } from './ai/notes';
 
 /** Minimal abstract constructor shape of Obsidian's internal MarkdownEditor class. */
 export type MarkdownEditorClass = abstract new (...args: unknown[]) => Component & {
@@ -76,6 +78,17 @@ export type NoteId = string & {
 
 
 // Interfaces
+export interface AISettings {
+    enabled: boolean;
+    provider: AIProviderId;
+    secretNames: Record<ConfiguredAIProviderId, string>;
+    models: Record<ConfiguredAIProviderId, string>;
+    availableModels: Record<ConfiguredAIProviderId, string[]>;
+    customBaseUrl: string;
+    hostedTimeoutSeconds: number;
+    customTimeoutSeconds: number;
+}
+
 export interface PluginSettings {
 	pinOnPhone: boolean;
 	autoplayOnNoteSelect: boolean;
@@ -89,6 +102,7 @@ export interface PluginSettings {
 	exportIncludeNotes: boolean;
 	exportIncludeTranscripts: boolean;
 	uriSchemeEnabled: boolean;
+	ai: AISettings;
 }
 
 export interface ExportOptions {
@@ -111,6 +125,7 @@ export interface YoutnoteViewContext {
     activeEditor: object | null;
     plugin: Component & { MarkdownEditor: MarkdownEditorClass | null };
     videos: Video[];
+    notes: Note[];
 }
 
 export interface ObsidianEditorProps {
@@ -218,6 +233,7 @@ export interface YoutubePluginViewProps {
     onUpdateNotes: (notes: Note[]) => void;
     onExportSingleVideo: (videoId: VideoId) => Promise<void>;
     onExportAllVideos: () => Promise<void>;
+    onGenerateAINotes: (transcript: TranscriptEntry[], options: GenerateNotesOptions) => Promise<GeneratedNoteDraft[]>;
 }
 
 export interface PlayerAdapter {

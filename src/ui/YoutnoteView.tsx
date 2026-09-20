@@ -7,7 +7,11 @@ import { VideoId, NoteId, Video, Note, TranscriptEntry } from '../types';
 import { VideoListItem } from './VideoListItem';
 import { NoteListItem } from './NoteListItem';
 import { TranscriptListItem } from './TranscriptListItem';
-import { AlertModal, ConfirmModal } from './MessageBoxes';
+import { AlertModal, AIGenerationModal, ConfirmModal } from './MessageBoxes';
+import type { AIGenerationDialogOptions } from './MessageBoxes';
+import { AIProviderError } from '../ai/types';
+import type { GenerateNotesOptions } from '../ai/notes';
+import { applyGeneratedNotes } from '../ai/notePersistence';
 import { pickCaptionTrack } from './CaptionTrackModal';
 import { YoutubePluginViewProps } from '../types';
 import { fetchCaptionTracks, fetchTranscriptEntries } from '../transcriptFetch';
@@ -39,7 +43,8 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
     onUpdateVideos,
     onUpdateNotes,
     onExportSingleVideo,
-    onExportAllVideos
+    onExportAllVideos,
+    onGenerateAINotes
 }) => {
     const activeVideoNotes = useMemo(
         () => notes
@@ -114,6 +119,9 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
     // State for transcript view
     const [showTranscript, setShowTranscript] = useState(false);
     const [isFetchingTranscript, setIsFetchingTranscript] = useState(false);
+    const [isGeneratingNotes, setIsGeneratingNotes] = useState(false);
+    const aiAbortControllerRef = useRef<AbortController | null>(null);
+    const aiRequestIdRef = useRef(0);
     const [activeTranscriptIndex, setActiveTranscriptIndex] = useState<number | null>(null);
     const [editingTranscriptIndex, setEditingTranscriptIndex] = useState<number | null>(null);
     const [followTranscriptPlayback, setFollowTranscriptPlayback] = useState(true);
@@ -442,6 +450,9 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
                 window.clearTimeout(playerTimeoutRef.current);
                 playerTimeoutRef.current = null;
             }
+            aiRequestIdRef.current++;
+            aiAbortControllerRef.current?.abort();
+            aiAbortControllerRef.current = null;
         };
     }, []);
 
@@ -929,6 +940,83 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
         ).open();
     };
 
+    const handleGenerateAINotes = () => {
+        const video = activeVideo;
+        const transcript = video?.transcript ?? [];
+        if (!video || transcript.length === 0) {
+            new AlertModal(
+                app,
+                'No transcript available',
+                'Fetch the video transcript before generating notes with AI.'
+            ).open();
+            return;
+        }
+        new AIGenerationModal(
+            app,
+            activeVideoNotes.length > 0,
+            (dialogOptions) => runAIGeneration(video.id, transcript, dialogOptions)
+        ).open();
+    };
+
+    const runAIGeneration = async (targetVideoId: VideoId, transcript: TranscriptEntry[], dialogOptions: AIGenerationDialogOptions) => {
+        const requestId = ++aiRequestIdRef.current;
+        const controller = new AbortController();
+        aiAbortControllerRef.current = controller;
+        setIsGeneratingNotes(true);
+        try {
+            const video = view.videos.find(v => v.id === targetVideoId);
+            const maxTimestampSec = Math.max(
+                video?.durationSec ?? 0,
+                ...transcript.map(entry => Math.ceil((entry.startMs + (entry.durationMs ?? 0)) / 1000))
+            );
+            const options: GenerateNotesOptions = {
+                signal: controller.signal,
+                maxTimestampSec,
+            };
+            if (dialogOptions.customInstructions) {
+                options.customInstructions = dialogOptions.customInstructions;
+            }
+            if (dialogOptions.maxNotes !== undefined) {
+                options.maxNotes = dialogOptions.maxNotes;
+            }
+            const drafts = await onGenerateAINotes(transcript, options);
+            if (requestId !== aiRequestIdRef.current || controller.signal.aborted) return;
+            if (!view.videos.some(v => v.id === targetVideoId)) return;
+            onUpdateNotes(applyGeneratedNotes(view.notes, targetVideoId, drafts, { mode: dialogOptions.mode }));
+            setShowTranscript(false);
+            setSearchQuery('');
+            new Notice(`Generated ${drafts.length} note(s) with AI`, 2000);
+        } catch (error) {
+            if (requestId !== aiRequestIdRef.current || controller.signal.aborted) return;
+            if (error instanceof AIProviderError && error.kind === 'cancelled') return;
+            if (error instanceof AIProviderError && error.kind === 'timeout') {
+                new AlertModal(
+                    app,
+                    'AI request timed out',
+                    `${error.message} Increase the request timeout in Youtnote settings and try again.`
+                ).open();
+                return;
+            }
+            const message = error instanceof Error && error.message
+                ? error.message
+                : 'An unexpected error occurred while generating notes.';
+            new AlertModal(app, 'Unable to generate notes', message).open();
+        } finally {
+            if (requestId === aiRequestIdRef.current) {
+                aiAbortControllerRef.current = null;
+                setIsGeneratingNotes(false);
+            }
+        }
+    };
+
+    const handleCancelAIGeneration = () => {
+        aiRequestIdRef.current++;
+        aiAbortControllerRef.current?.abort();
+        aiAbortControllerRef.current = null;
+        setIsGeneratingNotes(false);
+        new Notice('AI note generation cancelled.', 2000);
+    };
+
     const handleTranscriptSeek = useCallback((index: number, startMs: number) => {
         setActiveTranscriptIndex(index);
         void seekToTimestamp(startMs / 1000);
@@ -1095,6 +1183,22 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
            activeDocument.removeEventListener('mouseup', handleMouseUp);
         };
     }, [app, isResizing, paneWidthStorageKey]);
+
+    const aiGenerateButton = settings.ai.enabled ? (
+        <button
+            ref={(el) => {
+                if (el) {
+                    el.empty();
+                    setIcon(el, 'sparkles');
+                }
+            }}
+            className="youtnote-plugin__ai-generate-btn"
+            onClick={handleGenerateAINotes}
+            disabled={isGeneratingNotes || !hasTranscript}
+            aria-label="Generate notes with AI"
+            title="Generate notes with AI"
+        />
+    ) : null;
 
     const playerSection = (
         <div className="youtnote-plugin__player-container">
@@ -1266,6 +1370,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
                                                     title={isTranscriptFollowing ? 'Following playback' : 'Sync transcript with playback'}
                                                 />
                                             )}
+                                            {aiGenerateButton}
                                         </>
                                     ) : (
                                         <>
@@ -1280,6 +1385,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
                                                 onClick={() => setShowTranscript(true)}
                                                 aria-label="Show transcript"
                                             />
+                                            {aiGenerateButton}
                                             <button
                                                 ref={addGeneralNoteButtonRef}
                                                 className="youtnote-plugin__add-general-note-btn"
@@ -1339,6 +1445,17 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
                         </div>
                     )}
                 </div>
+                {isGeneratingNotes && (
+                    <div className="youtnote-plugin__ai-generation-status" role="status" aria-live="polite">
+                        <span className="youtnote-plugin__ai-generation-status-text">Generating notes…</span>
+                        <button
+                            className="youtnote-plugin__ai-generation-cancel"
+                            onClick={handleCancelAIGeneration}
+                        >
+                            Cancel
+                        </button>
+                    </div>
+                )}
                 {showTranscript ? (
                     <div
                         ref={transcriptListRef}

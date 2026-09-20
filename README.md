@@ -55,6 +55,7 @@ For more details on this issue, please **[read here](docs/error-153-ios.md)**.
 - **Search notes**: Filter notes for the active video by text content or timestamp. The search bar lives in the notes pane header and clears automatically when switching videos or adding new notes.
 - **URI scheme**: Let external tools (scripts, browser bookmarks, automation) add videos and notes to youtnotes in your vault via `obsidian://youtnote` URIs. Disabled by default. See the [URI Scheme Guide](docs/uri-scheme-guide.md).
 - **Video transcripts**: Fetch a video's YouTube captions into the youtnote (pick the caption track when several exist), browse them alongside the player, click a timestamp to seek, copy captions, edit caption text, and create notes directly from any caption. Stored in the file in a plain, greppable `[timestamp](caption) text` syntax, with an optional precise form `[timestamp.mmm](caption?durationMs=N) text`.
+- **AI-generated notes**: Optionally generate timestamped notes from a video's transcript using OpenAI, Anthropic, Google (Gemini), or a custom OpenAI-compatible endpoint. Newly configured API keys are stored in Obsidian Keychain (SecretStorage), not plugin data.
 
 
 ## Installation
@@ -78,7 +79,8 @@ For more details on this issue, please **[read here](docs/error-153-ios.md)**.
 7. **Add a general note** using the note icon in the notes header, perfect for video summaries or context without a timestamp. One per video.
 8. **Search notes** using the search bar in the notes header to filter by text or timestamp (e.g. `1:23`). Only filters the active video's notes.
 9. **Fetch the transcript** with the captions icon in the notes header. In the transcript view, click a timestamp to seek, hover a caption to copy it, edit its text, or turn it into a note; use the search bar to filter captions and the re-fetch icon to reload them from YouTube. The caption at the current playback position is highlighted, and optional auto-scroll keeps it centered as the video plays — if you scroll away manually, use the sync button to jump back to the current caption.
-10. **Export** single-video or full-note markdown via the header buttons.
+10. **Generate notes with AI** using the sparkles button in the notes or transcript header (requires AI to be enabled in settings and a fetched transcript). All dialog fields are optional: add custom instructions, limit the maximum number of notes, and choose whether to add to or replace existing notes. While generating, a status row with a Cancel button lets you abort the request.
+11. **Export** single-video or full-note markdown via the header buttons.
 
 ## Settings Overview
 All options live under `Settings → Plugin Options → Youtnote`:
@@ -91,12 +93,25 @@ All options live under `Settings → Plugin Options → Youtnote`:
 - **Show note statistics**: Display total word/character counts in the note list header.
 - **Auto-scroll transcript during playback**: Keep the active caption centered as playback advances; the sync button remains available when disabled.
 - **Switch to notes after creating a note from transcript**: Return to the note list and select the newly created note.
+- **Enable AI-generated notes**: Turn on AI features and pick a provider (OpenAI, Anthropic, Google Gemini, or a custom OpenAI-compatible endpoint), then choose its Keychain secret, model, and request timeout. Disabled by default.
 - **Enable uri scheme**: Let external tools add videos and notes via `obsidian://youtnote` URIs. Disabled by default. See the [URI Scheme Guide](docs/uri-scheme-guide.md).
 
 ## Exporting Notes
 - **Single video export**: each video gets its own Markdown file (with timestamps preserved) using the `Export` button beside the note counter.
 - **Full file export**: consolidates every video + note into one Markdown file using the header action or view action.
 - General notes are exported with a `**General note:**` heading, placed at the top of their video's section.
+
+## AI-generated notes
+
+Youtnote can generate timestamped notes from a video's transcript with an AI provider. Enable it under `Settings → Plugin Options → Youtnote → AI`:
+
+- **Provider**: OpenAI, Anthropic, Google (Gemini), or **Custom** for any OpenAI-compatible endpoint (for example a local server such as Ollama or LM Studio).
+- **API key secret**: Newly configured keys are stored in Obsidian Keychain via SecretStorage, not in `data.json`. Required for the hosted providers; optional for Custom, where local servers often need no key. Older plaintext keys found in `data.json` are migrated into Keychain on load: once a migration is verified, the plaintext is removed; if verification fails, the plaintext is kept and a persistent notice asks you to configure a Keychain secret in Youtnote settings.
+- **Base URL** (Custom only): the OpenAI-compatible `/v1` base URL, e.g. `http://localhost:11434/v1`. Self-signed TLS certificates are not supported. Plain `http://` connections are unencrypted and may not work on iOS — a warning is shown in settings.
+- **Model**: pick from the cached model list (Refresh models / Test connection fetches it), or type an ID directly for Custom.
+- **Request timeout**: seconds before a request times out; the custom timeout defaults higher because local models can be slower.
+
+Generation waits for the provider's complete, non-streamed response, validates the returned notes (retrying once with a correction request when needed), then saves them to the Youtnote file. While a request is in progress a `Generating notes…` status with a Cancel button is shown; cancelling discards the result even if the response arrives afterward.
 
 ## AI Agent Skill
 

@@ -1,6 +1,7 @@
-import { App, PluginSettingTab, Setting } from "obsidian";
+import { App, Notice, PluginSettingTab, SecretComponent, Setting } from "obsidian";
 import YoutnotePlugin from "./main";
-import { PluginSettings } from "./types";
+import { AISettings, PluginSettings } from "./types";
+import type { AIProviderId, ConfiguredAIProviderId } from "./ai/types";
 
 export const DEFAULT_SETTINGS: PluginSettings = {
 	autoplayOnNoteSelect: false,
@@ -15,6 +16,73 @@ export const DEFAULT_SETTINGS: PluginSettings = {
 	exportIncludeTranscripts: true,
 	pinOnPhone: false,
 	uriSchemeEnabled: false,
+	ai: {
+		enabled: false,
+		provider: 'none',
+		secretNames: { openai: '', anthropic: '', google: '', custom: '' },
+		models: { openai: '', anthropic: '', google: '', custom: '' },
+		availableModels: { openai: [], anthropic: [], google: [], custom: [] },
+		customBaseUrl: '',
+		hostedTimeoutSeconds: 120,
+		customTimeoutSeconds: 300,
+	},
+}
+
+const VALID_PROVIDER_IDS = new Set<string>(['none', 'openai', 'anthropic', 'google', 'custom']);
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function mergeStringMap(raw: unknown): Record<ConfiguredAIProviderId, string> {
+	const rec = isRecord(raw) ? raw : {};
+	return {
+		openai: typeof rec.openai === 'string' ? rec.openai : '',
+		anthropic: typeof rec.anthropic === 'string' ? rec.anthropic : '',
+		google: typeof rec.google === 'string' ? rec.google : '',
+		custom: typeof rec.custom === 'string' ? rec.custom : '',
+	};
+}
+
+function mergeModelLists(raw: unknown): Record<ConfiguredAIProviderId, string[]> {
+	const rec = isRecord(raw) ? raw : {};
+	const pick = (value: unknown): string[] =>
+		Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string') : [];
+	return {
+		openai: pick(rec.openai),
+		anthropic: pick(rec.anthropic),
+		google: pick(rec.google),
+		custom: pick(rec.custom),
+	};
+}
+
+function positiveTimeout(value: unknown, fallback: number): number {
+	return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+function mergeAISettings(raw: unknown): AISettings {
+	const src = isRecord(raw) ? raw : {};
+	const defaults = DEFAULT_SETTINGS.ai;
+	const provider = typeof src.provider === 'string' && VALID_PROVIDER_IDS.has(src.provider)
+		? src.provider as AIProviderId
+		: 'none';
+	return {
+		enabled: src.enabled === true,
+		provider,
+		secretNames: mergeStringMap(src.secretNames),
+		models: mergeStringMap(src.models),
+		availableModels: mergeModelLists(src.availableModels),
+		customBaseUrl: typeof src.customBaseUrl === 'string' ? src.customBaseUrl : '',
+		hostedTimeoutSeconds: positiveTimeout(src.hostedTimeoutSeconds, defaults.hostedTimeoutSeconds),
+		customTimeoutSeconds: positiveTimeout(src.customTimeoutSeconds, defaults.customTimeoutSeconds),
+	};
+}
+
+export function mergePluginSettings(raw: unknown): PluginSettings {
+	const source = isRecord(raw) ? raw : {};
+	const merged = Object.assign({}, DEFAULT_SETTINGS, source);
+	merged.ai = mergeAISettings(source.ai);
+	return merged;
 }
 
 // ─── Shared setting definitions ──────────────────────────────────────────
@@ -56,7 +124,15 @@ interface DropdownDef {
 	options: Record<string, string>;
 }
 
-type SettingItemDef = ToggleDef | DropdownDef;
+interface CustomDef {
+	kind: 'custom';
+	name: string;
+	desc: Desc;
+	visible?: () => boolean;
+	render: (setting: Setting) => void;
+}
+
+type SettingItemDef = ToggleDef | DropdownDef | CustomDef;
 
 interface SettingGroupDef {
 	heading: string;
@@ -65,6 +141,7 @@ interface SettingGroupDef {
 }
 
 const URI_SCHEME_GUIDE_URL = 'https://github.com/khaldevmedia/obsidian-youtnote/blob/develop/docs/uri-scheme-guide.md';
+const CUSTOM_BASE_URL_PLACEHOLDER = 'http://localhost:11434/v1';
 
 function buildUriSchemeDesc(): DocumentFragment {
 	return createFragment(frag => {
@@ -170,6 +247,240 @@ export class YoutnoteSettingTab extends PluginSettingTab {
 		this.plugin = plugin;
 	}
 
+	private settingGroups(): SettingGroupDef[] {
+		const groups = SETTING_DEFINITIONS.slice();
+		groups.splice(1, 0, this.buildAIGroup());
+		return groups;
+	}
+
+	private rerenderSettings(): void {
+		const self = this as unknown as { update?: () => void; refresh?: () => void };
+		if (typeof self.update === 'function') {
+			self.update();
+			return;
+		}
+		if (typeof self.refresh === 'function') {
+			self.refresh();
+			return;
+		}
+		this.display();
+	}
+
+	private buildAIGroup(): SettingGroupDef {
+		const plugin = this.plugin;
+		const ai = (): AISettings => plugin.settings.ai;
+		const persist = async (): Promise<void> => {
+			await plugin.saveDataState();
+			plugin.refreshAllViews();
+		};
+		const rerender = (): void => {
+			this.rerenderSettings();
+		};
+		const providerId = (): ConfiguredAIProviderId | null => {
+			const provider = ai().provider;
+			return provider === 'none' ? null : provider;
+		};
+		const isCustom = (): boolean => ai().provider === 'custom';
+		const showProviderRows = (): boolean => ai().enabled && providerId() !== null;
+
+		return {
+			heading: 'AI',
+			items: [
+				{
+					kind: 'custom',
+					name: 'Enable AI-generated notes',
+					desc: 'Generate timestamped notes from a video transcript using an AI provider.',
+					render: (setting) => {
+						setting.addToggle(toggle => toggle
+							.setValue(ai().enabled)
+							.onChange(async (value) => {
+								ai().enabled = value;
+								await persist();
+								rerender();
+							}));
+					},
+				},
+				{
+					kind: 'custom',
+					name: 'Provider',
+					desc: 'Choose which AI provider generates notes.',
+					visible: () => ai().enabled,
+					render: (setting) => {
+						setting.addDropdown(dropdown => dropdown
+							.addOptions({
+								none: 'No provider configured',
+								openai: 'OpenAI',
+								anthropic: 'Anthropic',
+								google: 'Google (Gemini)',
+								custom: 'Custom (OpenAI-compatible)',
+							})
+							.setValue(ai().provider)
+							.onChange(async (value) => {
+								ai().provider = value as AIProviderId;
+								await persist();
+								rerender();
+							}));
+					},
+				},
+				{
+					kind: 'custom',
+					name: 'API key secret',
+					desc: 'Required for hosted providers. Optional for Custom, where local OpenAI-compatible servers often need no API key. Select or create a secret in Obsidian Keychain.',
+					visible: showProviderRows,
+					render: (setting) => {
+						const id = providerId();
+						if (!id) {
+							return;
+						}
+						setting.addComponent(el => new SecretComponent(this.app, el)
+							.setValue(ai().secretNames[id])
+							.onChange(async (value) => {
+								ai().secretNames[id] = value;
+								await persist();
+							}));
+					},
+				},
+				{
+					kind: 'custom',
+					name: 'Base URL',
+					desc: 'Base URL of the OpenAI-compatible API endpoint, for example a local server. Self-signed TLS certificates are not supported.',
+					visible: () => ai().enabled && isCustom(),
+					render: (setting) => {
+						setting.addText(text => {
+							text.setPlaceholder(CUSTOM_BASE_URL_PLACEHOLDER)
+								.setValue(ai().customBaseUrl)
+								.onChange(async (value) => {
+									if (value === ai().customBaseUrl) {
+										return;
+									}
+									ai().customBaseUrl = value;
+									ai().models.custom = '';
+									ai().availableModels.custom = [];
+									await persist();
+								});
+							text.inputEl.addEventListener('blur', () => {
+								rerender();
+							});
+						});
+					},
+				},
+				{
+					kind: 'custom',
+					name: 'Unencrypted connection',
+					desc: 'This connection is unencrypted. Plain HTTP may not work on iOS.',
+					visible: () => ai().enabled && isCustom() && ai().customBaseUrl.trim().toLowerCase().startsWith('http://'),
+					render: (setting) => {
+						setting.setClass('youtnote-plugin__settings-warning');
+					},
+				},
+				{
+					kind: 'custom',
+					name: 'Model',
+					desc: 'Select a fetched model, or enter a model ID directly when using Custom.',
+					visible: showProviderRows,
+					render: (setting) => {
+						const id = providerId();
+						if (!id) {
+							return;
+						}
+						if (id === 'custom') {
+							setting.addText(text => {
+								text.setPlaceholder('Model ID')
+									.setValue(ai().models.custom)
+									.onChange(async (value) => {
+										ai().models.custom = value;
+										await persist();
+									});
+								const datalist = setting.controlEl.createEl('datalist', { attr: { id: 'youtnote-ai-custom-models' } });
+								for (const model of ai().availableModels.custom) {
+									datalist.createEl('option', { attr: { value: model } });
+								}
+								text.inputEl.setAttribute('list', 'youtnote-ai-custom-models');
+							});
+							return;
+						}
+						setting.addDropdown(dropdown => {
+							const cached = ai().availableModels[id];
+							const current = ai().models[id];
+							dropdown.addOption('', 'Refresh models to load available models');
+							for (const model of cached) {
+								dropdown.addOption(model, model);
+							}
+							if (current && !cached.includes(current)) {
+								dropdown.addOption(current, current);
+							}
+							dropdown.setValue(current).onChange(async (value) => {
+								ai().models[id] = value;
+								await persist();
+							});
+						});
+					},
+				},
+				{
+					kind: 'custom',
+					name: 'Model list',
+					desc: 'Fetch the models available for the selected provider.',
+					visible: showProviderRows,
+					render: (setting) => {
+						const id = providerId();
+						if (!id) {
+							return;
+						}
+						const customProvider = id === 'custom';
+						const label = customProvider ? 'Test connection' : 'Refresh models';
+						const pendingLabel = customProvider ? 'Testing…' : 'Refreshing…';
+						setting.addButton(button => {
+							button.setButtonText(label).onClick(async () => {
+								button.setDisabled(true).setButtonText(pendingLabel);
+								try {
+									const models = await plugin.listAIModels(id);
+									ai().availableModels[id] = models;
+									if (!models.includes(ai().models[id])) {
+										ai().models[id] = models[0];
+									}
+									await persist();
+									new Notice(`Loaded ${models.length} model${models.length === 1 ? '' : 's'}.`);
+									rerender();
+								} catch (error) {
+									new Notice(error instanceof Error ? error.message : String(error));
+								} finally {
+									button.setDisabled(false).setButtonText(label);
+								}
+							});
+						});
+					},
+				},
+				{
+					kind: 'custom',
+					name: 'Request timeout',
+					desc: 'Seconds before the request times out. Custom endpoints default higher because local models can be slower.',
+					visible: showProviderRows,
+					render: (setting) => {
+						const id = providerId();
+						if (!id) {
+							return;
+						}
+						const key = id === 'custom' ? 'customTimeoutSeconds' as const : 'hostedTimeoutSeconds' as const;
+						setting.addText(text => {
+							text.setPlaceholder(String(DEFAULT_SETTINGS.ai[key]))
+								.setValue(String(ai()[key]))
+								.onChange(async (value) => {
+									const parsed = Number(value);
+									if (!Number.isFinite(parsed) || parsed <= 0) {
+										return;
+									}
+									ai()[key] = parsed;
+									await persist();
+								});
+							text.inputEl.type = 'number';
+							text.inputEl.min = '1';
+						});
+					},
+				},
+			],
+		};
+	}
+
 	// Fallback for Obsidian < 1.13.0. On 1.13.0+ the framework renders from
 	// getSettingDefinitions() and never calls display().
 	display(): void {
@@ -181,7 +492,7 @@ export class YoutnoteSettingTab extends PluginSettingTab {
 			this.plugin.refreshAllViews();
 		};
 
-		for (const group of SETTING_DEFINITIONS) {
+		for (const group of this.settingGroups()) {
 			new Setting(containerEl)
 				.setName(group.heading)
 				.setHeading();
@@ -216,6 +527,14 @@ export class YoutnoteSettingTab extends PluginSettingTab {
 									await persistAndRefresh();
 								});
 						});
+				} else if (item.kind === 'custom') {
+					if (item.visible !== undefined && !item.visible()) {
+						continue;
+					}
+					const setting = new Setting(containerEl)
+						.setName(item.name)
+						.setDesc(resolveDesc(item.desc));
+					item.render(setting);
 				}
 			}
 		}
@@ -235,7 +554,7 @@ export class YoutnoteSettingTab extends PluginSettingTab {
 		// Transform the shared definitions into the shape expected by the
 		// Obsidian 1.13.0+ declarative settings API: groups have `type: 'group'`,
 		// items have a `control` property with `type` and `key`.
-		return SETTING_DEFINITIONS.map(group => ({
+		return this.settingGroups().map(group => ({
 			type: 'group' as const,
 			heading: group.heading,
 			items: group.items.map(item => {
@@ -245,6 +564,22 @@ export class YoutnoteSettingTab extends PluginSettingTab {
 						desc: resolveDesc(item.desc),
 						control: { type: 'toggle' as const, key: item.key },
 					};
+				}
+				if (item.kind === 'custom') {
+					const def: {
+						name: string;
+						desc: string | DocumentFragment;
+						render: (setting: Setting) => void;
+						visible?: () => boolean;
+					} = {
+						name: item.name,
+						desc: resolveDesc(item.desc),
+						render: item.render,
+					};
+					if (item.visible) {
+						def.visible = item.visible;
+					}
+					return def;
 				}
 				return {
 					name: item.name,
