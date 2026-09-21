@@ -35,7 +35,7 @@ export const VideoListItem: React.FC<VideoListItemProps> = React.memo(({
         new ConfirmModal(
             app,
             'Delete video?',
-            'Do you really want to delete this video and all its notes?',
+            'Do you really want to delete this video and all its notes and downloaded transcript?',
             () => onDelete(video.id),
             'Delete',
             'Cancel'

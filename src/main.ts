@@ -4,7 +4,6 @@ import { YoutnoteView, VIEW_TYPE } from './view';
 import { PluginSettings, PluginData, MarkdownEditorClass, Video, Note, VideoId, NoteId, TranscriptEntry } from './types';
 import { createAIProvider } from './ai/registry';
 import type { AIProviderFactoryConfig } from './ai/registry';
-import { migrateLegacyAICredentials } from './ai/credentials';
 import { generateNotesFromTranscript } from './ai/notes';
 import type { GeneratedNotesResult, GenerateNotesOptions } from './ai/notes';
 import { AIProviderError } from './ai/types';
@@ -257,17 +256,6 @@ export default class YoutnotePlugin extends Plugin {
 
     async loadDataState() {
         const rawData = (await this.loadData() as Record<string, unknown> | null) ?? {};
-        const migration = migrateLegacyAICredentials(rawData, this.app.secretStorage);
-        if (migration.changed) {
-            await this.saveData(rawData);
-        }
-        if (migration.failures.length > 0) {
-            new Notice(
-                'Youtnote could not verify migration of stored API keys to Obsidian Keychain. ' +
-                'Plaintext keys were left in data.json. Select or create a Keychain secret in Youtnote settings.',
-                0,
-            );
-        }
         this.settings = mergePluginSettings(rawData.settings);
         const extras: Record<string, unknown> = {};
         for (const key of Object.keys(rawData)) {

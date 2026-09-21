@@ -265,6 +265,7 @@ to avoid conflicts with other plugins */
 .youtnote-plugin__transcript-btn,
 .youtnote-plugin__transcript-back-btn,
 .youtnote-plugin__transcript-refetch-btn,
+.youtnote-plugin__transcript-delete-btn,
 .youtnote-plugin__transcript-sync-btn,
 .youtnote-plugin__ai-generate-btn {
     background: transparent;
@@ -285,13 +286,15 @@ to avoid conflicts with other plugins */
 .youtnote-plugin__transcript-btn:hover,
 .youtnote-plugin__transcript-back-btn:hover,
 .youtnote-plugin__transcript-refetch-btn:hover,
+.youtnote-plugin__transcript-delete-btn:hover,
 .youtnote-plugin__transcript-sync-btn:hover,
 .youtnote-plugin__ai-generate-btn:hover {
     color: var(--text-normal);
     background-color: var(--background-modifier-hover);
 }
 
-.youtnote-plugin__transcript-refetch-btn:disabled {
+.youtnote-plugin__transcript-refetch-btn:disabled,
+.youtnote-plugin__transcript-delete-btn:disabled {
     opacity: 0.3;
     pointer-events: none;
 }

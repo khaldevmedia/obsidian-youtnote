@@ -943,6 +943,32 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
         ).open();
     };
 
+    const handleDeleteTranscript = () => {
+        if (!activeVideoId || !hasTranscript) return;
+        const targetVideoId = activeVideoId;
+
+        new ConfirmModal(
+            app,
+            'Delete transcript?',
+            'Do you really want to delete this transcript and all its captions? Notes created from captions will not be deleted.',
+            () => {
+                onUpdateVideos(videosRef.current.map(video => {
+                    if (video.id !== targetVideoId) return video;
+                    const updatedVideo = { ...video };
+                    delete updatedVideo.transcript;
+                    return updatedVideo;
+                }));
+                setActiveTranscriptIndex(null);
+                setEditingTranscriptIndex(null);
+                setSearchQuery('');
+                setFollowTranscriptPlayback(true);
+                setCaptionCenterRequest(null);
+            },
+            'Delete',
+            'Cancel'
+        ).open();
+    };
+
     const openAIGenerationDialog = (targetVideoId: VideoId, transcript: TranscriptEntry[]) => {
         const targetNotes = view.notes.filter(note => note.videoId === targetVideoId);
         new AIGenerationModal(
@@ -1236,7 +1262,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
             ref={(el) => {
                 if (el) {
                     el.empty();
-                    setIcon(el, 'sparkles');
+                    setIcon(el, 'bot');
                 }
             }}
             className="youtnote-plugin__ai-generate-btn"
@@ -1403,6 +1429,20 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
                                                     onClick={handleRefetchTranscript}
                                                     disabled={isFetchingTranscript}
                                                     aria-label="Re-fetch transcript from YouTube"
+                                                />
+                                            )}
+                                            {hasTranscript && (
+                                                <button
+                                                    ref={(el) => {
+                                                        if (el) {
+                                                            el.empty();
+                                                            setIcon(el, 'trash');
+                                                        }
+                                                    }}
+                                                    className="youtnote-plugin__transcript-delete-btn"
+                                                    onClick={handleDeleteTranscript}
+                                                    disabled={isFetchingTranscript}
+                                                    aria-label="Delete transcript"
                                                 />
                                             )}
                                             {hasTranscript && (

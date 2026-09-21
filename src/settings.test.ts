@@ -87,10 +87,10 @@ describe('mergePluginSettings', () => {
 
     it('preserves unknown top-level properties for a later save', () => {
         const merged = mergePluginSettings({
-            openAiApiKey: 'legacy-plaintext',
+            futureTextSetting: 'future-value',
             someFutureFlag: { nested: true },
         }) as unknown as Record<string, unknown>;
-        expect(merged.openAiApiKey).toBe('legacy-plaintext');
+        expect(merged.futureTextSetting).toBe('future-value');
         expect(merged.someFutureFlag).toEqual({ nested: true });
     });
 
