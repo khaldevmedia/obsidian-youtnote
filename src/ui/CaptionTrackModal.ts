@@ -7,11 +7,19 @@ export class CaptionTrackModal extends SuggestModal<CaptionTrack> {
     private chosen: CaptionTrack | null = null;
     private resolved = false;
 
-    constructor(app: App, tracks: CaptionTrack[], onChoose: (track: CaptionTrack | null) => void) {
+    constructor(
+        app: App,
+        tracks: CaptionTrack[],
+        onChoose: (track: CaptionTrack | null) => void,
+        contextLabel?: string,
+    ) {
         super(app);
         this.tracks = tracks;
         this.onChoose = onChoose;
         this.setPlaceholder('Choose a caption track...');
+        if (contextLabel) {
+            this.titleEl.setText(`Choose captions for ${contextLabel}`);
+        }
     }
 
     getSuggestions(query: string): CaptionTrack[] {
@@ -56,8 +64,8 @@ export class CaptionTrackModal extends SuggestModal<CaptionTrack> {
     }
 }
 
-export function pickCaptionTrack(app: App, tracks: CaptionTrack[]): Promise<CaptionTrack | null> {
+export function pickCaptionTrack(app: App, tracks: CaptionTrack[], contextLabel?: string): Promise<CaptionTrack | null> {
     return new Promise(resolve => {
-        new CaptionTrackModal(app, tracks, resolve).open();
+        new CaptionTrackModal(app, tracks, resolve, contextLabel).open();
     });
 }

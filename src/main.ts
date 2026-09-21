@@ -2,12 +2,26 @@ import { Plugin, TFile, TFolder, ViewState, WorkspaceLeaf, addIcon, MarkdownView
 import { YoutnoteSettingTab, mergePluginSettings } from './settings';
 import { YoutnoteView, VIEW_TYPE } from './view';
 import { PluginSettings, PluginData, MarkdownEditorClass, Video, Note, VideoId, NoteId, TranscriptEntry } from './types';
+import type { AIGenerationDialogOptions } from './types';
 import { createAIProvider } from './ai/registry';
 import type { AIProviderFactoryConfig } from './ai/registry';
 import { generateNotesFromTranscript } from './ai/notes';
-import type { GeneratedNotesResult, GenerateNotesOptions } from './ai/notes';
+import type { GeneratedNoteDraft, GeneratedNotesResult, GenerateNotesOptions } from './ai/notes';
+import type { GeneratedNotePersistenceOptions } from './ai/notePersistence';
 import { AIProviderError } from './ai/types';
 import type { AIProvider, ConfiguredAIProviderId } from './ai/types';
+import { ActiveVideoTaskRegistry } from './activeVideoTasks';
+import { KeyedSerialQueue } from './keyedSerialQueue';
+import type {
+    VideoTaskHandle,
+    VideoTaskPhase,
+    VideoTaskTarget,
+    VideoTaskState,
+} from './activeVideoTasks';
+import { applyGeneratedNotesForYoutubeVideo, setTranscriptForYoutubeVideo } from './videoTaskResults';
+import { fetchCaptionTracks, fetchTranscriptEntries } from './transcriptFetch';
+import { pickCaptionTrack } from './ui/CaptionTrackModal';
+import { parseMarkdownToData, serializeDataToMarkdown } from './markdown';
 import { hasYoutnoteFrontmatter, extractYouTubeId, formatSecondsToDisplay, compareNotes } from './utils';
 import { getMarkdownEditorClass } from './markdownEditor';
 import { validateYoutnoteUriParams, isDebounced, getUnsupportedParams, ParsedYoutnoteUriParams } from './uri-scheme';
@@ -52,6 +66,12 @@ export default class YoutnotePlugin extends Plugin {
     private didFinishOnload = false;
     private lastUriSchemeInvocation = 0;
     private dataStateExtras: Record<string, unknown> = {};
+    private activeVideoTasks = new ActiveVideoTaskRegistry(() => {
+        if (this.didFinishOnload) {
+            this.refreshAllViews();
+        }
+    });
+    private fileUpdateQueue = new KeyedSerialQueue<TFile>();
 
     async onload() {
         await this.loadDataState();
@@ -193,6 +213,14 @@ export default class YoutnotePlugin extends Plugin {
             this.app.workspace.on('layout-change', scheduleMarkdownHeaderSync)
         );
 
+        this.registerEvent(
+            this.app.vault.on('delete', (file) => {
+                if (file instanceof TFile) {
+                    this.activeVideoTasks.cancelFile(file);
+                }
+            })
+        );
+
         scheduleMarkdownHeaderSync();
 
         this.register(() => {
@@ -252,6 +280,7 @@ export default class YoutnotePlugin extends Plugin {
 
     onunload(): void {
         this.didFinishOnload = false;
+        this.activeVideoTasks.cancelAll();
     }
 
     async loadDataState() {
@@ -308,6 +337,294 @@ export default class YoutnotePlugin extends Plugin {
         }
         const provider = this.createConfiguredAIProvider(ai.provider);
         return generateNotesFromTranscript(provider, transcript, options);
+    }
+
+    getVideoTaskState(file: TFile | null, youtubeId: string | null): VideoTaskState {
+        if (!file || !youtubeId) {
+            return { transcriptPhase: null, aiPhase: null };
+        }
+        return this.activeVideoTasks.getVideoState(file, youtubeId);
+    }
+
+    startTranscriptFetch(view: YoutnoteView, videoId: VideoId): void {
+        const resolved = this.resolveTaskTarget(view, videoId);
+        if (!resolved) return;
+        const state = this.getVideoTaskState(resolved.target.file, resolved.target.youtubeId);
+        if (state.aiPhase === 'fetching-transcript') {
+            new Notice(`AI note generation is already fetching the transcript for "${resolved.target.videoTitle}".`, 4000);
+            return;
+        }
+        const handle = this.activeVideoTasks.start('transcript', resolved.target, 'fetching-tracks');
+        if (!handle) {
+            new Notice(`A transcript fetch is already running for "${resolved.target.videoTitle}".`, 3000);
+            return;
+        }
+        void this.runTranscriptTask(handle, resolved);
+    }
+
+    startAINoteGeneration(view: YoutnoteView, videoId: VideoId, dialogOptions: AIGenerationDialogOptions): void {
+        const resolved = this.resolveTaskTarget(view, videoId);
+        if (!resolved) return;
+        const state = this.getVideoTaskState(resolved.target.file, resolved.target.youtubeId);
+        if (state.aiPhase !== null) {
+            new Notice(`AI note generation is already running for "${resolved.target.videoTitle}".`, 3000);
+            return;
+        }
+        const transcript = resolved.video.transcript ?? [];
+        if (transcript.length === 0 && state.transcriptPhase !== null) {
+            new Notice(`A transcript fetch is already running for "${resolved.target.videoTitle}". Wait for it to finish or cancel it first.`, 5000);
+            return;
+        }
+        const handle = this.activeVideoTasks.start(
+            'ai',
+            resolved.target,
+            transcript.length === 0 ? 'fetching-transcript' : 'generating-notes',
+        );
+        if (!handle) return;
+        void this.runAITask(handle, resolved, transcript, dialogOptions);
+    }
+
+    cancelVideoTasks(view: YoutnoteView, videoId: VideoId, kind?: 'transcript' | 'ai'): void {
+        const file = view.file;
+        if (!file) return;
+        const video = view.videos.find(v => v.id === videoId);
+        if (!video) return;
+        const youtubeId = extractYouTubeId(video.url);
+        if (!youtubeId) return;
+        const cancelled = this.activeVideoTasks.cancelTarget(file, youtubeId, kind);
+        if (cancelled && kind === 'ai') {
+            new Notice('AI note generation cancelled.', 2000);
+        }
+    }
+
+    private resolveTaskTarget(
+        view: YoutnoteView,
+        videoId: VideoId,
+    ): { target: VideoTaskTarget; video: Video } | null {
+        const file = view.file;
+        if (!file) return null;
+        const video = view.videos.find(v => v.id === videoId);
+        if (!video) return null;
+        const youtubeId = extractYouTubeId(video.url);
+        if (!youtubeId) {
+            new Notice('Cannot determine the YouTube ID for this video.', 3000);
+            return null;
+        }
+        return {
+            target: { file, youtubeId, videoTitle: video.title ?? file.basename },
+            video,
+        };
+    }
+
+    private async fetchTranscriptForTask(
+        handle: VideoTaskHandle,
+        target: VideoTaskTarget,
+        updatePhase?: (phase: VideoTaskPhase) => void,
+    ): Promise<TranscriptEntry[] | null> {
+        updatePhase?.('fetching-tracks');
+        const tracks = await fetchCaptionTracks(target.youtubeId);
+        if (!this.activeVideoTasks.isActive(handle.id) || handle.signal.aborted) return null;
+        if (tracks.length === 0) {
+            new Notice(`No captions available for "${target.videoTitle}" in ${target.file.basename}.`, 5000);
+            return null;
+        }
+        let track = tracks[0];
+        if (tracks.length > 1) {
+            updatePhase?.('choosing-track');
+            const picked = await pickCaptionTrack(this.app, tracks, `${target.videoTitle} (${target.file.basename})`);
+            if (!this.activeVideoTasks.isActive(handle.id) || handle.signal.aborted) return null;
+            if (!picked) return null;
+            track = picked;
+        }
+        updatePhase?.('fetching-captions');
+        const entries = await fetchTranscriptEntries(track);
+        if (!this.activeVideoTasks.isActive(handle.id) || handle.signal.aborted) return null;
+        if (entries.length === 0) {
+            new Notice(`The selected caption track for "${target.videoTitle}" in ${target.file.basename} contains no text.`, 5000);
+            return null;
+        }
+        return entries;
+    }
+
+    private async runTranscriptTask(
+        handle: VideoTaskHandle,
+        resolved: { target: VideoTaskTarget; video: Video },
+    ): Promise<void> {
+        const { target } = resolved;
+        try {
+            const entries = await this.fetchTranscriptForTask(handle, target, phase => {
+                this.activeVideoTasks.update(handle.id, phase);
+            });
+            if (entries === null || !this.activeVideoTasks.isActive(handle.id)) return;
+            const persisted = await this.persistTranscriptResult(handle, target, entries);
+            if (!persisted || !this.activeVideoTasks.isActive(handle.id)) return;
+            new Notice(`Transcript fetched for "${target.videoTitle}" in ${target.file.basename} (${entries.length} captions).`, 3000);
+        } catch (error) {
+            if (!this.activeVideoTasks.isActive(handle.id)) return;
+            const message = error instanceof Error && error.message
+                ? error.message
+                : 'Check your internet connection and try again.';
+            new Notice(`Unable to fetch transcript for "${target.videoTitle}" in ${target.file.basename}: ${message}`, 6000);
+        } finally {
+            this.activeVideoTasks.complete(handle.id);
+        }
+    }
+
+    private async runAITask(
+        handle: VideoTaskHandle,
+        resolved: { target: VideoTaskTarget; video: Video },
+        transcriptSnapshot: TranscriptEntry[],
+        dialogOptions: AIGenerationDialogOptions,
+    ): Promise<void> {
+        const { target } = resolved;
+        try {
+            let transcript = transcriptSnapshot;
+            if (transcript.length === 0) {
+                const fetched = await this.fetchTranscriptForTask(handle, target);
+                if (fetched === null || !this.activeVideoTasks.isActive(handle.id)) return;
+                const persistedTranscript = await this.persistTranscriptResult(handle, target, fetched);
+                if (!persistedTranscript || !this.activeVideoTasks.isActive(handle.id)) return;
+                transcript = fetched;
+            }
+            if (!this.activeVideoTasks.update(handle.id, 'generating-notes')) return;
+            const maxTimestampSec = Math.max(
+                resolved.video.durationSec ?? 0,
+                ...transcript.map(entry => Math.ceil((entry.startMs + (entry.durationMs ?? 0)) / 1000)),
+            );
+            const options: GenerateNotesOptions = {
+                signal: handle.signal,
+                maxTimestampSec,
+                includeGeneralNote: dialogOptions.includeGeneralNote,
+            };
+            if (dialogOptions.customInstructions) {
+                options.customInstructions = dialogOptions.customInstructions;
+            }
+            if (dialogOptions.maxNotes !== undefined) {
+                options.maxNotes = dialogOptions.maxNotes;
+            }
+            const result = await this.generateAINotes(transcript, options);
+            if (!this.activeVideoTasks.isActive(handle.id)) return;
+            const persisted = await this.persistGeneratedNotesResult(handle, target, result.notes, {
+                mode: dialogOptions.mode,
+                generalNoteMode: dialogOptions.generalNoteMode,
+            });
+            if (!persisted || !this.activeVideoTasks.isActive(handle.id)) return;
+            if (result.format === 'unstructured') {
+                new Notice(`Generated ${result.notes.length} note(s) with AI for "${target.videoTitle}" in ${target.file.basename} (compatibility mode). Review the notes for formatting.`, 6000);
+            } else {
+                new Notice(`Generated ${result.notes.length} note(s) with AI for "${target.videoTitle}" in ${target.file.basename}.`, 3000);
+            }
+        } catch (error) {
+            if (!this.activeVideoTasks.isActive(handle.id)) return;
+            if (error instanceof AIProviderError && error.kind === 'cancelled') return;
+            if (error instanceof AIProviderError && error.kind === 'timeout') {
+                new Notice(`AI request timed out for "${target.videoTitle}": ${error.message} Increase the request timeout in Youtnote settings and try again.`, 6000);
+                return;
+            }
+            const message = error instanceof Error && error.message
+                ? error.message
+                : 'An unexpected error occurred while generating notes.';
+            new Notice(`Unable to generate notes for "${target.videoTitle}" in ${target.file.basename}: ${message}`, 6000);
+        } finally {
+            this.activeVideoTasks.complete(handle.id);
+        }
+    }
+
+    private findViewForFile(file: TFile): YoutnoteView | null {
+        for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE)) {
+            if (leaf.view instanceof YoutnoteView && leaf.view.file === file) {
+                return leaf.view;
+            }
+        }
+        return null;
+    }
+
+    private notifyTaskTargetMissing(handle: VideoTaskHandle, target: VideoTaskTarget): void {
+        if (!this.activeVideoTasks.isActive(handle.id)) return;
+        new Notice(`The video "${target.videoTitle}" no longer exists in ${target.file.basename}; results were discarded.`, 5000);
+    }
+
+    private async persistTranscriptResult(
+        handle: VideoTaskHandle,
+        target: VideoTaskTarget,
+        entries: TranscriptEntry[],
+    ): Promise<boolean> {
+        return this.fileUpdateQueue.run(target.file, async () => {
+            if (!this.activeVideoTasks.isActive(handle.id)) return false;
+            const view = this.findViewForFile(target.file);
+            if (view) {
+                const updated = setTranscriptForYoutubeVideo(view.videos, target.youtubeId, entries);
+                if (!updated) {
+                    this.notifyTaskTargetMissing(handle, target);
+                    return false;
+                }
+                view.handleUpdateVideos(updated);
+                await view.save();
+                return this.activeVideoTasks.isActive(handle.id);
+            }
+            let applied = false;
+            let missing = false;
+            await this.app.vault.process(target.file, (data) => {
+                if (!this.activeVideoTasks.isActive(handle.id)) {
+                    return data;
+                }
+                const parsed = parseMarkdownToData(data);
+                const updated = setTranscriptForYoutubeVideo(parsed.videos, target.youtubeId, entries);
+                if (!updated) {
+                    missing = true;
+                    return data;
+                }
+                applied = true;
+                return serializeDataToMarkdown(updated, parsed.notes);
+            });
+            if (missing) {
+                this.notifyTaskTargetMissing(handle, target);
+                return false;
+            }
+            return applied && this.activeVideoTasks.isActive(handle.id);
+        });
+    }
+
+    private async persistGeneratedNotesResult(
+        handle: VideoTaskHandle,
+        target: VideoTaskTarget,
+        drafts: GeneratedNoteDraft[],
+        options: GeneratedNotePersistenceOptions,
+    ): Promise<boolean> {
+        return this.fileUpdateQueue.run(target.file, async () => {
+            if (!this.activeVideoTasks.isActive(handle.id)) return false;
+            const view = this.findViewForFile(target.file);
+            if (view) {
+                const updated = applyGeneratedNotesForYoutubeVideo(view.videos, view.notes, target.youtubeId, drafts, options);
+                if (!updated) {
+                    this.notifyTaskTargetMissing(handle, target);
+                    return false;
+                }
+                view.handleUpdateNotes(updated);
+                await view.save();
+                return this.activeVideoTasks.isActive(handle.id);
+            }
+            let applied = false;
+            let missing = false;
+            await this.app.vault.process(target.file, (data) => {
+                if (!this.activeVideoTasks.isActive(handle.id)) {
+                    return data;
+                }
+                const parsed = parseMarkdownToData(data);
+                const updated = applyGeneratedNotesForYoutubeVideo(parsed.videos, parsed.notes, target.youtubeId, drafts, options);
+                if (!updated) {
+                    missing = true;
+                    return data;
+                }
+                applied = true;
+                return serializeDataToMarkdown(parsed.videos, updated);
+            });
+            if (missing) {
+                this.notifyTaskTargetMissing(handle, target);
+                return false;
+            }
+            return applied && this.activeVideoTasks.isActive(handle.id);
+        });
     }
 
     async saveDataState() {

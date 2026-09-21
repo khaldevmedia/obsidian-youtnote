@@ -1,6 +1,6 @@
 import { App, Modal } from 'obsidian';
 import { ExportOptions } from '../types';
-import type { AIGeneralNoteMode, AINoteSaveMode } from '../ai/notePersistence';
+import type { AIGenerationDialogOptions } from '../types';
 
 type ModalAction = () => void | Promise<void>;
 type ConfirmButtonVariant = 'primary' | 'danger';
@@ -132,14 +132,6 @@ export class ConfirmModal extends BaseModal {
             true
         );
     }
-}
-
-export interface AIGenerationDialogOptions {
-    customInstructions: string;
-    maxNotes?: number;
-    includeGeneralNote: boolean;
-    generalNoteMode: AIGeneralNoteMode;
-    mode: AINoteSaveMode;
 }
 
 export class AIGenerationModal extends BaseModal {

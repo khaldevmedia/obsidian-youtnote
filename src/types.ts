@@ -1,7 +1,8 @@
 import React from 'react';
 import { App, Component, TFile } from 'obsidian';
 import type { AIProviderId, ConfiguredAIProviderId } from './ai/types';
-import type { GenerateNotesOptions, GeneratedNotesResult } from './ai/notes';
+import type { AIGeneralNoteMode, AINoteSaveMode } from './ai/notePersistence';
+import type { VideoTaskState } from './activeVideoTasks';
 
 /** Minimal abstract constructor shape of Obsidian's internal MarkdownEditor class. */
 export type MarkdownEditorClass = abstract new (...args: unknown[]) => Component & {
@@ -221,6 +222,14 @@ export interface TranscriptListItemProps {
     onCancelEdit: () => void;
 }
 
+export interface AIGenerationDialogOptions {
+    customInstructions: string;
+    maxNotes?: number;
+    includeGeneralNote: boolean;
+    generalNoteMode: AIGeneralNoteMode;
+    mode: AINoteSaveMode;
+}
+
 export interface YoutubePluginViewProps {
     app: App;
     view: YoutnoteViewContext;
@@ -228,12 +237,16 @@ export interface YoutubePluginViewProps {
     videos: Video[];
     notes: Note[];
     activeVideoId: VideoId | null;
+    videoTaskState: VideoTaskState;
     setActiveVideoId: (id: VideoId | null) => void;
     onUpdateVideos: (videos: Video[]) => void;
     onUpdateNotes: (notes: Note[]) => void;
     onExportSingleVideo: (videoId: VideoId) => Promise<void>;
     onExportAllVideos: () => Promise<void>;
-    onGenerateAINotes: (transcript: TranscriptEntry[], options: GenerateNotesOptions) => Promise<GeneratedNotesResult>;
+    onFetchTranscript: (videoId: VideoId) => void;
+    onGenerateAINotes: (videoId: VideoId, options: AIGenerationDialogOptions) => void;
+    onCancelAINotes: (videoId: VideoId) => void;
+    onCancelVideoTasks: (videoId: VideoId, kind?: 'transcript' | 'ai') => void;
     onOpenAISettings: () => void;
 }
 

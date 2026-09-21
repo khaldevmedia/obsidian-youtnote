@@ -3,8 +3,8 @@ import * as React from 'react';
 import * as ReactDOM from 'react-dom/client';
 import { YoutubePluginView } from './ui/YoutnoteView';
 import { ExportOptionsModal } from './ui/MessageBoxes';
-import { Video, Note, VideoId, ExportOptions, TranscriptEntry } from './types';
-import type { GenerateNotesOptions, GeneratedNotesResult } from './ai/notes';
+import { Video, Note, VideoId, ExportOptions } from './types';
+import type { AIGenerationDialogOptions } from './types';
 import { parseMarkdownToData, serializeDataToMarkdown, exportToMarkdown, exportSingleVideoToMarkdown } from './markdown';
 import { extractYouTubeId } from './utils';
 import YoutnotePlugin from './main';
@@ -109,6 +109,7 @@ export class YoutnoteView extends TextFileView {
 
     onClose(): Promise<void> {
         this.root?.unmount();
+        this.root = null;
         return Promise.resolve();
     }
 
@@ -143,8 +144,20 @@ export class YoutnoteView extends TextFileView {
         this.openExportDialog(true);
     };
 
-    handleGenerateAINotes = (transcript: TranscriptEntry[], options: GenerateNotesOptions): Promise<GeneratedNotesResult> => {
-        return this.plugin.generateAINotes(transcript, options);
+    handleFetchTranscript = (videoId: VideoId) => {
+        this.plugin.startTranscriptFetch(this, videoId);
+    };
+
+    handleGenerateAINotes = (videoId: VideoId, options: AIGenerationDialogOptions) => {
+        this.plugin.startAINoteGeneration(this, videoId, options);
+    };
+
+    handleCancelAINotes = (videoId: VideoId) => {
+        this.plugin.cancelVideoTasks(this, videoId, 'ai');
+    };
+
+    handleCancelVideoTasks = (videoId: VideoId, kind?: 'transcript' | 'ai') => {
+        this.plugin.cancelVideoTasks(this, videoId, kind);
     };
 
     private openExportDialog(exportAllVideos: boolean, videoId?: VideoId): void {
@@ -226,20 +239,28 @@ export class YoutnoteView extends TextFileView {
     render() {
         if (!this.root) return;
 
+        const activeVideo = this.videos.find(v => v.id === this.activeVideoId);
+        const activeYoutubeId = activeVideo ? extractYouTubeId(activeVideo.url) : null;
+
         this.root.render(
-            React.createElement(YoutubePluginView, { 
+            React.createElement(YoutubePluginView, {
+                key: this.file?.path ?? 'no-file',
                 app: this.plugin.app,
                 view: this,
                 settings: this.plugin.settings,
                 videos: this.videos,
                 notes: this.notes,
                 activeVideoId: this.activeVideoId,
+                videoTaskState: this.plugin.getVideoTaskState(this.file, activeYoutubeId),
                 setActiveVideoId: this.handleSetActiveVideoId,
                 onUpdateVideos: this.handleUpdateVideos,
                 onUpdateNotes: this.handleUpdateNotes,
                 onExportSingleVideo: this.handleExportSingleVideo,
                 onExportAllVideos: this.handleExportAllVideos,
+                onFetchTranscript: this.handleFetchTranscript,
                 onGenerateAINotes: this.handleGenerateAINotes,
+                onCancelAINotes: this.handleCancelAINotes,
+                onCancelVideoTasks: this.handleCancelVideoTasks,
                 onOpenAISettings: this.plugin.openSettings
             })
         );
