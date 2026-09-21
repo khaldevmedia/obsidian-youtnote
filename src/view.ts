@@ -152,10 +152,6 @@ export class YoutnoteView extends TextFileView {
         this.plugin.startAINoteGeneration(this, videoId, options);
     };
 
-    handleCancelAINotes = (videoId: VideoId) => {
-        this.plugin.cancelVideoTasks(this, videoId, 'ai');
-    };
-
     handleCancelVideoTasks = (videoId: VideoId, kind?: 'transcript' | 'ai') => {
         this.plugin.cancelVideoTasks(this, videoId, kind);
     };
@@ -259,7 +255,6 @@ export class YoutnoteView extends TextFileView {
                 onExportAllVideos: this.handleExportAllVideos,
                 onFetchTranscript: this.handleFetchTranscript,
                 onGenerateAINotes: this.handleGenerateAINotes,
-                onCancelAINotes: this.handleCancelAINotes,
                 onCancelVideoTasks: this.handleCancelVideoTasks,
                 onOpenAISettings: this.plugin.openSettings
             })

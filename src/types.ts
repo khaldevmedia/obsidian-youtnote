@@ -245,7 +245,6 @@ export interface YoutubePluginViewProps {
     onExportAllVideos: () => Promise<void>;
     onFetchTranscript: (videoId: VideoId) => void;
     onGenerateAINotes: (videoId: VideoId, options: AIGenerationDialogOptions) => void;
-    onCancelAINotes: (videoId: VideoId) => void;
     onCancelVideoTasks: (videoId: VideoId, kind?: 'transcript' | 'ai') => void;
     onOpenAISettings: () => void;
 }

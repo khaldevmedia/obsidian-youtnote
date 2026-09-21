@@ -21,6 +21,8 @@ import type {
 import { applyGeneratedNotesForYoutubeVideo, setTranscriptForYoutubeVideo } from './videoTaskResults';
 import { fetchCaptionTracks, fetchTranscriptEntries } from './transcriptFetch';
 import { pickCaptionTrack } from './ui/CaptionTrackModal';
+import { AIGenerationProgressModal } from './ui/MessageBoxes';
+import type { AIGenerationProgressPhase } from './ui/MessageBoxes';
 import { parseMarkdownToData, serializeDataToMarkdown } from './markdown';
 import { hasYoutnoteFrontmatter, extractYouTubeId, formatSecondsToDisplay, compareNotes } from './utils';
 import { getMarkdownEditorClass } from './markdownEditor';
@@ -66,7 +68,9 @@ export default class YoutnotePlugin extends Plugin {
     private didFinishOnload = false;
     private lastUriSchemeInvocation = 0;
     private dataStateExtras: Record<string, unknown> = {};
+    private aiProgressModals = new Map<number, AIGenerationProgressModal>();
     private activeVideoTasks = new ActiveVideoTaskRegistry(() => {
+        this.closeInactiveAIProgressModals();
         if (this.didFinishOnload) {
             this.refreshAllViews();
         }
@@ -375,12 +379,16 @@ export default class YoutnotePlugin extends Plugin {
             new Notice(`A transcript fetch is already running for "${resolved.target.videoTitle}". Wait for it to finish or cancel it first.`, 5000);
             return;
         }
-        const handle = this.activeVideoTasks.start(
-            'ai',
-            resolved.target,
-            transcript.length === 0 ? 'fetching-transcript' : 'generating-notes',
-        );
+        const initialPhase: AIGenerationProgressPhase = transcript.length === 0 ? 'fetching-transcript' : 'generating-notes';
+        const handle = this.activeVideoTasks.start('ai', resolved.target, initialPhase);
         if (!handle) return;
+        const progressModal = new AIGenerationProgressModal(
+            this.app,
+            initialPhase,
+            () => this.cancelAIProgressTask(handle.id, resolved.target),
+        );
+        this.aiProgressModals.set(handle.id, progressModal);
+        progressModal.open();
         void this.runAITask(handle, resolved, transcript, dialogOptions);
     }
 
@@ -394,6 +402,22 @@ export default class YoutnotePlugin extends Plugin {
         const cancelled = this.activeVideoTasks.cancelTarget(file, youtubeId, kind);
         if (cancelled && kind === 'ai') {
             new Notice('AI note generation cancelled.', 2000);
+        }
+    }
+
+    private cancelAIProgressTask(id: number, target: VideoTaskTarget): void {
+        this.aiProgressModals.delete(id);
+        if (!this.activeVideoTasks.isActive(id)) return;
+        if (this.activeVideoTasks.cancelTarget(target.file, target.youtubeId, 'ai')) {
+            new Notice('AI note generation cancelled.', 2000);
+        }
+    }
+
+    private closeInactiveAIProgressModals(): void {
+        for (const [id, modal] of this.aiProgressModals) {
+            if (this.activeVideoTasks.isActive(id)) continue;
+            this.aiProgressModals.delete(id);
+            modal.finish();
         }
     }
 
@@ -487,6 +511,7 @@ export default class YoutnotePlugin extends Plugin {
                 transcript = fetched;
             }
             if (!this.activeVideoTasks.update(handle.id, 'generating-notes')) return;
+            this.aiProgressModals.get(handle.id)?.setPhase('generating-notes');
             const maxTimestampSec = Math.max(
                 resolved.video.durationSec ?? 0,
                 ...transcript.map(entry => Math.ceil((entry.startMs + (entry.durationMs ?? 0)) / 1000)),

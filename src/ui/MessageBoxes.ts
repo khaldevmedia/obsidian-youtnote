@@ -304,6 +304,69 @@ export class AIGenerationModal extends BaseModal {
     }
 }
 
+export type AIGenerationProgressPhase = 'fetching-transcript' | 'generating-notes';
+
+export class AIGenerationProgressModal extends Modal {
+    private statusEl: HTMLElement | null = null;
+    private didFinish = false;
+
+    constructor(
+        app: App,
+        private phase: AIGenerationProgressPhase,
+        private readonly onCancel: () => void,
+    ) {
+        super(app);
+    }
+
+    setPhase(phase: AIGenerationProgressPhase): void {
+        this.phase = phase;
+        this.statusEl?.setText(this.getStatusText());
+    }
+
+    finish(): void {
+        if (this.didFinish) return;
+        this.didFinish = true;
+        this.close();
+    }
+
+    onOpen(): void {
+        const { contentEl } = this;
+        contentEl.empty();
+        contentEl.addClass('youtnote-plugin__ai-progress-modal');
+        this.statusEl = contentEl.createDiv({
+            cls: 'youtnote-plugin__ai-progress-modal-status',
+            text: this.getStatusText(),
+            attr: { role: 'status', 'aria-live': 'polite' },
+        });
+        const indicatorEl = contentEl.createDiv({
+            cls: 'youtnote-plugin__ai-progress-modal-indicator',
+            attr: { 'aria-hidden': 'true' },
+        });
+        indicatorEl.createDiv({ cls: 'youtnote-plugin__dot-pulse' });
+        const buttonsEl = contentEl.createDiv({ cls: 'youtnote-plugin__base-modal-buttons youtnote-plugin__ai-progress-modal-buttons' });
+        const cancelButton = buttonsEl.createEl('button', {
+            text: 'Cancel',
+            cls: 'youtnote-plugin__modal-button youtnote-plugin__modal-button--secondary',
+        });
+        cancelButton.addEventListener('click', () => this.close());
+        cancelButton.focus();
+    }
+
+    onClose(): void {
+        this.contentEl.empty();
+        this.statusEl = null;
+        if (!this.didFinish) {
+            this.onCancel();
+        }
+    }
+
+    private getStatusText(): string {
+        return this.phase === 'fetching-transcript'
+            ? 'Fetching transcript for AI'
+            : 'Generating notes';
+    }
+}
+
 export class ExportOptionsModal extends BaseModal {
     private exportAllVideos: boolean;
     private options: ExportOptions;

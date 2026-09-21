@@ -41,7 +41,6 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
     videoTaskState,
     onFetchTranscript,
     onGenerateAINotes,
-    onCancelAINotes,
     onCancelVideoTasks,
     onOpenAISettings
 }) => {
@@ -123,7 +122,6 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
     const [captionCenterRequest, setCaptionCenterRequest] = useState<number | null>(null);
     const isTranscriptFollowing = settings.autoScrollTranscript && followTranscriptPlayback;
     const isFetchingTranscript = videoTaskState.transcriptPhase !== null || videoTaskState.aiPhase === 'fetching-transcript';
-    const isGeneratingNotes = videoTaskState.aiPhase !== null;
 
     // State for expanded notes
     const [expandedNotes, setExpandedNotes] = useState<Set<NoteId>>(new Set());
@@ -964,11 +962,6 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
         openAIGenerationDialog(video.id);
     };
 
-    const handleCancelAIGeneration = () => {
-        if (!activeVideoId) return;
-        onCancelAINotes(activeVideoId);
-    };
-
     const handleTranscriptSeek = useCallback((index: number, startMs: number) => {
         setActiveTranscriptIndex(index);
         void seekToTimestamp(startMs / 1000);
@@ -1146,7 +1139,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
             }}
             className="youtnote-plugin__ai-generate-btn"
             onClick={handleGenerateAINotes}
-            disabled={isGeneratingNotes || isFetchingTranscript}
+            disabled={isFetchingTranscript}
             aria-label="Generate notes with AI"
             title="Generate notes with AI"
         />
@@ -1411,19 +1404,6 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
                         </div>
                     )}
                 </div>
-                {isGeneratingNotes && (
-                    <div className="youtnote-plugin__ai-generation-status" role="status" aria-live="polite">
-                        <span className="youtnote-plugin__ai-generation-status-text">
-                            {videoTaskState.aiPhase === 'fetching-transcript' ? 'Fetching transcript for AI…' : 'Generating notes…'}
-                        </span>
-                        <button
-                            className="youtnote-plugin__ai-generation-cancel"
-                            onClick={handleCancelAIGeneration}
-                        >
-                            Cancel
-                        </button>
-                    </div>
-                )}
                 {showTranscript ? (
                     <div
                         ref={transcriptListRef}
