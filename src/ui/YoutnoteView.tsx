@@ -979,13 +979,17 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
             if (dialogOptions.maxNotes !== undefined) {
                 options.maxNotes = dialogOptions.maxNotes;
             }
-            const drafts = await onGenerateAINotes(transcript, options);
+            const result = await onGenerateAINotes(transcript, options);
             if (requestId !== aiRequestIdRef.current || controller.signal.aborted) return;
             if (!view.videos.some(v => v.id === targetVideoId)) return;
-            onUpdateNotes(applyGeneratedNotes(view.notes, targetVideoId, drafts, { mode: dialogOptions.mode }));
+            onUpdateNotes(applyGeneratedNotes(view.notes, targetVideoId, result.notes, { mode: dialogOptions.mode }));
             setShowTranscript(false);
             setSearchQuery('');
-            new Notice(`Generated ${drafts.length} note(s) with AI`, 2000);
+            if (result.format === 'unstructured') {
+                new Notice(`Generated ${result.notes.length} note(s) with AI in compatibility mode. Review the notes for formatting.`, 5000);
+            } else {
+                new Notice(`Generated ${result.notes.length} note(s) with AI`, 2000);
+            }
         } catch (error) {
             if (requestId !== aiRequestIdRef.current || controller.signal.aborted) return;
             if (error instanceof AIProviderError && error.kind === 'cancelled') return;

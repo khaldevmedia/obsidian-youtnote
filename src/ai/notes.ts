@@ -4,6 +4,7 @@ import type {
     AIConversationResponse,
     AIMessage,
     AIProvider,
+    AIResponseSchema,
 } from './types';
 import type { TranscriptEntry } from '../types';
 import { formatSecondsToDisplay, parseTimestampInput } from '../utils';
@@ -20,7 +21,54 @@ export interface GenerateNotesOptions {
     signal?: AbortSignal;
 }
 
+export interface GeneratedNoteSegment {
+    timestamp_seconds: number;
+    markdown: string;
+}
+
+export type GeneratedNotesFormat = 'structured' | 'unstructured';
+
+export interface GeneratedNotesResult {
+    notes: GeneratedNoteDraft[];
+    noteMarkdown: string;
+    response: AIConversationResponse;
+    corrected: boolean;
+    format: GeneratedNotesFormat;
+}
+
+export const YOUTNOTE_SEGMENTS_JSON_SCHEMA: Record<string, unknown> = {
+    type: 'object',
+    additionalProperties: false,
+    required: ['segments'],
+    properties: {
+        segments: {
+            type: 'array',
+            minItems: 1,
+            items: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['timestamp_seconds', 'markdown'],
+                properties: {
+                    timestamp_seconds: { type: 'number', minimum: 0 },
+                    markdown: { type: 'string', minLength: 1 },
+                },
+            },
+        },
+    },
+};
+
 export const YOUTNOTE_AI_SYSTEM_PROMPT = [
+    'You generate timestamped study notes for a YouTube video from its transcript.',
+    '',
+    'Respond ONLY with a JSON object matching the provided schema: a "segments" array where each segment has a numeric "timestamp_seconds" and an Obsidian Markdown "markdown" string.',
+    '',
+    'Rules:',
+    '- timestamp_seconds is the transcript moment in seconds the note refers to. Output segments in chronological order and ground every timestamp in the transcript.',
+    '- markdown is a valid Obsidian Markdown note body and may span multiple lines; it may contain headers, bold, italic, links, callouts, and lists.',
+    '- Do not output YAML frontmatter, video links, code fences, a title, or any explanation. Output the JSON object only.',
+].join('\n');
+
+export const YOUTNOTE_AI_LEGACY_SYSTEM_PROMPT = [
     'You generate timestamped study notes for a YouTube video from its transcript.',
     '',
     'Respond ONLY with a list of notes. Each note is a block in this exact format:',
@@ -137,10 +185,97 @@ export function parseGeneratedNotes(
     return result.notes;
 }
 
-function buildTranscriptRequest(transcript: TranscriptEntry[], options: GenerateNotesOptions): string {
-    const lines: string[] = [
-        'Generate timestamped Obsidian notes from the following transcript.',
-    ];
+interface StructuredParseSuccess {
+    ok: true;
+    segments: GeneratedNoteSegment[];
+}
+
+interface StructuredParseFailure {
+    ok: false;
+    error: string;
+}
+
+type StructuredParseResult = StructuredParseSuccess | StructuredParseFailure;
+
+function structuredFail(error: string): StructuredParseFailure {
+    return { ok: false, error };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function tryParseStructuredSegments(
+    content: string,
+    maxNotes: number | undefined,
+    maxTimestampSec: number | undefined,
+): StructuredParseResult {
+    let parsed: unknown;
+    try {
+        parsed = JSON.parse(content);
+    } catch (error) {
+        return structuredFail(`Response is not valid JSON: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    if (!isRecord(parsed)) {
+        return structuredFail('Response JSON is not an object.');
+    }
+    if (!Array.isArray(parsed.segments) || parsed.segments.length === 0) {
+        return structuredFail('Response JSON does not contain a non-empty "segments" array.');
+    }
+
+    const segments: GeneratedNoteSegment[] = [];
+    let lastSec = -1;
+    for (let i = 0; i < parsed.segments.length; i++) {
+        const item: unknown = parsed.segments[i];
+        const label = `Segment ${i + 1}`;
+        if (!isRecord(item)) {
+            return structuredFail(`${label} is not an object.`);
+        }
+        if (typeof item.timestamp_seconds !== 'number' || !Number.isFinite(item.timestamp_seconds) || item.timestamp_seconds < 0) {
+            return structuredFail(`${label} has an invalid timestamp_seconds value.`);
+        }
+        if (maxTimestampSec !== undefined && item.timestamp_seconds > maxTimestampSec) {
+            return structuredFail(`${label} timestamp_seconds exceeds the maximum allowed timestamp.`);
+        }
+        if (item.timestamp_seconds < lastSec) {
+            return structuredFail(`${label} is out of chronological order.`);
+        }
+        if (typeof item.markdown !== 'string' || !item.markdown.trim()) {
+            return structuredFail(`${label} has an empty markdown body.`);
+        }
+        lastSec = item.timestamp_seconds;
+        segments.push({ timestamp_seconds: item.timestamp_seconds, markdown: item.markdown.trim() });
+    }
+
+    if (maxNotes !== undefined && segments.length > maxNotes) {
+        return structuredFail(`Response contained ${segments.length} segments, exceeding the limit of ${maxNotes}.`);
+    }
+    return { ok: true, segments };
+}
+
+export function parseStructuredSegments(
+    content: string,
+    options?: Pick<GenerateNotesOptions, 'maxNotes' | 'maxTimestampSec'>,
+): GeneratedNoteSegment[] {
+    const result = tryParseStructuredSegments(content, options?.maxNotes, options?.maxTimestampSec);
+    if (!result.ok) {
+        throw new AIProviderError('invalid-response', `AI structured response failed validation: ${result.error}`);
+    }
+    return result.segments;
+}
+
+export function segmentsToYoutnoteMarkdown(segments: GeneratedNoteSegment[]): string {
+    return segments.map(segment =>
+        `[${formatSecondsToDisplay(segment.timestamp_seconds, 0)}](timestamp)\n${segment.markdown.trim()}`
+    ).join('\n\n') + '\n';
+}
+
+function buildTranscriptRequest(
+    transcript: TranscriptEntry[],
+    options: GenerateNotesOptions,
+    intro: string = 'Generate timestamped Obsidian notes from the following transcript.',
+): string {
+    const lines: string[] = [intro];
     const customInstructions = options.customInstructions?.trim();
     if (customInstructions) {
         lines.push('', `Additional instructions: ${customInstructions}`);
@@ -160,7 +295,7 @@ export async function generateNotesFromTranscript(
     provider: AIProvider,
     transcript: TranscriptEntry[],
     options: GenerateNotesOptions = {},
-): Promise<{ notes: GeneratedNoteDraft[]; response: AIConversationResponse; corrected: boolean }> {
+): Promise<GeneratedNotesResult> {
     if (transcript.length === 0) {
         throw new AIProviderError('invalid-config', 'Cannot generate notes from an empty transcript.');
     }
@@ -171,34 +306,102 @@ export async function generateNotesFromTranscript(
         throw new AIProviderError('invalid-config', 'Maximum timestamp must be a non-negative number.');
     }
 
-    const systemPrompt = YOUTNOTE_AI_SYSTEM_PROMPT;
+    const responseSchema: AIResponseSchema = {
+        name: 'youtnote_segments',
+        description: 'Timestamped Obsidian Markdown notes generated from a video transcript.',
+        schema: YOUTNOTE_SEGMENTS_JSON_SCHEMA,
+    };
     const messages: AIMessage[] = [{ role: 'user', content: buildTranscriptRequest(transcript, options) }];
-    const buildRequest = (): AIConversationRequest => {
-        const request: AIConversationRequest = { systemPrompt, messages };
+    const buildStructuredRequest = (): AIConversationRequest => {
+        const request: AIConversationRequest = {
+            systemPrompt: YOUTNOTE_AI_SYSTEM_PROMPT,
+            messages,
+            responseSchema,
+        };
         if (options.signal) {
             request.signal = options.signal;
         }
         return request;
     };
+    const toStructuredResult = (
+        segments: GeneratedNoteSegment[],
+        response: AIConversationResponse,
+        corrected: boolean,
+    ): GeneratedNotesResult => ({
+        notes: segments.map(segment => ({
+            timestampSec: segment.timestamp_seconds,
+            bodyMarkdown: segment.markdown,
+        })),
+        noteMarkdown: segmentsToYoutnoteMarkdown(segments),
+        response,
+        corrected,
+        format: 'structured',
+    });
 
-    const first = await provider.sendConversation(buildRequest());
-    const firstResult = tryParseGeneratedNotes(first.content, options.maxNotes, options.maxTimestampSec);
-    if (firstResult.ok) {
-        return { notes: firstResult.notes, response: first, corrected: false };
+    const attemptStructured = async (): Promise<
+        | { ok: true; response: AIConversationResponse; segments: GeneratedNoteSegment[] }
+        | { ok: false; response: AIConversationResponse | null; error: string }
+    > => {
+        let response: AIConversationResponse;
+        try {
+            response = await provider.sendConversation(buildStructuredRequest());
+        } catch (error) {
+            if (error instanceof AIProviderError && error.kind === 'invalid-response') {
+                return { ok: false, response: null, error: error.message };
+            }
+            throw error;
+        }
+        const parsed = tryParseStructuredSegments(response.content, options.maxNotes, options.maxTimestampSec);
+        if (!parsed.ok) {
+            return { ok: false, response, error: parsed.error };
+        }
+        return { ok: true, response, segments: parsed.segments };
+    };
+
+    const first = await attemptStructured();
+    if (first.ok) {
+        return toStructuredResult(first.segments, first.response, false);
     }
 
-    messages.push({ role: 'assistant', content: first.content });
+    if (first.response) {
+        messages.push({ role: 'assistant', content: first.response.content });
+    }
     messages.push({
         role: 'user',
-        content: `Your previous response failed validation: ${firstResult.error} Return the corrected list of notes only, in the exact required format, with no explanation.`,
+        content: `Your previous response failed JSON validation: ${first.error} Return only valid JSON matching the required schema, with no code fence or explanation.`,
     });
-    const second = await provider.sendConversation(buildRequest());
-    const secondResult = tryParseGeneratedNotes(second.content, options.maxNotes, options.maxTimestampSec);
-    if (!secondResult.ok) {
+    const second = await attemptStructured();
+    if (second.ok) {
+        return toStructuredResult(second.segments, second.response, true);
+    }
+
+    const legacyRequest: AIConversationRequest = {
+        systemPrompt: YOUTNOTE_AI_LEGACY_SYSTEM_PROMPT,
+        messages: [{
+            role: 'user',
+            content: buildTranscriptRequest(
+                transcript,
+                options,
+                'Generate timestamped Youtnote note blocks ([MM:SS](timestamp) followed by the Markdown note body) from the following transcript.',
+            ),
+        }],
+    };
+    if (options.signal) {
+        legacyRequest.signal = options.signal;
+    }
+    const third = await provider.sendConversation(legacyRequest);
+    const thirdResult = tryParseGeneratedNotes(third.content, options.maxNotes, options.maxTimestampSec);
+    if (!thirdResult.ok) {
         throw new AIProviderError(
             'invalid-response',
-            `AI returned invalid notes after a correction attempt: ${secondResult.error}`,
+            `AI structured correction and unstructured fallback both failed: ${thirdResult.error}`,
         );
     }
-    return { notes: secondResult.notes, response: second, corrected: true };
+    return {
+        notes: thirdResult.notes,
+        noteMarkdown: third.content.trim() + '\n',
+        response: third,
+        corrected: true,
+        format: 'unstructured',
+    };
 }

@@ -4,7 +4,7 @@ import * as ReactDOM from 'react-dom/client';
 import { YoutubePluginView } from './ui/YoutnoteView';
 import { ExportOptionsModal } from './ui/MessageBoxes';
 import { Video, Note, VideoId, ExportOptions, TranscriptEntry } from './types';
-import type { GenerateNotesOptions, GeneratedNoteDraft } from './ai/notes';
+import type { GenerateNotesOptions, GeneratedNotesResult } from './ai/notes';
 import { parseMarkdownToData, serializeDataToMarkdown, exportToMarkdown, exportSingleVideoToMarkdown } from './markdown';
 import { extractYouTubeId } from './utils';
 import YoutnotePlugin from './main';
@@ -143,7 +143,7 @@ export class YoutnoteView extends TextFileView {
         this.openExportDialog(true);
     };
 
-    handleGenerateAINotes = (transcript: TranscriptEntry[], options: GenerateNotesOptions): Promise<GeneratedNoteDraft[]> => {
+    handleGenerateAINotes = (transcript: TranscriptEntry[], options: GenerateNotesOptions): Promise<GeneratedNotesResult> => {
         return this.plugin.generateAINotes(transcript, options);
     };
 

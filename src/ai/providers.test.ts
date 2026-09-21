@@ -76,6 +76,15 @@ const CHAT_REQUEST: AIConversationRequest = {
     ],
 };
 
+const TEST_RESPONSE_SCHEMA = {
+    name: 'youtnote_segments',
+    description: 'Timestamped Obsidian Markdown notes generated from a video transcript.',
+    schema: {
+        type: 'object',
+        properties: { segments: { type: 'array' } },
+    },
+};
+
 beforeEach(() => {
     mockRequestUrl.mockReset();
     stubWindow();
@@ -183,6 +192,26 @@ describe('OpenAIProvider', () => {
             .rejects.toMatchObject({ kind: 'invalid-config' });
         expect(mockRequestUrl).not.toHaveBeenCalled();
     });
+
+    it('sends a strict json_schema response_format when a response schema is provided', async () => {
+        respond(jsonResponse(200, { choices: [{ message: { content: '{"segments":[]}' } }] }));
+        await makeProvider().sendConversation({ ...CHAT_REQUEST, responseSchema: TEST_RESPONSE_SCHEMA });
+        expect(lastRequestBody().response_format).toEqual({
+            type: 'json_schema',
+            json_schema: {
+                name: 'youtnote_segments',
+                strict: true,
+                schema: TEST_RESPONSE_SCHEMA.schema,
+                description: TEST_RESPONSE_SCHEMA.description,
+            },
+        });
+    });
+
+    it('omits response_format without a response schema', async () => {
+        respond(jsonResponse(200, { choices: [{ message: { content: 'ok' } }] }));
+        await makeProvider().sendConversation(CHAT_REQUEST);
+        expect(lastRequestBody()).not.toHaveProperty('response_format');
+    });
 });
 
 describe('CustomOpenAIProvider', () => {
@@ -255,6 +284,20 @@ describe('CustomOpenAIProvider', () => {
             .rejects.toThrow(/route not found/);
         await expect(makeProvider().listModels())
             .rejects.toThrow(/OpenAI-compatible/);
+    });
+
+    it('sends the same strict json_schema response_format as native OpenAI', async () => {
+        respond(jsonResponse(200, { choices: [{ message: { content: '{"segments":[]}' } }] }));
+        await makeProvider().sendConversation({ ...CHAT_REQUEST, responseSchema: TEST_RESPONSE_SCHEMA });
+        expect(lastRequestBody().response_format).toEqual({
+            type: 'json_schema',
+            json_schema: {
+                name: 'youtnote_segments',
+                strict: true,
+                schema: TEST_RESPONSE_SCHEMA.schema,
+                description: TEST_RESPONSE_SCHEMA.description,
+            },
+        });
     });
 
     it('keeps JSON 401 and 429 errors as provider errors', async () => {
@@ -334,6 +377,41 @@ describe('AnthropicProvider', () => {
         })).rejects.toMatchObject({ kind: 'invalid-config' });
         expect(mockRequestUrl).not.toHaveBeenCalled();
     });
+
+    it('uses a forced strict tool schema and extracts the tool_use input', async () => {
+        const input = { segments: [{ timestamp_seconds: 5, markdown: 'note' }] };
+        respond(jsonResponse(200, {
+            content: [{ type: 'tool_use', name: 'youtnote_segments', input }],
+            usage: { input_tokens: 1, output_tokens: 2 },
+            stop_reason: 'tool_use',
+        }));
+        const result = await makeProvider().sendConversation({ ...CHAT_REQUEST, responseSchema: TEST_RESPONSE_SCHEMA });
+
+        expect(result.content).toBe(JSON.stringify(input));
+
+        const body = lastRequestBody();
+        expect(body.tools).toEqual([{
+            name: 'youtnote_segments',
+            description: TEST_RESPONSE_SCHEMA.description,
+            strict: true,
+            input_schema: TEST_RESPONSE_SCHEMA.schema,
+        }]);
+        expect(body.tool_choice).toEqual({
+            type: 'tool',
+            name: 'youtnote_segments',
+            disable_parallel_tool_use: true,
+        });
+    });
+
+    it('throws invalid-response when the structured tool call is missing or malformed', async () => {
+        respond(jsonResponse(200, { content: [{ type: 'text', text: 'no tool call' }] }));
+        await expect(makeProvider().sendConversation({ ...CHAT_REQUEST, responseSchema: TEST_RESPONSE_SCHEMA }))
+            .rejects.toMatchObject({ kind: 'invalid-response' });
+
+        respond(jsonResponse(200, { content: [{ type: 'tool_use', name: 'youtnote_segments', input: 'not-an-object' }] }));
+        await expect(makeProvider().sendConversation({ ...CHAT_REQUEST, responseSchema: TEST_RESPONSE_SCHEMA }))
+            .rejects.toMatchObject({ kind: 'invalid-response' });
+    });
 });
 
 describe('GeminiProvider', () => {
@@ -393,6 +471,18 @@ describe('GeminiProvider', () => {
             { text: 'Summarize' },
             { inlineData: { mimeType: 'application/pdf', data: 'QUJD' } },
         ]);
+    });
+
+    it('adds responseMimeType and responseSchema to generationConfig for structured requests', async () => {
+        respond(jsonResponse(200, {
+            candidates: [{ content: { parts: [{ text: '{"segments":[]}' }] } }],
+        }));
+        await makeProvider().sendConversation({ ...CHAT_REQUEST, responseSchema: TEST_RESPONSE_SCHEMA });
+        expect(lastRequestBody().generationConfig).toEqual({
+            maxOutputTokens: 8192,
+            responseMimeType: 'application/json',
+            responseSchema: TEST_RESPONSE_SCHEMA.schema,
+        });
     });
 
     it('filters listModels to generateContent and strips the models/ prefix', async () => {

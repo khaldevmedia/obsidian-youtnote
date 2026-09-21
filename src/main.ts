@@ -6,7 +6,7 @@ import { createAIProvider } from './ai/registry';
 import type { AIProviderFactoryConfig } from './ai/registry';
 import { migrateLegacyAICredentials } from './ai/credentials';
 import { generateNotesFromTranscript } from './ai/notes';
-import type { GeneratedNoteDraft, GenerateNotesOptions } from './ai/notes';
+import type { GeneratedNotesResult, GenerateNotesOptions } from './ai/notes';
 import { AIProviderError } from './ai/types';
 import type { AIProvider, ConfiguredAIProviderId } from './ai/types';
 import { hasYoutnoteFrontmatter, extractYouTubeId, formatSecondsToDisplay, compareNotes } from './utils';
@@ -299,7 +299,7 @@ export default class YoutnotePlugin extends Plugin {
         return this.createConfiguredAIProvider(provider).listModels(signal);
     }
 
-    async generateAINotes(transcript: TranscriptEntry[], options: GenerateNotesOptions): Promise<GeneratedNoteDraft[]> {
+    async generateAINotes(transcript: TranscriptEntry[], options: GenerateNotesOptions): Promise<GeneratedNotesResult> {
         const ai = this.settings.ai;
         if (!ai.enabled) {
             throw new AIProviderError('invalid-config', 'AI-generated notes are disabled. Enable them in Youtnote settings.');
@@ -308,8 +308,7 @@ export default class YoutnotePlugin extends Plugin {
             throw new AIProviderError('invalid-config', 'No AI provider is configured. Select one in Youtnote settings.');
         }
         const provider = this.createConfiguredAIProvider(ai.provider);
-        const result = await generateNotesFromTranscript(provider, transcript, options);
-        return result.notes;
+        return generateNotesFromTranscript(provider, transcript, options);
     }
 
     async saveDataState() {

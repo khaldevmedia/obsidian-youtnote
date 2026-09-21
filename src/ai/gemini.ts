@@ -53,6 +53,12 @@ export class GeminiProvider implements AIProvider {
             throw new AIProviderError('invalid-config', 'Gemini model is not configured.');
         }
 
+        const generationConfig: Record<string, unknown> = { maxOutputTokens: GEMINI_MAX_OUTPUT_TOKENS };
+        if (request.responseSchema) {
+            generationConfig.responseMimeType = 'application/json';
+            generationConfig.responseSchema = request.responseSchema.schema;
+        }
+
         const requestOptions: AIRequestOptions = {
             url: `${GEMINI_BASE_URL}/models/${encodeURIComponent(model)}:generateContent`,
             method: 'POST',
@@ -60,7 +66,7 @@ export class GeminiProvider implements AIProvider {
             body: JSON.stringify({
                 systemInstruction: { parts: [{ text: request.systemPrompt }] },
                 contents: this.buildContents(request),
-                generationConfig: { maxOutputTokens: GEMINI_MAX_OUTPUT_TOKENS },
+                generationConfig,
             }),
             timeoutMs: this.timeoutMs,
         };

@@ -55,16 +55,31 @@ export class AnthropicProvider implements AIProvider {
             throw new AIProviderError('invalid-config', 'Anthropic model is not configured.');
         }
 
+        const body: Record<string, unknown> = {
+            model,
+            max_tokens: ANTHROPIC_MAX_TOKENS,
+            system: request.systemPrompt,
+            messages: this.buildMessages(request),
+        };
+        if (request.responseSchema) {
+            body.tools = [{
+                name: request.responseSchema.name,
+                description: request.responseSchema.description ?? 'Return the structured response.',
+                strict: true,
+                input_schema: request.responseSchema.schema,
+            }];
+            body.tool_choice = {
+                type: 'tool',
+                name: request.responseSchema.name,
+                disable_parallel_tool_use: true,
+            };
+        }
+
         const requestOptions: AIRequestOptions = {
             url: `${ANTHROPIC_BASE_URL}/messages`,
             method: 'POST',
             headers: this.buildHeaders(key),
-            body: JSON.stringify({
-                model,
-                max_tokens: ANTHROPIC_MAX_TOKENS,
-                system: request.systemPrompt,
-                messages: this.buildMessages(request),
-            }),
+            body: JSON.stringify(body),
             timeoutMs: this.timeoutMs,
         };
         if (request.signal) {
@@ -79,7 +94,7 @@ export class AnthropicProvider implements AIProvider {
                 response.status,
             );
         }
-        return this.parseResponse(json);
+        return this.parseResponse(json, request);
     }
 
     async listModels(signal?: AbortSignal): Promise<string[]> {
@@ -184,18 +199,32 @@ export class AnthropicProvider implements AIProvider {
         );
     }
 
-    private parseResponse(json: unknown): AIConversationResponse {
+    private parseResponse(json: unknown, request: AIConversationRequest): AIConversationResponse {
         if (!isRecord(json) || !Array.isArray(json.content)) {
             throw new AIProviderError('invalid-response', 'Anthropic returned an unexpected response (missing content).');
         }
-        const texts: string[] = [];
-        for (const block of json.content) {
-            if (isRecord(block) && block.type === 'text' && typeof block.text === 'string') {
-                texts.push(block.text);
+
+        let content: string;
+        const schema = request.responseSchema;
+        if (schema) {
+            const toolBlock: unknown = json.content.find((block: unknown) =>
+                isRecord(block) && block.type === 'tool_use' && block.name === schema.name && isRecord(block.input)
+            );
+            if (!isRecord(toolBlock) || !isRecord(toolBlock.input)) {
+                throw new AIProviderError('invalid-response', 'Anthropic returned an unexpected response (missing structured tool call).');
             }
-        }
-        if (texts.length === 0) {
-            throw new AIProviderError('invalid-response', 'Anthropic returned an unexpected response (no text content).');
+            content = JSON.stringify(toolBlock.input);
+        } else {
+            const texts: string[] = [];
+            for (const block of json.content) {
+                if (isRecord(block) && block.type === 'text' && typeof block.text === 'string') {
+                    texts.push(block.text);
+                }
+            }
+            if (texts.length === 0) {
+                throw new AIProviderError('invalid-response', 'Anthropic returned an unexpected response (no text content).');
+            }
+            content = texts.join('\n');
         }
 
         const metadata: AIResponseMetadata = {};
@@ -219,7 +248,7 @@ export class AnthropicProvider implements AIProvider {
             metadata.finishReason = json.stop_reason;
         }
 
-        const result: AIConversationResponse = { content: texts.join('\n') };
+        const result: AIConversationResponse = { content };
         if (Object.keys(metadata).length > 0) {
             result.metadata = metadata;
         }

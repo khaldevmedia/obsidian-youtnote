@@ -15,11 +15,18 @@ export interface AIAttachment {
     url?: string;
 }
 
+export interface AIResponseSchema {
+    name: string;
+    description?: string;
+    schema: Record<string, unknown>;
+}
+
 export interface AIConversationRequest {
     systemPrompt: string;
     messages: AIMessage[];
     attachments?: AIAttachment[];
     signal?: AbortSignal;
+    responseSchema?: AIResponseSchema;
 }
 
 export interface AIResponseMetadata {

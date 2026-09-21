@@ -111,7 +111,7 @@ Youtnote can generate timestamped notes from a video's transcript with an AI pro
 - **Model**: pick from the cached model list (Refresh models / Test connection fetches it), or type an ID directly for Custom.
 - **Request timeout**: seconds before a request times out; the custom timeout defaults higher because local models can be slower.
 
-Generation waits for the provider's complete, non-streamed response, validates the returned notes (retrying once with a correction request when needed), then saves them to the Youtnote file. While a request is in progress a `Generating notes…` status with a Cancel button is shown; cancelling discards the result even if the response arrives afterward.
+Generation waits for the provider's complete, non-streamed response: the hosted providers request structured JSON output, and Custom endpoints receive the same schema request when they are compatible. Responses are validated, retried once with a correction request when needed, and finally fall back to the legacy Markdown format — in that compatibility mode a notice asks you to review the notes for formatting. The notes are then saved to the Youtnote file. While a request is in progress a `Generating notes…` status with a Cancel button is shown; cancelling discards the result even if the response arrives afterward.
 
 ## AI Agent Skill
 

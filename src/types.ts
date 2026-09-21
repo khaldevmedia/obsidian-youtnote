@@ -1,7 +1,7 @@
 import React from 'react';
 import { App, Component, TFile } from 'obsidian';
 import type { AIProviderId, ConfiguredAIProviderId } from './ai/types';
-import type { GenerateNotesOptions, GeneratedNoteDraft } from './ai/notes';
+import type { GenerateNotesOptions, GeneratedNotesResult } from './ai/notes';
 
 /** Minimal abstract constructor shape of Obsidian's internal MarkdownEditor class. */
 export type MarkdownEditorClass = abstract new (...args: unknown[]) => Component & {
@@ -233,7 +233,7 @@ export interface YoutubePluginViewProps {
     onUpdateNotes: (notes: Note[]) => void;
     onExportSingleVideo: (videoId: VideoId) => Promise<void>;
     onExportAllVideos: () => Promise<void>;
-    onGenerateAINotes: (transcript: TranscriptEntry[], options: GenerateNotesOptions) => Promise<GeneratedNoteDraft[]>;
+    onGenerateAINotes: (transcript: TranscriptEntry[], options: GenerateNotesOptions) => Promise<GeneratedNotesResult>;
 }
 
 export interface PlayerAdapter {

@@ -238,11 +238,24 @@ async function sendConversation(
         throw new AIProviderError('invalid-config', `${ctx.providerName} model is not configured.`);
     }
 
+    const body: Record<string, unknown> = { model, messages: buildMessages(request, ctx) };
+    if (request.responseSchema) {
+        body.response_format = {
+            type: 'json_schema',
+            json_schema: {
+                name: request.responseSchema.name,
+                strict: true,
+                schema: request.responseSchema.schema,
+                ...(request.responseSchema.description ? { description: request.responseSchema.description } : {}),
+            },
+        };
+    }
+
     const requestOptions: AIRequestOptions = {
         url: `${ctx.baseUrl}/chat/completions`,
         method: 'POST',
         headers: buildHeaders(ctx),
-        body: JSON.stringify({ model, messages: buildMessages(request, ctx) }),
+        body: JSON.stringify(body),
         timeoutMs: ctx.timeoutMs,
     };
     if (request.signal) {
