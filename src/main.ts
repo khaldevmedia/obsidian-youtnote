@@ -295,6 +295,17 @@ export default class YoutnotePlugin extends Plugin {
         return createAIProvider(config);
     }
 
+    openSettings = (): void => {
+        const app = this.app as typeof this.app & {
+            setting: {
+                open(): void;
+                openTabById(id: string): void;
+            };
+        };
+        app.setting.open();
+        app.setting.openTabById(this.manifest.id);
+    };
+
     async listAIModels(provider: ConfiguredAIProviderId, signal?: AbortSignal): Promise<string[]> {
         return this.createConfiguredAIProvider(provider).listModels(signal);
     }

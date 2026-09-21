@@ -3,6 +3,7 @@ import { AIProviderError } from './types';
 import type { AIConversationRequest, AIConversationResponse, AIProvider } from './types';
 import type { TranscriptEntry } from '../types';
 import {
+    createYoutnoteNotesJsonSchema,
     generateNotesFromTranscript,
     parseGeneratedNotes,
     parseStructuredSegments,
@@ -43,6 +44,26 @@ const VALID_JSON = JSON.stringify({
         { timestamp_seconds: 3725, markdown: 'Late note with a [link](https://example.com)' },
     ],
 });
+
+const VALID_JSON_WITH_GENERAL = JSON.stringify({
+    general_note: '# Overview\nConcise **summary**',
+    segments: [
+        { timestamp_seconds: 10, markdown: 'First note' },
+        { timestamp_seconds: 3725, markdown: 'Late note' },
+    ],
+});
+
+const VALID_RESPONSE_WITH_GENERAL = [
+    '[general-note](general-note)',
+    'Overview of the video',
+    '',
+    '[00:10](timestamp)',
+    'First **note** with markdown',
+    'and a second line',
+    '',
+    '[1:02:05](timestamp)',
+    'Late note with a [link](https://example.com)',
+].join('\n');
 
 function response(content: string): AIConversationResponse {
     return { content };
@@ -110,6 +131,32 @@ describe('segmentsToYoutnoteMarkdown', () => {
         ]);
         expect(output).toBe('[10](timestamp)\nNote body\n\n[1:02:05](timestamp)\nLate body\n');
     });
+
+    it('places the general-note marker before timestamped markers', () => {
+        const output = segmentsToYoutnoteMarkdown(
+            [{ timestamp_seconds: 10, markdown: 'Note body' }],
+            '  Overview text  ',
+        );
+        expect(output).toBe('[general-note](general-note)\nOverview text\n\n[10](timestamp)\nNote body\n');
+    });
+});
+
+describe('createYoutnoteNotesJsonSchema', () => {
+    it('returns the segments-only schema unchanged when no general note is requested', () => {
+        expect(createYoutnoteNotesJsonSchema(false)).toBe(YOUTNOTE_SEGMENTS_JSON_SCHEMA);
+    });
+
+    it('requires general_note alongside the identical segments schema when requested', () => {
+        expect(createYoutnoteNotesJsonSchema(true)).toEqual({
+            type: 'object',
+            additionalProperties: false,
+            required: ['general_note', 'segments'],
+            properties: {
+                general_note: { type: 'string', minLength: 1 },
+                segments: (YOUTNOTE_SEGMENTS_JSON_SCHEMA.properties as Record<string, unknown>).segments,
+            },
+        });
+    });
 });
 
 describe('parseGeneratedNotes', () => {
@@ -169,6 +216,46 @@ describe('parseGeneratedNotes', () => {
         expect(() => parseGeneratedNotes('')).toThrow(/no|did not contain/i);
         expect(() => parseGeneratedNotes('just some text')).toThrow(AIProviderError);
     });
+
+    it('accepts a requested general-note block before timestamped notes', () => {
+        const notes = parseGeneratedNotes(VALID_RESPONSE_WITH_GENERAL, { includeGeneralNote: true });
+        expect(notes).toEqual([
+            { timestampSec: -1, bodyMarkdown: 'Overview of the video', isGeneral: true },
+            { timestampSec: 10, bodyMarkdown: 'First **note** with markdown\nand a second line' },
+            { timestampSec: 3725, bodyMarkdown: 'Late note with a [link](https://example.com)' },
+        ]);
+    });
+
+    it('rejects a missing general-note block when one was requested', () => {
+        expect(() => parseGeneratedNotes(VALID_RESPONSE, { includeGeneralNote: true }))
+            .toThrow(/requested general note/);
+    });
+
+    it('rejects duplicate, late, empty, and unsolicited general-note blocks', () => {
+        const duplicate = VALID_RESPONSE_WITH_GENERAL + '\n\n[general-note](general-note)\nSecond general';
+        expect(() => parseGeneratedNotes(duplicate, { includeGeneralNote: true }))
+            .toThrow(/more than one general-note/);
+
+        const afterTimestamp = '[00:10](timestamp)\nBody\n\n[general-note](general-note)\nLate general';
+        expect(() => parseGeneratedNotes(afterTimestamp, { includeGeneralNote: true }))
+            .toThrow(/precede all timestamped/);
+
+        const empty = '[general-note](general-note)\n\n[00:10](timestamp)\nBody';
+        expect(() => parseGeneratedNotes(empty, { includeGeneralNote: true }))
+            .toThrow(/empty body/);
+
+        expect(() => parseGeneratedNotes(VALID_RESPONSE_WITH_GENERAL))
+            .toThrow(/unrequested general-note/);
+        expect(() => parseGeneratedNotes(VALID_RESPONSE_WITH_GENERAL, { includeGeneralNote: false }))
+            .toThrow(/unrequested general-note/);
+    });
+
+    it('counts only timestamped notes against maxNotes', () => {
+        expect(parseGeneratedNotes(VALID_RESPONSE_WITH_GENERAL, { includeGeneralNote: true, maxNotes: 2 }))
+            .toHaveLength(3);
+        expect(() => parseGeneratedNotes(VALID_RESPONSE_WITH_GENERAL, { includeGeneralNote: true, maxNotes: 1 }))
+            .toThrow(/limit of 1/);
+    });
 });
 
 describe('generateNotesFromTranscript', () => {
@@ -197,6 +284,82 @@ describe('generateNotesFromTranscript', () => {
         expect(request.messages).toHaveLength(1);
         expect(request.messages[0].content).toContain('[10] First topic');
         expect(request.messages[0].content).toContain('[1:02:05] Late topic');
+    });
+
+    it('generates a general note first when includeGeneralNote is set', async () => {
+        const { provider, sendConversation } = makeProvider(() => response(VALID_JSON_WITH_GENERAL));
+        const result = await generateNotesFromTranscript(provider, TRANSCRIPT, { includeGeneralNote: true });
+
+        expect(result.format).toBe('structured');
+        expect(result.notes[0]).toEqual({
+            timestampSec: -1,
+            bodyMarkdown: '# Overview\nConcise **summary**',
+            isGeneral: true,
+        });
+        expect(result.notes).toHaveLength(3);
+        expect(result.noteMarkdown.startsWith(
+            '[general-note](general-note)\n# Overview\nConcise **summary**\n\n[10](timestamp)',
+        )).toBe(true);
+
+        const request = sendConversation.mock.calls[0][0];
+        expect(request.responseSchema?.schema).toEqual(createYoutnoteNotesJsonSchema(true));
+        expect(request.responseSchema?.description)
+            .toBe('General and timestamped Obsidian Markdown notes generated from a video transcript.');
+        expect(request.messages[0].content).toContain('Also generate a non-empty "general_note"');
+    });
+
+    it('treats a missing or blank general_note as a validation failure and recovers via correction', async () => {
+        let call = 0;
+        const { provider, sendConversation } = makeProvider(() =>
+            response(call++ === 0 ? VALID_JSON : VALID_JSON_WITH_GENERAL),
+        );
+        const result = await generateNotesFromTranscript(provider, TRANSCRIPT, { includeGeneralNote: true });
+
+        expect(result.corrected).toBe(true);
+        expect(result.format).toBe('structured');
+        expect(result.notes[0].isGeneral).toBe(true);
+        expect(sendConversation).toHaveBeenCalledTimes(2);
+        expect(sendConversation.mock.calls[1][0].messages[2].content).toContain('general_note');
+
+        call = 0;
+        const blank = makeProvider(() =>
+            response(call++ === 0
+                ? JSON.stringify({ general_note: '  ', segments: [{ timestamp_seconds: 1, markdown: 'x' }] })
+                : VALID_JSON_WITH_GENERAL),
+        );
+        const blankResult = await generateNotesFromTranscript(blank.provider, TRANSCRIPT, { includeGeneralNote: true });
+        expect(blankResult.corrected).toBe(true);
+        expect(blankResult.notes[0].isGeneral).toBe(true);
+    });
+
+    it('keeps the segments-only schema and ignores an unsolicited general_note when not requested', async () => {
+        const { provider, sendConversation } = makeProvider(() => response(VALID_JSON_WITH_GENERAL));
+        const result = await generateNotesFromTranscript(provider, TRANSCRIPT);
+
+        const request = sendConversation.mock.calls[0][0];
+        expect(request.responseSchema?.schema).toBe(YOUTNOTE_SEGMENTS_JSON_SCHEMA);
+        expect(result.notes).toHaveLength(2);
+        expect(result.notes.every(note => note.isGeneral !== true)).toBe(true);
+        expect(result.noteMarkdown).not.toContain('[general-note]');
+    });
+
+    it('requests and returns a general note through the legacy fallback', async () => {
+        const responses = ['not json', '{"segments":[]}', VALID_RESPONSE_WITH_GENERAL];
+        let call = 0;
+        const { provider, sendConversation } = makeProvider(() => response(responses[call++]));
+        const result = await generateNotesFromTranscript(provider, TRANSCRIPT, { includeGeneralNote: true });
+
+        expect(result.format).toBe('unstructured');
+        expect(result.notes[0]).toEqual({
+            timestampSec: -1,
+            bodyMarkdown: 'Overview of the video',
+            isGeneral: true,
+        });
+        expect(result.noteMarkdown.startsWith('[general-note](general-note)\n')).toBe(true);
+        expect(sendConversation.mock.calls[2][0].messages[0].content)
+            .toContain('Generate one general-note block');
+        expect(sendConversation.mock.calls[2][0].messages[0].content)
+            .not.toContain('non-empty "general_note"');
     });
 
     it('includes custom instructions and a max note limit in the request', async () => {

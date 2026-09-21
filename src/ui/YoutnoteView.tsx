@@ -44,7 +44,8 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
     onUpdateNotes,
     onExportSingleVideo,
     onExportAllVideos,
-    onGenerateAINotes
+    onGenerateAINotes,
+    onOpenAISettings
 }) => {
     const activeVideoNotes = useMemo(
         () => notes
@@ -885,10 +886,10 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
         ).open();
     };
 
-    const handleFetchTranscript = async () => {
-        if (!activeVideo) return;
+    const handleFetchTranscript = async (): Promise<TranscriptEntry[] | null> => {
+        if (!activeVideo) return null;
         const ytId = extractYouTubeId(activeVideo.url);
-        if (!ytId) return;
+        if (!ytId) return null;
         const targetVideoId = activeVideo.id;
 
         setIsFetchingTranscript(true);
@@ -896,20 +897,20 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
             const tracks = await fetchCaptionTracks(ytId);
             if (tracks.length === 0) {
                 new AlertModal(app, 'No transcript available', 'YouTube has no captions for this video.').open();
-                return;
+                return null;
             }
             let track = tracks[0];
             if (tracks.length > 1) {
                 setIsFetchingTranscript(false);
                 const picked = await pickCaptionTrack(app, tracks);
-                if (!picked) return;
+                if (!picked) return null;
                 track = picked;
                 setIsFetchingTranscript(true);
             }
             const entries = await fetchTranscriptEntries(track);
             if (entries.length === 0) {
                 new AlertModal(app, 'Transcript is empty', 'The selected caption track contains no text.').open();
-                return;
+                return null;
             }
             // Read from view.videos (source of truth) to avoid clobbering concurrent updates
             onUpdateVideos(view.videos.map(v => v.id === targetVideoId ? { ...v, transcript: entries } : v));
@@ -917,6 +918,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
             setEditingTranscriptIndex(null);
             setSearchQuery('');
             new Notice(`Transcript fetched (${entries.length} captions)`, 2000);
+            return entries;
         } catch (err) {
             console.error('Error fetching transcript:', err);
             new AlertModal(
@@ -924,6 +926,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
                 'Unable to fetch transcript',
                 err instanceof Error && err.message ? err.message : 'Check your internet connection and try again.'
             ).open();
+            return null;
         } finally {
             setIsFetchingTranscript(false);
         }
@@ -940,9 +943,49 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
         ).open();
     };
 
+    const openAIGenerationDialog = (targetVideoId: VideoId, transcript: TranscriptEntry[]) => {
+        const targetNotes = view.notes.filter(note => note.videoId === targetVideoId);
+        new AIGenerationModal(
+            app,
+            targetNotes.length > 0,
+            targetNotes.some(note => note.isGeneral === true || note.timestampSec === -1),
+            (dialogOptions) => runAIGeneration(targetVideoId, transcript, dialogOptions)
+        ).open();
+    };
+
     const handleGenerateAINotes = () => {
+        if (!settings.ai.enabled) {
+            new ConfirmModal(
+                app,
+                'AI setup required',
+                'AI note generation is turned off. Open Youtnote settings to enable AI and configure a provider.',
+                () => onOpenAISettings(),
+                'Open settings',
+                'Cancel',
+                'primary'
+            ).open();
+            return;
+        }
         const video = activeVideo;
         const transcript = video?.transcript ?? [];
+        if (video && transcript.length === 0) {
+            new ConfirmModal(
+                app,
+                'Fetch transcript first?',
+                'AI note generation needs a transcript. Click OK to fetch it now.',
+                () => {
+                    void handleFetchTranscript().then(fetchedTranscript => {
+                        if (fetchedTranscript) {
+                            openAIGenerationDialog(video.id, fetchedTranscript);
+                        }
+                    });
+                },
+                'OK',
+                'Cancel',
+                'primary'
+            ).open();
+            return;
+        }
         if (!video || transcript.length === 0) {
             new AlertModal(
                 app,
@@ -951,11 +994,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
             ).open();
             return;
         }
-        new AIGenerationModal(
-            app,
-            activeVideoNotes.length > 0,
-            (dialogOptions) => runAIGeneration(video.id, transcript, dialogOptions)
-        ).open();
+        openAIGenerationDialog(video.id, transcript);
     };
 
     const runAIGeneration = async (targetVideoId: VideoId, transcript: TranscriptEntry[], dialogOptions: AIGenerationDialogOptions) => {
@@ -972,6 +1011,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
             const options: GenerateNotesOptions = {
                 signal: controller.signal,
                 maxTimestampSec,
+                includeGeneralNote: dialogOptions.includeGeneralNote,
             };
             if (dialogOptions.customInstructions) {
                 options.customInstructions = dialogOptions.customInstructions;
@@ -982,7 +1022,10 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
             const result = await onGenerateAINotes(transcript, options);
             if (requestId !== aiRequestIdRef.current || controller.signal.aborted) return;
             if (!view.videos.some(v => v.id === targetVideoId)) return;
-            onUpdateNotes(applyGeneratedNotes(view.notes, targetVideoId, result.notes, { mode: dialogOptions.mode }));
+            onUpdateNotes(applyGeneratedNotes(view.notes, targetVideoId, result.notes, {
+                mode: dialogOptions.mode,
+                generalNoteMode: dialogOptions.generalNoteMode,
+            }));
             setShowTranscript(false);
             setSearchQuery('');
             if (result.format === 'unstructured') {
@@ -1188,7 +1231,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
         };
     }, [app, isResizing, paneWidthStorageKey]);
 
-    const aiGenerateButton = settings.ai.enabled ? (
+    const aiGenerateButton = (
         <button
             ref={(el) => {
                 if (el) {
@@ -1198,11 +1241,11 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
             }}
             className="youtnote-plugin__ai-generate-btn"
             onClick={handleGenerateAINotes}
-            disabled={isGeneratingNotes || !hasTranscript}
+            disabled={isGeneratingNotes || isFetchingTranscript}
             aria-label="Generate notes with AI"
             title="Generate notes with AI"
         />
-    ) : null;
+    );
 
     const playerSection = (
         <div className="youtnote-plugin__player-container">

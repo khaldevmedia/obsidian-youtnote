@@ -1,6 +1,6 @@
 import { App, Modal } from 'obsidian';
 import { ExportOptions } from '../types';
-import type { AINoteSaveMode } from '../ai/notePersistence';
+import type { AIGeneralNoteMode, AINoteSaveMode } from '../ai/notePersistence';
 
 type ModalAction = () => void | Promise<void>;
 type ConfirmButtonVariant = 'primary' | 'danger';
@@ -137,14 +137,21 @@ export class ConfirmModal extends BaseModal {
 export interface AIGenerationDialogOptions {
     customInstructions: string;
     maxNotes?: number;
+    includeGeneralNote: boolean;
+    generalNoteMode: AIGeneralNoteMode;
     mode: AINoteSaveMode;
 }
 
 export class AIGenerationModal extends BaseModal {
     private hasExistingNotes: boolean;
+    private hasExistingGeneralNote: boolean;
     private onGenerate: (options: AIGenerationDialogOptions) => void | Promise<void>;
     private instructionsEl!: HTMLTextAreaElement;
     private maxNotesEl!: HTMLInputElement;
+    private generalNoteInput!: HTMLInputElement;
+    private generalNoteModeEl: HTMLElement | null = null;
+    private generalNotePreservedEl: HTMLElement | null = null;
+    private appendGeneralNoteInput: HTMLInputElement | null = null;
     private addModeInput: HTMLInputElement | null = null;
     private replaceModeInput: HTMLInputElement | null = null;
     private generateBtn!: HTMLButtonElement;
@@ -152,10 +159,12 @@ export class AIGenerationModal extends BaseModal {
     constructor(
         app: App,
         hasExistingNotes: boolean,
+        hasExistingGeneralNote: boolean,
         onGenerate: (options: AIGenerationDialogOptions) => void | Promise<void>
     ) {
         super(app, 'Generate notes with AI', 'All fields below are optional.');
         this.hasExistingNotes = hasExistingNotes;
+        this.hasExistingGeneralNote = hasExistingGeneralNote;
         this.onGenerate = onGenerate;
     }
 
@@ -179,8 +188,59 @@ export class AIGenerationModal extends BaseModal {
             this.updateGenerateDisabled();
         });
 
+        const generalNoteSection = containerEl.createDiv({ cls: 'youtnote-plugin__ai-generation-section' });
+        generalNoteSection.createDiv({
+            cls: 'youtnote-plugin__ai-generation-section-title',
+            text: 'General note',
+        });
+        const generalNoteLabel = generalNoteSection.createEl('label', { cls: 'youtnote-plugin__ai-generation-radio' });
+        this.generalNoteInput = generalNoteLabel.createEl('input', { attr: { type: 'checkbox' } });
+        this.generalNoteInput.checked = true;
+        generalNoteLabel.createSpan({ text: 'Include a general note' });
+
+        if (this.hasExistingGeneralNote) {
+            this.generalNoteModeEl = generalNoteSection.createDiv({
+                cls: 'youtnote-plugin__ai-generation-mode youtnote-plugin__ai-generation-general-options',
+            });
+
+            const replaceGeneralLabel = this.generalNoteModeEl.createEl('label', { cls: 'youtnote-plugin__ai-generation-radio' });
+            const replaceGeneralInput = replaceGeneralLabel.createEl('input', {
+                attr: { type: 'radio', name: 'youtnote-ai-general-note-mode', value: 'replace' },
+            });
+            replaceGeneralInput.checked = true;
+            replaceGeneralLabel.createSpan({ text: 'Replace existing note' });
+
+            const appendGeneralLabel = this.generalNoteModeEl.createEl('label', { cls: 'youtnote-plugin__ai-generation-radio' });
+            this.appendGeneralNoteInput = appendGeneralLabel.createEl('input', {
+                attr: { type: 'radio', name: 'youtnote-ai-general-note-mode', value: 'append' },
+            });
+            appendGeneralLabel.createSpan({ text: 'Append to existing note' });
+
+            this.generalNotePreservedEl = generalNoteSection.createDiv({
+                cls: 'youtnote-plugin__ai-generation-general-preserved',
+                text: 'Existing general note will be preserved.',
+            });
+            this.generalNotePreservedEl.hidden = true;
+
+            this.generalNoteInput.addEventListener('change', () => {
+                const includeGeneralNote = this.generalNoteInput.checked;
+                if (this.generalNoteModeEl) {
+                    this.generalNoteModeEl.hidden = !includeGeneralNote;
+                }
+                if (this.generalNotePreservedEl) {
+                    this.generalNotePreservedEl.hidden = includeGeneralNote;
+                }
+            });
+        }
+
         if (this.hasExistingNotes) {
-            const modeEl = containerEl.createDiv({ cls: 'youtnote-plugin__ai-generation-mode' });
+            const modeEl = containerEl.createDiv({
+                cls: 'youtnote-plugin__ai-generation-section youtnote-plugin__ai-generation-mode',
+            });
+            modeEl.createDiv({
+                cls: 'youtnote-plugin__ai-generation-section-title',
+                text: 'Timestamped notes',
+            });
 
             const addLabel = modeEl.createEl('label', { cls: 'youtnote-plugin__ai-generation-radio' });
             this.addModeInput = addLabel.createEl('input', {
@@ -218,6 +278,8 @@ export class AIGenerationModal extends BaseModal {
     private buildOptions(): AIGenerationDialogOptions {
         const options: AIGenerationDialogOptions = {
             customInstructions: this.instructionsEl.value.trim(),
+            includeGeneralNote: this.generalNoteInput.checked,
+            generalNoteMode: this.appendGeneralNoteInput?.checked ? 'append' : 'replace',
             mode: 'replace',
         };
         if (this.hasExistingNotes && this.addModeInput?.checked) {

@@ -239,7 +239,8 @@ export class YoutnoteView extends TextFileView {
                 onUpdateNotes: this.handleUpdateNotes,
                 onExportSingleVideo: this.handleExportSingleVideo,
                 onExportAllVideos: this.handleExportAllVideos,
-                onGenerateAINotes: this.handleGenerateAINotes
+                onGenerateAINotes: this.handleGenerateAINotes,
+                onOpenAISettings: this.plugin.openSettings
             })
         );
     }

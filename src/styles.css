@@ -359,6 +359,40 @@ to avoid conflicts with other plugins */
     gap: 6px;
 }
 
+.youtnote-plugin__ai-generation-mode[hidden] {
+    display: none;
+}
+
+.youtnote-plugin__ai-generation-section {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 10px 12px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: var(--radius-s);
+}
+
+.youtnote-plugin__ai-generation-section-title {
+    color: var(--text-normal);
+    font-weight: 600;
+}
+
+.youtnote-plugin__ai-generation-general-options {
+    margin-left: 24px;
+    padding-left: 12px;
+    border-left: 2px solid var(--background-modifier-border);
+}
+
+.youtnote-plugin__ai-generation-general-preserved {
+    margin-left: 24px;
+    color: var(--text-muted);
+    font-size: var(--font-ui-smaller);
+}
+
+.youtnote-plugin__ai-generation-general-preserved[hidden] {
+    display: none;
+}
+
 .youtnote-plugin__ai-generation-radio {
     display: flex;
     align-items: center;

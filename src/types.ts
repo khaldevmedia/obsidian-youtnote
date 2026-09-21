@@ -234,6 +234,7 @@ export interface YoutubePluginViewProps {
     onExportSingleVideo: (videoId: VideoId) => Promise<void>;
     onExportAllVideos: () => Promise<void>;
     onGenerateAINotes: (transcript: TranscriptEntry[], options: GenerateNotesOptions) => Promise<GeneratedNotesResult>;
+    onOpenAISettings: () => void;
 }
 
 export interface PlayerAdapter {
