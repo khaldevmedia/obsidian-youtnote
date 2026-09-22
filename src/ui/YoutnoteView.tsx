@@ -933,7 +933,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
 
     const handleGenerateAINotes = () => {
         if (!settings.ai.enabled) {
-            new ConfirmModal(
+            const modal = new ConfirmModal(
                 app,
                 'AI setup required',
                 'AI note generation is turned off. Open Youtnote settings to enable AI and configure a provider.',
@@ -941,7 +941,9 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
                 'Open settings',
                 'Cancel',
                 'primary'
-            ).open();
+            );
+            modal.shouldRestoreSelection = false;
+            modal.open();
             return;
         }
         const video = activeVideo;

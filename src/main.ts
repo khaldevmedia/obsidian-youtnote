@@ -66,6 +66,7 @@ export default class YoutnotePlugin extends Plugin {
     // Allows users to manually switch to markdown and have that choice respected.
     youtnoteFileModes: Record<string, string> = {};
     private didFinishOnload = false;
+    private settingTab: YoutnoteSettingTab | null = null;
     private lastUriSchemeInvocation = 0;
     private dataStateExtras: Record<string, unknown> = {};
     private aiProgressModals = new Map<number, AIGenerationProgressModal>();
@@ -105,7 +106,8 @@ export default class YoutnotePlugin extends Plugin {
             }
         });
 
-        this.addSettingTab(new YoutnoteSettingTab(this.app, this));
+        this.settingTab = new YoutnoteSettingTab(this.app, this);
+        this.addSettingTab(this.settingTab);
 
         // Monkey-patch WorkspaceLeaf.prototype.setViewState to intercept markdown
         // view states for youtnote files and rewrite the type *before* Obsidian
@@ -325,6 +327,7 @@ export default class YoutnotePlugin extends Plugin {
         };
         app.setting.open();
         app.setting.openTabById(this.manifest.id);
+        this.settingTab?.scrollToAISection();
     };
 
     async listAIModels(provider: ConfiguredAIProviderId, signal?: AbortSignal): Promise<string[]> {

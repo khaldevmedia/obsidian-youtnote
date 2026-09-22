@@ -142,6 +142,7 @@ interface SettingGroupDef {
 
 const URI_SCHEME_GUIDE_URL = 'https://github.com/khaldevmedia/obsidian-youtnote/blob/develop/docs/uri-scheme-guide.md';
 const CUSTOM_BASE_URL_PLACEHOLDER = 'http://localhost:11434/v1';
+const AI_SETTINGS_ANCHOR_CLASS = 'youtnote-plugin__settings-ai-anchor';
 
 function buildUriSchemeDesc(): DocumentFragment {
 	return createFragment(frag => {
@@ -241,10 +242,38 @@ function resolveDesc(desc: Desc): string | DocumentFragment {
 
 export class YoutnoteSettingTab extends PluginSettingTab {
 	plugin: YoutnotePlugin;
+	private pendingAISectionScroll = false;
+	private aiSectionScrollScheduled = false;
 
 	constructor(app: App, plugin: YoutnotePlugin) {
 		super(app, plugin);
 		this.plugin = plugin;
+	}
+
+	scrollToAISection(): void {
+		this.pendingAISectionScroll = true;
+		this.scrollToAISectionIfRendered();
+	}
+
+	private scrollToAISectionIfRendered(): void {
+		if (!this.pendingAISectionScroll || this.aiSectionScrollScheduled) return;
+		const anchor = this.containerEl.querySelector<HTMLElement>(`.${AI_SETTINGS_ANCHOR_CLASS}`);
+		if (!anchor) return;
+		const ownerWindow = anchor.ownerDocument.defaultView;
+		if (!ownerWindow) {
+			this.pendingAISectionScroll = false;
+			anchor.scrollIntoView({ behavior: 'smooth', block: 'center' });
+			return;
+		}
+		this.aiSectionScrollScheduled = true;
+		ownerWindow.requestAnimationFrame(() => {
+			this.aiSectionScrollScheduled = false;
+			if (!this.pendingAISectionScroll) return;
+			const currentAnchor = this.containerEl.querySelector<HTMLElement>(`.${AI_SETTINGS_ANCHOR_CLASS}`);
+			if (!currentAnchor) return;
+			this.pendingAISectionScroll = false;
+			currentAnchor.scrollIntoView({ behavior: 'smooth', block: 'center' });
+		});
 	}
 
 	private settingGroups(): SettingGroupDef[] {
@@ -291,6 +320,8 @@ export class YoutnoteSettingTab extends PluginSettingTab {
 					name: 'Enable AI-generated notes',
 					desc: 'Generate timestamped notes from a video transcript using an AI provider.',
 					render: (setting) => {
+						setting.setClass(AI_SETTINGS_ANCHOR_CLASS);
+						this.scrollToAISectionIfRendered();
 						setting.addToggle(toggle => toggle
 							.setValue(ai().enabled)
 							.onChange(async (value) => {
