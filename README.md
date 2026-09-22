@@ -70,7 +70,7 @@ For more details on this issue, please **[read here](docs/error-153-ios.md)**.
    - Reload Obsidian (`Ctrl/Cmd + R`) and enable the plugin.
 
 ## Usage
-1. **Create a Youtnote file** via the ribbon icon or the `Create new youtnote` command. A file with `youtnote: true` frontmatter opens in the custom view.
+1. **Create a Youtnote file** via the ribbon icon or the `New youtnote` command. A file with `youtnote: true` frontmatter opens in the custom view.
 2. **Add videos** with the YouTube URL field. Duplicates are prevented automatically.
 3. **Select a video** to load it into the embedded iframe. Switching videos keeps the same player instance for smooth transitions.
 4. **Add notes** using the `+` (or keyboard shortcut): Youtnote auto-grabs the current playback time.

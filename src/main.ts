@@ -148,7 +148,7 @@ export default class YoutnotePlugin extends Plugin {
                         }
                     } else if (file instanceof TFolder) {
                         menu.addItem((item) => {
-                            item.setTitle('Create new youtnote')
+                            item.setTitle('New youtnote')
                                 .setIcon('youtnote')
                                 .setSection('action-primary')
                                 .onClick(() => {
@@ -238,7 +238,7 @@ export default class YoutnotePlugin extends Plugin {
         });
 
         // Add a ribbon icon to easily create a new note
-        this.addRibbonIcon('youtnote', 'Create new youtnote', () => {
+        this.addRibbonIcon('youtnote', 'New youtnote', () => {
             this.app.commands.executeCommandById(`${this.manifest.id}:create-file`);
         });
 

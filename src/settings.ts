@@ -313,11 +313,11 @@ export class YoutnoteSettingTab extends PluginSettingTab {
 		const showProviderRows = (): boolean => ai().enabled && providerId() !== null;
 
 		return {
-			heading: 'AI',
+			heading: 'AI integration',
 			items: [
 				{
 					kind: 'custom',
-					name: 'Enable AI-generated notes',
+					name: 'Enable AI integration',
 					desc: 'Generate timestamped notes from a video transcript using an AI provider.',
 					render: (setting) => {
 						setting.setClass(AI_SETTINGS_ANCHOR_CLASS);

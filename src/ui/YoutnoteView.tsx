@@ -936,7 +936,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
             const modal = new ConfirmModal(
                 app,
                 'AI setup required',
-                'AI note generation is turned off. Open Youtnote settings to enable AI and configure a provider.',
+                'AI integration is turned off. Open Youtnote settings to enable AI and configure a provider.',
                 () => onOpenAISettings(),
                 'Open settings',
                 'Cancel',
