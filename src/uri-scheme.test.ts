@@ -293,6 +293,31 @@ describe('hasStructuralDelimiter', () => {
     it('returns false for empty string', () => {
         expect(hasStructuralDelimiter('')).toBe(false);
     });
+
+    it.each([
+        '<!-- youtnote:video:start -->',
+        '<!-- youtnote:video:end -->',
+        '<!-- youtnote:section:source:start -->',
+        '<!-- youtnote:section:source:end -->',
+        '<!-- youtnote:section:notes:start -->',
+        '<!-- youtnote:section:notes:end -->',
+        '<!-- youtnote:section:transcript:start -->',
+        '<!-- youtnote:section:future-thing:start version=9 -->',
+    ])('returns true for v2 boundary marker %s', (line) => {
+        expect(hasStructuralDelimiter(line)).toBe(true);
+        expect(hasStructuralDelimiter(`Some text\n${line}`)).toBe(true);
+    });
+
+    it('returns false for an unrelated HTML comment', () => {
+        expect(hasStructuralDelimiter('<!-- a normal comment -->')).toBe(false);
+    });
+
+    it('rejects mode=note text containing a v2 boundary marker', () => {
+        const params = { url: VALID_YT_URL, mode: 'note', timestamp: '10', text: 'body\n<!-- youtnote:video:end -->' };
+        const result = validateYoutnoteUriParams(params, 200);
+        expect(result.valid).toBe(false);
+        expect(result.error).toContain('section marker');
+    });
 });
 
 // ─── isDebounced ────────────────────────────────────────────────────────────

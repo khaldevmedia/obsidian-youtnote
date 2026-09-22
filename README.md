@@ -82,6 +82,14 @@ For more details on this issue, please **[read here](docs/error-153-ios.md)**.
 10. **Generate notes with AI** using the bot button in the notes or transcript header (requires AI to be enabled in settings). All dialog fields are optional: add custom instructions, limit the maximum number of notes, and choose whether to add to or replace existing notes. While generating, a status row with a Cancel button lets you abort the request.
 11. **Export** single-video or full-note markdown via the header buttons.
 
+## Storage format
+
+Youtnote files are plain Markdown with a versioned storage format declared by the `youtnote-format-version` frontmatter property (the Youtnote file-format version). The current version is **2**, which wraps each video in explicit `<!-- youtnote:video:start -->` / `<!-- youtnote:video:end -->` boundaries and stores the video source link, notes, and transcripts inside explicitly bounded `<!-- youtnote:section:source:... -->`, `<!-- youtnote:section:notes:... -->`, and `<!-- youtnote:section:transcript:... -->` sections. Unrelated frontmatter and unknown sections are preserved untouched.
+
+- **Automatic migration**: older files (unversioned or `youtnote-format-version: 1`) are rewritten to file-format version 2 the first time they are opened in the Youtnote view. A notice confirms the update, and the file's videos, notes, transcripts, and other frontmatter are preserved. If a file declares version 1 but already contains version-2 content, only the declaration is corrected.
+- **Newer formats**: a file declaring a higher `youtnote-format-version` (e.g. written by a newer plugin version) is never parsed or rewritten — it opens in the regular Markdown view with an explanatory message.
+- **Downgrading**: an older plugin version does not understand version-2 markers. If you migrate a file and then downgrade the plugin, the old plugin will not be able to read the file correctly.
+
 ## Settings Overview
 All options live under `Settings → Plugin Options → Youtnote`:
 - **Pin video on phone**: Keep the iframe sticky while scrolling on mobile.

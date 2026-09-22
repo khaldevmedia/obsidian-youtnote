@@ -61,6 +61,7 @@ export function hasStructuralDelimiter(text: string): boolean {
         const line = rawLine.trim();
         if (line === '[general-note](general-note)') return true;
         if (/^\[[\d:]+\]\(timestamp\)/.test(line)) return true;
+        if (/^<!--\s*youtnote:(?:video|section:[A-Za-z0-9_-]+):(?:start|end)[\s\S]*?-->$/.test(line)) return true;
         const videoMatch = line.match(/^\[(.*?)\]\((.+)\)$/);
         return videoMatch !== null && extractYouTubeId(videoMatch[2]) !== null;
     });

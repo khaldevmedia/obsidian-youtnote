@@ -36,7 +36,7 @@ obsidian://youtnote?url=<YouTube_URL>&mode=<MODE>&timestamp=<TIMESTAMP>&text=<NO
 | `url` | Yes | A valid YouTube URL. Accepts standard watch URLs, `youtu.be`, Shorts, Live, and embed URLs. On Obsidian older than `1.13.4` the value must be URL-encoded (see below). |
 | `mode` | Yes | One of: `new`, `append`, `note`, `general-note`. |
 | `timestamp` | Only for `mode=note` | A timestamp string (e.g. `90`, `1:23`, `12:50`). Validated against the video's actual duration before the note is added. |
-| `text` | Only for `mode=note` and `mode=general-note` | The note content, URL-encoded. Stored as-is in the note body. Max 1000 characters. Must not start with `---` (frontmatter marker) and must not contain a line that looks like a youtnote section marker (`[mm:ss](timestamp)`, `[general-note](general-note)`, or a `[title](YouTube URL)` link). |
+| `text` | Only for `mode=note` and `mode=general-note` | The note content, URL-encoded. Stored as-is in the note body. Max 1000 characters. Must not start with `---` (frontmatter marker) and must not contain a line that looks like a youtnote section marker (`[mm:ss](timestamp)`, `[general-note](general-note)`, a `[title](YouTube URL)` link, or a `<!-- youtnote:... -->` video/section boundary marker). |
 
 All other parameters are rejected with an error notice.
 
@@ -149,5 +149,5 @@ All URI scheme outcomes (both successes and errors) display a **persistent notic
 - **No file paths**: The handler never accepts `path`, `file`, or `filename` parameters. Filenames are always generated internally.
 - **No unsupported parameters**: Any parameter other than `url`, `mode`, `timestamp`, and `text` is rejected.
 - **No frontmatter injection**: Note text starting with `---` is rejected.
-- **No section-marker injection**: Note text containing a line that would be parsed as a video link, `[mm:ss](timestamp)`, or `[general-note](general-note)` is rejected.
+- **No section-marker injection**: Note text containing a line that would be parsed as a video link, `[mm:ss](timestamp)`, `[general-note](general-note)`, or a format-2 boundary marker (`<!-- youtnote:video:start -->`, `<!-- youtnote:video:end -->`, `<!-- youtnote:section:<type>:start -->`, `<!-- youtnote:section:<type>:end -->`) is rejected.
 - **One note per call**: No bulk operations.

@@ -9,16 +9,23 @@ Take an already-fetched, timestamped YouTube transcript and write it as a Youtno
 
 ## What a Youtnote file is
 
-A plain Markdown file with `youtnote: true` frontmatter. The Youtnote plugin parses it into an interactive video + notes view. The file format is strict — deviating from it breaks parsing. Follow the syntax below exactly.
+A plain Markdown file with `youtnote: true` frontmatter and a `youtnote-format-version: 2` version declaration. The Youtnote plugin parses it into an interactive video + notes view. The file format is strict — deviating from it breaks parsing. Follow the syntax below exactly.
 
 ## File format (must match exactly)
 
 ```markdown
 ---
 youtnote: true
+youtnote-format-version: 2
 ---
 
+<!-- youtnote:video:start -->
+
+<!-- youtnote:section:source:start -->
 [Video Title](https://www.youtube.com/watch?v=VIDEO_ID)
+<!-- youtnote:section:source:end -->
+
+<!-- youtnote:section:notes:start -->
 
 [general-note](general-note)
 Optional general note body. One per video at most. Sits at the top of the video's notes.
@@ -29,28 +36,45 @@ First timestamped note body.
 [02:45](timestamp)
 Second timestamped note body.
 
+<!-- youtnote:section:notes:end -->
+
+<!-- youtnote:video:end -->
+
+<!-- youtnote:video:start -->
+
+<!-- youtnote:section:source:start -->
 [Next Video Title](https://www.youtube.com/watch?v=NEXT_VIDEO_ID)
+<!-- youtnote:section:source:end -->
+
+<!-- youtnote:section:notes:start -->
 
 [00:10](timestamp)
 Note body for the next video.
+
+<!-- youtnote:section:notes:end -->
+
+<!-- youtnote:video:end -->
 ```
 
 ### Structural rules
 
-1. **Frontmatter** — first three lines, exactly:
+1. **Frontmatter** — first four lines, exactly:
    ```
    ---
    youtnote: true
+   youtnote-format-version: 2
    ---
    ```
    Followed by one blank line.
-2. **Video section** — a Markdown link on its own line: `[Title](URL)`. The URL MUST be a valid YouTube URL (`https://www.youtube.com/watch?v=ID`, `https://youtu.be/ID`, or a bare 11-character video ID). Non-YouTube URLs are treated as note body text, not video delimiters. Prefer the canonical form `https://www.youtube.com/watch?v=ID`.
-3. **One blank line** after the video link, before its notes.
-4. **General note** (optional, max one per video) — the literal line `[general-note](general-note)`, followed by the note body. Always placed before any timestamped notes for that video.
-5. **Timestamped note** — `[TIMESTAMP](timestamp)` on its own line. The link target MUST be the literal string `timestamp` (not a URL). Followed by the note body.
-6. **Blank line** after every note body.
-7. **Ordering** — within each video section: general note first (if any), then timestamped notes sorted ascending by timestamp.
-8. **Multiple videos** — each video section follows the previous one, separated by a blank line.
+2. **Video block** — every video is wrapped in the exact markers `<!-- youtnote:video:start -->` and `<!-- youtnote:video:end -->`. Inside the block, only section markers and blank lines are allowed — a bare video link or any other content directly inside the block breaks parsing.
+3. **Source section** — the first section of every video block, exactly one per video, wrapped in `<!-- youtnote:section:source:start -->` and `<!-- youtnote:section:source:end -->`. It contains exactly one video link line: `[Title](URL)`. The URL MUST be a valid YouTube URL (`https://www.youtube.com/watch?v=ID`, `https://youtu.be/ID`, or a bare 11-character video ID). Prefer the canonical form `https://www.youtube.com/watch?v=ID`. Never add attributes to these markers.
+4. **Notes section** — follows the source section; each video has exactly one notes section, wrapped in the exact markers `<!-- youtnote:section:notes:start -->` and `<!-- youtnote:section:notes:end -->`. Emit the markers even when the video has no notes yet (an empty section is valid). Never add attributes to these markers.
+5. **General note** (optional, max one per video) — the literal line `[general-note](general-note)`, followed by the note body. Always placed before any timestamped notes for that video.
+6. **Timestamped note** — `[TIMESTAMP](timestamp)` on its own line. The link target MUST be the literal string `timestamp` (not a URL). Followed by the note body.
+7. **Blank lines** — one blank line after `video:start`, one after `section:source:end`, one after `section:notes:start`, one after every note body, and one before `section:notes:end`. One blank line separates video blocks.
+8. **Ordering** — within each video block: source section first, then the notes section. Within each notes section: general note first (if any), then timestamped notes sorted ascending by timestamp.
+9. **No stray content** — outside a section, only section markers, video markers, and blank lines are allowed. Everything else makes the file unreadable for the plugin.
+10. **Transcript sections** — this skill produces notes, not stored captions, so do NOT emit `<!-- youtnote:section:transcript:... -->` sections. The plugin adds them itself when a transcript is fetched inside Obsidian.
 
 ### Timestamp format
 
@@ -66,6 +90,7 @@ Use the video's real duration to pick the format. If the duration is not provide
 
 - Plain Markdown. Obsidian Live Preview renders it, so headings, lists, links, bold/italic, and code blocks all work.
 - Regular Markdown links inside a note body (e.g. `[Google](https://google.com)`) are preserved as body text — they are NOT treated as video delimiters because their URL is not a YouTube URL.
+- Fenced code blocks are safe: exact `<!-- youtnote:... -->` markers inside a fenced block are treated as note text, not structure.
 - Keep bodies concise. One logical thought per note.
 
 ## How to build the file
@@ -99,17 +124,19 @@ If the user explicitly asks for a **verbatim** or **raw** transcript, switch to 
 
 ### 4. General note (only on explicit request)
 
-Include a `[general-note](general-note)` section for a video only when the user asks for a summary, overview, or "general note". Write a concise summary derived from the transcript content. Place it before the timestamped notes for that video. Omit it entirely otherwise — do not emit an empty general note.
+Include a `[general-note](general-note)` entry for a video only when the user asks for a summary, overview, or "general note". Write a concise summary derived from the transcript content. Place it before the timestamped notes for that video. Omit it entirely otherwise — do not emit an empty general note.
 
 ### 5. Assemble the file
 
-- Start with the frontmatter.
+- Start with the frontmatter (`youtnote: true` and `youtnote-format-version: 2`).
 - For each video, in the order the user provided the URLs:
-  1. Video link line: `[Title](https://www.youtube.com/watch?v=ID)`. Use the video's real title if available (from the transcript metadata or the user); fall back to the video ID if the title is unknown.
-  2. Blank line.
-  3. General note (if requested) + blank line.
-  4. Timestamped notes in ascending order, each followed by a blank line.
-- All videos go into a single file.
+  1. `<!-- youtnote:video:start -->`, then a blank line.
+  2. `<!-- youtnote:section:source:start -->`, the video link line `[Title](https://www.youtube.com/watch?v=ID)`, then `<!-- youtnote:section:source:end -->`. Use the video's real title if available (from the transcript metadata or the user); fall back to the video ID if the title is unknown.
+  3. Blank line, then `<!-- youtnote:section:notes:start -->`, then a blank line.
+  4. General note (if requested) + blank line.
+  5. Timestamped notes in ascending order, each followed by a blank line.
+  6. `<!-- youtnote:section:notes:end -->`, blank line, `<!-- youtnote:video:end -->`.
+- Separate consecutive video blocks with one blank line. All videos go into a single file.
 
 ### 6. Confirm the path with the user before writing
 
@@ -123,14 +150,19 @@ Before creating the file:
 
 After writing the file, re-read it and check:
 
-- First three lines are `---`, `youtnote: true`, `---`.
-- Every video link uses a canonical `https://www.youtube.com/watch?v=ID` URL.
+- First four lines are `---`, `youtnote: true`, `youtnote-format-version: 2`, `---`.
+- Every `<!-- youtnote:video:start -->` is matched by exactly one `<!-- youtnote:video:end -->`, and the markers balance (equal counts).
+- Every `<!-- youtnote:section:source:start -->` is matched by exactly one `<!-- youtnote:section:source:end -->`, it is the first section of its video block, and it contains exactly one video link line with a canonical `https://www.youtube.com/watch?v=ID` URL.
+- Every `<!-- youtnote:section:notes:start -->` is matched by exactly one `<!-- youtnote:section:notes:end -->` inside the same video block, after the source section.
+- No `youtnote:section:transcript` markers — this skill writes notes only.
+- No bare video link or other non-blank content directly inside a `video:start`/`video:end` block — only section markers and blank lines.
 - Every timestamp line uses `[TIMESTAMP](timestamp)` with the literal target `timestamp`.
 - General note lines (if any) are the exact literal `[general-note](general-note)`.
-- Within each video, the general note (if present) comes before all timestamped notes.
+- Within each notes section, the general note (if present) comes before all timestamped notes.
 - Timestamped notes are sorted ascending.
 - Timestamp formats match each video's duration per the rules above.
 - No empty note bodies — every delimiter is followed by non-empty body text.
+- No non-blank content outside video blocks or outside the notes sections.
 - The file ends with a trailing newline.
 
 If any check fails, fix the file before reporting success.
@@ -142,9 +174,16 @@ A two-video file with a requested summary on the first video only:
 ```markdown
 ---
 youtnote: true
+youtnote-format-version: 2
 ---
 
+<!-- youtnote:video:start -->
+
+<!-- youtnote:section:source:start -->
 [How Transformers Work](https://www.youtube.com/watch?v=SZorAJ4I7xg)
+<!-- youtnote:section:source:end -->
+
+<!-- youtnote:section:notes:start -->
 
 [general-note](general-note)
 A 20-minute walkthrough of the Transformer architecture: self-attention, positional encoding, multi-head attention, and the encoder-decoder structure. Useful as a primer before reading "Attention Is All You Need".
@@ -161,11 +200,25 @@ Positional encodings inject order information since attention itself is permutat
 [10:20](timestamp)
 Multi-head attention runs several attention layers in parallel, each learning different relations.
 
+<!-- youtnote:section:notes:end -->
+
+<!-- youtnote:video:end -->
+
+<!-- youtnote:video:start -->
+
+<!-- youtnote:section:source:start -->
 [Attention Is All You Need - Paper Walkthrough](https://www.youtube.com/watch?v=rBC6OTgDd2k)
+<!-- youtnote:section:source:end -->
+
+<!-- youtnote:section:notes:start -->
 
 [00:30](timestamp)
 The paper introduces scaled dot-product attention: Query and Key dot products, scaled by sqrt(d_k), then softmax.
 
 [02:10](timestamp)
 The encoder is a stack of identical layers, each with self-attention and a feed-forward sub-layer.
+
+<!-- youtnote:section:notes:end -->
+
+<!-- youtnote:video:end -->
 ```

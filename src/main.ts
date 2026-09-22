@@ -18,12 +18,12 @@ import type {
     VideoTaskTarget,
     VideoTaskState,
 } from './activeVideoTasks';
-import { applyGeneratedNotesForYoutubeVideo, setTranscriptForYoutubeVideo } from './videoTaskResults';
+import { applyGeneratedNotesForYoutubeVideo, setTranscriptForYoutubeVideo, updateYoutnoteSource } from './videoTaskResults';
 import { fetchCaptionTracks, fetchTranscriptEntries } from './transcriptFetch';
 import { pickCaptionTrack } from './ui/CaptionTrackModal';
 import { AIGenerationProgressModal } from './ui/MessageBoxes';
 import type { AIGenerationProgressPhase } from './ui/MessageBoxes';
-import { parseMarkdownToData, serializeDataToMarkdown } from './markdown';
+import { createEmptyYoutnoteMarkdown } from './youtnote-format';
 import { hasYoutnoteFrontmatter, extractYouTubeId, formatSecondsToDisplay, compareNotes } from './utils';
 import { getMarkdownEditorClass } from './markdownEditor';
 import { validateYoutnoteUriParams, isDebounced, getUnsupportedParams, ParsedYoutnoteUriParams } from './uri-scheme';
@@ -590,26 +590,35 @@ export default class YoutnotePlugin extends Plugin {
                 await view.save();
                 return this.activeVideoTasks.isActive(handle.id);
             }
-            let applied = false;
-            let missing = false;
+            const outcome = { applied: false, missing: false, incompatible: null as string | null };
             await this.app.vault.process(target.file, (data) => {
                 if (!this.activeVideoTasks.isActive(handle.id)) {
                     return data;
                 }
-                const parsed = parseMarkdownToData(data);
-                const updated = setTranscriptForYoutubeVideo(parsed.videos, target.youtubeId, entries);
-                if (!updated) {
-                    missing = true;
-                    return data;
+                const result = updateYoutnoteSource(data, (document) => {
+                    const updated = setTranscriptForYoutubeVideo(document.videos, target.youtubeId, entries);
+                    return updated ? { videos: updated } : null;
+                });
+                if (result.status === 'updated') {
+                    outcome.applied = true;
+                    return result.markdown;
                 }
-                applied = true;
-                return serializeDataToMarkdown(updated, parsed.notes);
+                if (result.status === 'missing-target') {
+                    outcome.missing = true;
+                } else {
+                    outcome.incompatible = result.message;
+                }
+                return data;
             });
-            if (missing) {
+            if (outcome.missing) {
                 this.notifyTaskTargetMissing(handle, target);
                 return false;
             }
-            return applied && this.activeVideoTasks.isActive(handle.id);
+            if (outcome.incompatible !== null) {
+                new Notice(`Transcript for "${target.videoTitle}" was not saved to ${target.file.basename}: ${outcome.incompatible}`, 6000);
+                return false;
+            }
+            return outcome.applied && this.activeVideoTasks.isActive(handle.id);
         });
     }
 
@@ -632,26 +641,35 @@ export default class YoutnotePlugin extends Plugin {
                 await view.save();
                 return this.activeVideoTasks.isActive(handle.id);
             }
-            let applied = false;
-            let missing = false;
+            const outcome = { applied: false, missing: false, incompatible: null as string | null };
             await this.app.vault.process(target.file, (data) => {
                 if (!this.activeVideoTasks.isActive(handle.id)) {
                     return data;
                 }
-                const parsed = parseMarkdownToData(data);
-                const updated = applyGeneratedNotesForYoutubeVideo(parsed.videos, parsed.notes, target.youtubeId, drafts, options);
-                if (!updated) {
-                    missing = true;
-                    return data;
+                const result = updateYoutnoteSource(data, (document) => {
+                    const updated = applyGeneratedNotesForYoutubeVideo(document.videos, document.notes, target.youtubeId, drafts, options);
+                    return updated ? { notes: updated } : null;
+                });
+                if (result.status === 'updated') {
+                    outcome.applied = true;
+                    return result.markdown;
                 }
-                applied = true;
-                return serializeDataToMarkdown(parsed.videos, updated);
+                if (result.status === 'missing-target') {
+                    outcome.missing = true;
+                } else {
+                    outcome.incompatible = result.message;
+                }
+                return data;
             });
-            if (missing) {
+            if (outcome.missing) {
                 this.notifyTaskTargetMissing(handle, target);
                 return false;
             }
-            return applied && this.activeVideoTasks.isActive(handle.id);
+            if (outcome.incompatible !== null) {
+                new Notice(`Generated notes for "${target.videoTitle}" were not saved to ${target.file.basename}: ${outcome.incompatible}`, 6000);
+                return false;
+            }
+            return outcome.applied && this.activeVideoTasks.isActive(handle.id);
         });
     }
 
@@ -685,8 +703,7 @@ export default class YoutnotePlugin extends Plugin {
             i++;
         }
 
-        const initialContent = `---\nyoutnote: true\n---\n\n`;
-        const newFile = await this.app.vault.create(newFilePath, initialContent);
+        const newFile = await this.app.vault.create(newFilePath, createEmptyYoutnoteMarkdown());
 
         // Open the new file in a new tab directly in the Youtnote view
         const leaf = this.app.workspace.getLeaf(true);
@@ -835,8 +852,7 @@ export default class YoutnotePlugin extends Plugin {
             i++;
         }
 
-        const initialContent = `---\nyoutnote: true\n---\n\n`;
-        const newFile = await this.app.vault.create(newFilePath, initialContent);
+        const newFile = await this.app.vault.create(newFilePath, createEmptyYoutnoteMarkdown());
 
         const leaf = this.app.workspace.getLeaf(true);
         await leaf.openFile(newFile);

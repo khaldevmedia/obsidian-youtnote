@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
     applyGeneratedNotesForYoutubeVideo,
     setTranscriptForYoutubeVideo,
+    updateYoutnoteSource,
 } from './videoTaskResults';
 import type { GeneratedNoteDraft } from './ai/notes';
 import type { Note, NoteId, TranscriptEntry, Video, VideoId } from './types';
@@ -112,5 +113,56 @@ describe('applyGeneratedNotesForYoutubeVideo', () => {
     it('returns null when no video matches the YouTube ID', () => {
         const videos = [makeVideo('video-a', 'aaaaaaaaaaa')];
         expect(applyGeneratedNotesForYoutubeVideo(videos, [], 'ccccccccccc', drafts, { mode: 'replace' })).toBeNull();
+    });
+});
+
+// ─── updateYoutnoteSource (guarded background persistence) ─────────────────
+
+const V2_SOURCE = `---
+youtnote: true
+youtnote-format-version: 2
+---
+
+<!-- youtnote:video:start -->
+
+<!-- youtnote:section:source:start -->
+[Video aaaaaaaaaaa](https://www.youtube.com/watch?v=aaaaaaaaaaa)
+<!-- youtnote:section:source:end -->
+
+<!-- youtnote:section:notes:start -->
+
+<!-- youtnote:section:notes:end -->
+
+<!-- youtnote:video:end -->
+`;
+
+describe('updateYoutnoteSource', () => {
+    it('applies updates to a supported document and reserializes', () => {
+        const result = updateYoutnoteSource(V2_SOURCE, (document) => {
+            const videos = setTranscriptForYoutubeVideo(document.videos, 'aaaaaaaaaaa', ENTRIES);
+            return videos ? { videos } : null;
+        });
+        expect(result.status).toBe('updated');
+        if (result.status !== 'updated') return;
+        expect(result.markdown).toContain('<!-- youtnote:section:transcript:start -->');
+        expect(result.markdown).toContain('[0](caption?durationMs=1000) hello');
+    });
+
+    it('reports missing-target when the video is absent', () => {
+        const result = updateYoutnoteSource(V2_SOURCE, (document) => {
+            const videos = setTranscriptForYoutubeVideo(document.videos, 'ccccccccccc', ENTRIES);
+            return videos ? { videos } : null;
+        });
+        expect(result.status).toBe('missing-target');
+    });
+
+    it.each([
+        ['unsupported', '---\nyoutnote: true\nyoutnote-format-version: 3\n---\n'],
+        ['malformed', '---\nyoutnote: true\nyoutnote-format-version: two\n---\n'],
+        ['invalid', '---\nyoutnote: true\nyoutnote-format-version: 2\n---\n\nstray content\n'],
+    ])('returns incompatible for %s sources without producing markdown', (_label, source) => {
+        const result = updateYoutnoteSource(source, () => ({ notes: [] }));
+        expect(result.status).toBe('incompatible');
+        expect(result).not.toHaveProperty('markdown');
     });
 });
