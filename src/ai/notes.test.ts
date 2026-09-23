@@ -5,7 +5,9 @@ import type { TranscriptEntry } from '../types';
 import {
     createYoutnoteNotesJsonSchema,
     generateNotesFromTranscript,
+    MAX_GENERATED_NOTES,
     parseGeneratedNotes,
+    parseMaxNotesInput,
     parseStructuredSegments,
     segmentsToYoutnoteMarkdown,
     YOUTNOTE_AI_LEGACY_SYSTEM_PROMPT,
@@ -121,6 +123,20 @@ describe('parseStructuredSegments', () => {
         expect(() => parseStructuredSegments(VALID_JSON, { maxNotes: 1 }))
             .toThrow(/limit of 1/);
     });
+
+    it('enforces the hard cap of 100 segments when no maxNotes is given', () => {
+        const segments = Array.from({ length: MAX_GENERATED_NOTES + 1 }, (_, i) => ({
+            timestamp_seconds: i,
+            markdown: `Note ${i + 1}`,
+        }));
+        const payload = JSON.stringify({ segments });
+        expect(() => parseStructuredSegments(payload))
+            .toThrow(/limit of 100/);
+        expect(() => parseStructuredSegments(payload, { maxNotes: 1000 }))
+            .toThrow(/limit of 100/);
+        expect(() => parseStructuredSegments(payload, { maxNotes: NaN }))
+            .toThrow(/limit of 100/);
+    });
 });
 
 describe('segmentsToYoutnoteMarkdown', () => {
@@ -156,6 +172,49 @@ describe('createYoutnoteNotesJsonSchema', () => {
                 segments: (YOUTNOTE_SEGMENTS_JSON_SCHEMA.properties as Record<string, unknown>).segments,
             },
         });
+    });
+
+    it('caps segments at the hard maximum of 100 by default', () => {
+        const segments = (YOUTNOTE_SEGMENTS_JSON_SCHEMA.properties as Record<string, Record<string, unknown>>).segments;
+        expect(segments.minItems).toBe(1);
+        expect(segments.maxItems).toBe(MAX_GENERATED_NOTES);
+    });
+
+    it('sets segments maxItems to an explicit maxNotes', () => {
+        const schema = createYoutnoteNotesJsonSchema(false, 5);
+        const segments = (schema.properties as Record<string, Record<string, unknown>>).segments;
+        expect(segments.maxItems).toBe(5);
+    });
+
+    it('caps maxItems at the hard maximum when maxNotes exceeds it', () => {
+        const schema = createYoutnoteNotesJsonSchema(false, 1000);
+        const segments = (schema.properties as Record<string, Record<string, unknown>>).segments;
+        expect(segments.maxItems).toBe(MAX_GENERATED_NOTES);
+    });
+});
+
+describe('parseMaxNotesInput', () => {
+    it.each<string>(['1', '10', ' 10 ', String(MAX_GENERATED_NOTES)])(
+        'accepts valid input %j',
+        (value) => {
+            expect(parseMaxNotesInput(value)).toBe(Number(value.trim()));
+        },
+    );
+
+    it.each<string>([
+        '',
+        '   ',
+        '.',
+        '10.',
+        '10.1',
+        '0',
+        '-1',
+        '101',
+        'abc',
+        '1e3',
+        String(Number.MAX_SAFE_INTEGER + 2),
+    ])('rejects invalid input %j', (value) => {
+        expect(parseMaxNotesInput(value)).toBeUndefined();
     });
 });
 
@@ -370,7 +429,16 @@ describe('generateNotesFromTranscript', () => {
         });
         const request = sendConversation.mock.calls[0][0];
         expect(request.messages[0].content).toContain('Focus on definitions');
-        expect(request.messages[0].content).toContain('at most 5 notes');
+        expect(request.messages[0].content).toContain('at most 5 timestamped notes');
+        expect(request.messages[0].content).toContain('ceiling, not a target');
+    });
+
+    it('uses qualitative guidance without anchoring on 100 when maxNotes is blank', async () => {
+        const { provider, sendConversation } = makeProvider(() => response(VALID_JSON));
+        await generateNotesFromTranscript(provider, TRANSCRIPT);
+        const request = sendConversation.mock.calls[0][0];
+        expect(request.messages[0].content).toContain('Use only as many notes as the transcript warrants');
+        expect(request.messages[0].content).not.toContain('at most 100');
     });
 
     it('sends one structured correction turn and returns corrected=true on recovery', async () => {
@@ -483,6 +551,8 @@ describe('generateNotesFromTranscript', () => {
     it.each<{ maxNotes?: number; maxTimestampSec?: number }>([
         { maxNotes: 0 },
         { maxNotes: 1.5 },
+        { maxNotes: 101 },
+        { maxNotes: Number.MAX_SAFE_INTEGER + 1 },
         { maxTimestampSec: -1 },
         { maxTimestampSec: NaN },
     ])('rejects invalid options %o with invalid-config before calling the provider', async (options) => {

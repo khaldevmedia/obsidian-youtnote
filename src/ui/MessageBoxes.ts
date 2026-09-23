@@ -1,4 +1,5 @@
 import { App, Modal } from 'obsidian';
+import { MAX_GENERATED_NOTES, parseMaxNotesInput } from '../ai/notes';
 import { ExportOptions } from '../types';
 import type { AIGenerationDialogOptions } from '../types';
 
@@ -174,7 +175,7 @@ export class AIGenerationModal extends BaseModal {
         maxNotesField.createSpan({ cls: 'youtnote-plugin__ai-generation-label', text: 'Maximum notes' });
         this.maxNotesEl = maxNotesField.createEl('input', {
             cls: 'youtnote-plugin__ai-generation-number',
-            attr: { type: 'number', min: '1', step: '1' },
+            attr: { type: 'number', min: '1', max: String(MAX_GENERATED_NOTES), step: '1', inputmode: 'numeric' },
         });
         this.maxNotesEl.addEventListener('input', () => {
             this.updateGenerateDisabled();
@@ -255,10 +256,9 @@ export class AIGenerationModal extends BaseModal {
     }
 
     private isMaxNotesValid(): boolean {
+        if (!this.maxNotesEl.validity.valid) return false;
         const raw = this.maxNotesEl.value.trim();
-        if (raw === '') return true;
-        const parsed = Number(raw);
-        return Number.isInteger(parsed) && parsed > 0;
+        return raw === '' || parseMaxNotesInput(raw) !== undefined;
     }
 
     private updateGenerateDisabled(): void {
@@ -277,10 +277,9 @@ export class AIGenerationModal extends BaseModal {
         if (this.hasExistingNotes && this.addModeInput?.checked) {
             options.mode = 'append';
         }
-        const raw = this.maxNotesEl.value.trim();
-        const parsed = Number(raw);
-        if (raw !== '' && Number.isInteger(parsed) && parsed > 0) {
-            options.maxNotes = parsed;
+        const maxNotes = parseMaxNotesInput(this.maxNotesEl.value);
+        if (maxNotes !== undefined) {
+            options.maxNotes = maxNotes;
         }
         return options;
     }
@@ -362,7 +361,7 @@ export class AIGenerationProgressModal extends Modal {
 
     private getStatusText(): string {
         return this.phase === 'fetching-transcript'
-            ? 'Fetching transcript for AI'
+            ? 'Fetching transcript'
             : 'Generating notes';
     }
 }

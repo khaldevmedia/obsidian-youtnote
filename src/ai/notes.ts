@@ -28,6 +28,24 @@ export interface GeneratedNoteSegment {
     markdown: string;
 }
 
+export const MAX_GENERATED_NOTES = 100;
+
+export function parseMaxNotesInput(value: string): number | undefined {
+    const trimmed = value.trim();
+    if (!/^\d+$/.test(trimmed)) return undefined;
+    const parsed = Number(trimmed);
+    return Number.isSafeInteger(parsed) && parsed > 0 && parsed <= MAX_GENERATED_NOTES
+        ? parsed
+        : undefined;
+}
+
+function resolveMaxNotesLimit(maxNotes: number | undefined): number {
+    if (maxNotes === undefined || !Number.isSafeInteger(maxNotes) || maxNotes <= 0) {
+        return MAX_GENERATED_NOTES;
+    }
+    return Math.min(maxNotes, MAX_GENERATED_NOTES);
+}
+
 export type GeneratedNotesFormat = 'structured' | 'unstructured';
 
 export interface GeneratedNotesResult {
@@ -38,41 +56,51 @@ export interface GeneratedNotesResult {
     format: GeneratedNotesFormat;
 }
 
-const SEGMENTS_SCHEMA: Record<string, unknown> = {
-    type: 'array',
-    minItems: 1,
-    items: {
-        type: 'object',
-        additionalProperties: false,
-        required: ['timestamp_seconds', 'markdown'],
-        properties: {
-            timestamp_seconds: { type: 'number', minimum: 0 },
-            markdown: { type: 'string', minLength: 1 },
+function createSegmentsSchema(maxItems: number): Record<string, unknown> {
+    return {
+        type: 'array',
+        minItems: 1,
+        maxItems,
+        items: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['timestamp_seconds', 'markdown'],
+            properties: {
+                timestamp_seconds: { type: 'number', minimum: 0 },
+                markdown: { type: 'string', minLength: 1 },
+            },
         },
-    },
-};
+    };
+}
 
 export const YOUTNOTE_SEGMENTS_JSON_SCHEMA: Record<string, unknown> = {
     type: 'object',
     additionalProperties: false,
     required: ['segments'],
     properties: {
-        segments: SEGMENTS_SCHEMA,
+        segments: createSegmentsSchema(MAX_GENERATED_NOTES),
     },
 };
 
-export function createYoutnoteNotesJsonSchema(includeGeneralNote: boolean): Record<string, unknown> {
-    if (!includeGeneralNote) {
+export function createYoutnoteNotesJsonSchema(
+    includeGeneralNote: boolean,
+    maxNotes: number = MAX_GENERATED_NOTES,
+): Record<string, unknown> {
+    const effectiveMaxNotes = resolveMaxNotesLimit(maxNotes);
+    if (!includeGeneralNote && effectiveMaxNotes === MAX_GENERATED_NOTES) {
         return YOUTNOTE_SEGMENTS_JSON_SCHEMA;
+    }
+    const properties: Record<string, unknown> = {
+        segments: createSegmentsSchema(effectiveMaxNotes),
+    };
+    if (includeGeneralNote) {
+        properties.general_note = { type: 'string', minLength: 1 };
     }
     return {
         type: 'object',
         additionalProperties: false,
-        required: ['general_note', 'segments'],
-        properties: {
-            general_note: { type: 'string', minLength: 1 },
-            segments: SEGMENTS_SCHEMA,
-        },
+        required: includeGeneralNote ? ['general_note', 'segments'] : ['segments'],
+        properties,
     };
 }
 
@@ -244,7 +272,7 @@ export function parseGeneratedNotes(
 ): GeneratedNoteDraft[] {
     const result = tryParseGeneratedNotes(
         content,
-        options?.maxNotes,
+        resolveMaxNotesLimit(options?.maxNotes),
         options?.maxTimestampSec,
         options?.includeGeneralNote === true,
     );
@@ -335,7 +363,7 @@ export function parseStructuredSegments(
     content: string,
     options?: Pick<GenerateNotesOptions, 'maxNotes' | 'maxTimestampSec'>,
 ): GeneratedNoteSegment[] {
-    const result = tryParseStructuredSegments(content, options?.maxNotes, options?.maxTimestampSec, false);
+    const result = tryParseStructuredSegments(content, resolveMaxNotesLimit(options?.maxNotes), options?.maxTimestampSec, false);
     if (!result.ok) {
         throw new AIProviderError('invalid-response', `AI structured response failed validation: ${result.error}`);
     }
@@ -369,8 +397,12 @@ function buildTranscriptRequest(
     if (includeStructuredGeneralInstruction && options.includeGeneralNote === true) {
         lines.push('', 'Also generate a non-empty "general_note". It can be a description of the video or a concise summary, and it may use Obsidian Markdown.');
     }
+    lines.push(
+        '',
+        'Create one timestamped note for each distinct, meaningful topic or takeaway. Combine closely related points and omit repetition or minor details. Use only as many notes as the transcript warrants; do not try to fill the schema maximum.',
+    );
     if (typeof options.maxNotes === 'number' && Number.isInteger(options.maxNotes) && options.maxNotes > 0) {
-        lines.push('', `Return at most ${options.maxNotes} notes.`);
+        lines.push('', `Return at most ${options.maxNotes} timestamped notes. This is a ceiling, not a target.`);
     }
     lines.push('', 'Transcript:');
     for (const entry of transcript) {
@@ -388,20 +420,22 @@ export async function generateNotesFromTranscript(
     if (transcript.length === 0) {
         throw new AIProviderError('invalid-config', 'Cannot generate notes from an empty transcript.');
     }
-    if (options.maxNotes !== undefined && (!Number.isInteger(options.maxNotes) || options.maxNotes <= 0)) {
-        throw new AIProviderError('invalid-config', 'Maximum notes must be a positive integer.');
+    if (options.maxNotes !== undefined
+        && (!Number.isSafeInteger(options.maxNotes) || options.maxNotes <= 0 || options.maxNotes > MAX_GENERATED_NOTES)) {
+        throw new AIProviderError('invalid-config', 'Maximum notes must be an integer between 1 and 100.');
     }
     if (options.maxTimestampSec !== undefined && (!Number.isFinite(options.maxTimestampSec) || options.maxTimestampSec < 0)) {
         throw new AIProviderError('invalid-config', 'Maximum timestamp must be a non-negative number.');
     }
 
     const includeGeneralNote = options.includeGeneralNote === true;
+    const effectiveMaxNotes = options.maxNotes ?? MAX_GENERATED_NOTES;
     const responseSchema: AIResponseSchema = {
         name: 'youtnote_segments',
         description: includeGeneralNote
             ? 'General and timestamped Obsidian Markdown notes generated from a video transcript.'
             : 'Timestamped Obsidian Markdown notes generated from a video transcript.',
-        schema: createYoutnoteNotesJsonSchema(includeGeneralNote),
+        schema: createYoutnoteNotesJsonSchema(includeGeneralNote, effectiveMaxNotes),
     };
     const messages: AIMessage[] = [{ role: 'user', content: buildTranscriptRequest(transcript, options) }];
     const buildStructuredRequest = (): AIConversationRequest => {
@@ -453,7 +487,7 @@ export async function generateNotesFromTranscript(
         }
         const parsed = tryParseStructuredSegments(
             response.content,
-            options.maxNotes,
+            effectiveMaxNotes,
             options.maxTimestampSec,
             includeGeneralNote,
         );
@@ -500,7 +534,7 @@ export async function generateNotesFromTranscript(
     const third = await provider.sendConversation(legacyRequest);
     const thirdResult = tryParseGeneratedNotes(
         third.content,
-        options.maxNotes,
+        effectiveMaxNotes,
         options.maxTimestampSec,
         includeGeneralNote,
     );
