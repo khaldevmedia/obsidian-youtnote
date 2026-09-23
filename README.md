@@ -19,7 +19,7 @@
 
 </div>
 
-Take timestamped Markdown notes with live preview editing across multiple embedded YouTube videos, all inside a single Obsidian note. Then, if you want, export everything back to clean Markdown. **Youtnote** keeps the video player and your research notes in lockstep so you never lose the context of what you were watching. Works on desktop and mobile.
+Take timestamped Markdown notes with live preview editing across multiple embedded YouTube videos, all inside a single Obsidian note. Download video transcripts and use **AI** to generate timestamped notes. Then, if you want, export everything back to clean Markdown. **Youtnote** keeps the video player and your research notes in lockstep so you never lose the context of what you were watching. Works on desktop and mobile.
 
 ## Screenshots
 

@@ -3,7 +3,7 @@
     "name": "Youtnote",
     "version": "1.4.0",
     "minAppVersion": "1.11.4",
-    "description": "Take timestamped Markdown notes across multiple embedded YouTube videos, all inside a single note.",
+    "description": "Take timestamped Markdown notes across multiple embedded YouTube videos, download transcripts, and generate notes by AI.",
     "author": "Khaldevmedia",
     "authorUrl": "https://khaldevmedia.com",
     "isDesktopOnly": false,
