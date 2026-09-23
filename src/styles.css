@@ -330,6 +330,7 @@ to avoid conflicts with other plugins */
 
 .youtnote-plugin__ai-generation-number {
     width: 100%;
+    text-align: center;
 }
 
 .youtnote-plugin__ai-generation-mode {
@@ -1054,6 +1055,31 @@ to avoid conflicts with other plugins */
 
 .youtnote-plugin__settings-warning .setting-item-description {
     color: var(--text-warning);
+}
+
+.youtnote-plugin__settings-button {
+    display: inline-flex;
+    align-items: center;
+    height: var(--input-height);
+    margin-top: 8px;
+    padding: 4px 14px;
+    border-radius: var(--button-radius);
+    background-color: var(--interactive-normal);
+    box-shadow: var(--input-shadow);
+    color: var(--text-normal);
+    font-size: var(--font-ui-small);
+    font-weight: var(--input-font-weight);
+    text-decoration: none;
+}
+
+.youtnote-plugin__settings-button:hover {
+    background-color: var(--interactive-hover);
+    color: var(--text-normal);
+    text-decoration: none;
+}
+
+.youtnote-plugin__settings-button:focus-visible {
+    box-shadow: 0 0 0 2px var(--background-modifier-border-focus);
 }
 
 /* Add Note Button */

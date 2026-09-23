@@ -146,12 +146,13 @@ const AI_SETTINGS_ANCHOR_CLASS = 'youtnote-plugin__settings-ai-anchor';
 
 function buildUriSchemeDesc(): DocumentFragment {
 	return createFragment(frag => {
-		frag.appendText('Lets external tools add videos and notes to youtnotes in your vault programmatically. While enabled, any link, webpage, or script that opens an obsidian://youtnote URI can add videos or notes to your open youtnote or create new youtnotes. Enable only if you use automation tools that rely on this feature. For a guide on using this feature, click ');
+		frag.appendText('Lets external tools add videos and notes to youtnotes in your vault programmatically. While enabled, any link, webpage, or script that opens an obsidian://youtnote URI can add videos or notes to your open youtnote or create new youtnotes. Enable only if you use automation tools that rely on this feature.');
+		frag.createEl('br');
 		frag.createEl('a', {
-			text: 'Here',
+			text: 'View uri scheme guide',
+			cls: 'youtnote-plugin__settings-button',
 			attr: { href: URI_SCHEME_GUIDE_URL },
 		});
-		frag.appendText('.');
 	});
 }
 
