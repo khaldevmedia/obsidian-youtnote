@@ -1424,7 +1424,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
                             <div className="youtnote-plugin__transcript-empty">
                                 <div>No transcript fetched for this video yet.</div>
                                 <button
-                                    className="mod-cta youtnote-plugin__transcript-fetch-btn"
+                                    className="mod-cta"
                                     onClick={handleFetchTranscript}
                                 >
                                     Fetch transcript

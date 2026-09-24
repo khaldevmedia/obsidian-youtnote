@@ -692,6 +692,10 @@ to avoid conflicts with other plugins */
     font-size: 14px;
 }
 
+.youtnote-plugin__transcript-empty > button{
+    cursor: pointer;
+}
+
 .youtnote-plugin__caption-track-meta {
     font-size: var(--font-ui-smaller);
     color: var(--text-muted);
