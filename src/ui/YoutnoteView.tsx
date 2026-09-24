@@ -1143,7 +1143,6 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
             onClick={handleGenerateAINotes}
             disabled={isFetchingTranscript}
             aria-label="Generate notes with AI"
-            title="Generate notes with AI"
         />
     );
 
@@ -1328,7 +1327,6 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
                                                     onClick={() => { void handleSyncTranscriptPlayback(); }}
                                                     aria-pressed={isTranscriptFollowing}
                                                     aria-label={isTranscriptFollowing ? 'Following playback' : 'Sync transcript with playback'}
-                                                    title={isTranscriptFollowing ? 'Following playback' : 'Sync transcript with playback'}
                                                 />
                                             )}
                                             {aiGenerateButton}
@@ -1400,7 +1398,6 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
                                     className="clickable-icon youtnote-plugin__note-search-clear"
                                     onClick={() => setSearchQuery('')}
                                     aria-label="Clear search"
-                                    title="Clear search"
                                 />
                             )}
                         </div>
