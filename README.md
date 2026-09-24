@@ -34,6 +34,12 @@ Take timestamped Markdown notes with live preview editing across multiple embedd
 
 ![UI overview](docs/images/demo-02.gif)
 
+---
+
+#### Fetch transcript, generate notes by AI.
+
+![UI overview](docs/images/demo-03.gif)
+
 
 ## Known issue: Error 153 on iOS and iPadOS
 
