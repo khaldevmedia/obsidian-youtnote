@@ -315,6 +315,7 @@ export class AIGenerationProgressModal extends Modal {
         private readonly onCancel: () => void,
     ) {
         super(app);
+        this.scope.register([], 'Escape', () => false);
     }
 
     setPhase(phase: AIGenerationProgressPhase): void {
@@ -330,6 +331,12 @@ export class AIGenerationProgressModal extends Modal {
 
     onOpen(): void {
         const { contentEl } = this;
+        this.containerEl.addEventListener('click', event => {
+            const target = event.target;
+            if (target && !this.modalEl.contains(target as Node)) {
+                event.stopImmediatePropagation();
+            }
+        }, true);
         contentEl.empty();
         contentEl.addClass('youtnote-plugin__ai-progress-modal');
         this.statusEl = contentEl.createDiv({
