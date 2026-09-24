@@ -36,7 +36,7 @@ Take timestamped Markdown notes with live preview editing across multiple embedd
 
 ---
 
-#### Fetch transcript, generate notes by AI.
+#### Fetch transcript and generate notes by AI.
 
 ![UI overview](docs/images/demo-03.gif)
 
