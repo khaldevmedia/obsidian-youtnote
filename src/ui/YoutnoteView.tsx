@@ -788,6 +788,9 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
         onCancelVideoTasks(videoId);
         const remainingVideos = videos.filter(v => v.id !== videoId);
         onUpdateVideos(remainingVideos);
+        if (remainingVideos.length === 0) {
+            setShowTranscript(false);
+        }
         if (activeVideoId === videoId) {
             setActiveVideoId(remainingVideos.length > 0 ? remainingVideos[0].id : null);
         }
