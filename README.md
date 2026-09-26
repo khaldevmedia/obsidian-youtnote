@@ -75,7 +75,8 @@ For more details on this issue, please **[read here](docs/error-153-ios.md)**.
 
 ## Installation
 1. **Community Plugins (recommended once published)**
-   - `Settings → Community Plugins → Browse → search for "Youtnote" → Install → Enable`.
+   - In Obsidian, go to `Settings → Community Plugins → Browse → search for "Youtnote" → Install → Enable`.
+   - Or from the [Obsidian community plugin](https://community.obsidian.md/plugins/youtnote) platform.
 2. **BRAT (during beta)**
    - Install the [BRAT plugin](https://community.obsidian.md/plugins/obsidian42-brat).
    - Add this repo URL to BRAT and pull the latest build.
