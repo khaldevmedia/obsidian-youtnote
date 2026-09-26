@@ -77,12 +77,12 @@ For more details on this issue, please **[read here](docs/error-153-ios.md)**.
 1. **Community Plugins (recommended once published)**
    - In Obsidian, go to `Settings → Community Plugins → Browse → search for "Youtnote" → Install → Enable`.
    - Or from the [Obsidian community plugin](https://community.obsidian.md/plugins/youtnote) platform.
-2. **BRAT (during beta)**
+2. **BRAT (to test pre-releases from the `develop` branch)**
    - Install the [BRAT plugin](https://community.obsidian.md/plugins/obsidian42-brat).
-   - Add this repo URL to BRAT and pull the latest build.
-3. **Manual install**
-   - Download the latest release from the GitHub Releases page.
-   - Copy `main.js`, `manifest.json`, and `styles.css` into your vault's `.obsidian/plugins/obsidian-youtnote/` folder.
+   - Add this repo URL to BRAT and pull the build you want to test.
+3. **Manual install (also helpfull to test pre-releases from the `develop` branch without using BRAT)**
+   - Download the release from the GitHub [Releases page](https://github.com/khaldevmedia/obsidian-youtnote/releases).
+   - Copy `main.js`, `manifest.json`, and `styles.css` for the **Assets** lsit into your vault's `.obsidian/plugins/youtnote/` folder.
    - Reload Obsidian (`Ctrl/Cmd + R`) and enable the plugin.
 
 ## Usage
