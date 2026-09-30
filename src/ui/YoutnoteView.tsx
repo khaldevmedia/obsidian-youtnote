@@ -7,7 +7,7 @@ import { VideoId, NoteId, Video, Note, TranscriptEntry } from '../types';
 import { VideoListItem } from './VideoListItem';
 import { NoteListItem } from './NoteListItem';
 import { TranscriptListItem } from './TranscriptListItem';
-import { AlertModal, AIGenerationModal, ConfirmModal } from './MessageBoxes';
+import { AlertModal, AIGenerationModal, ConfirmModal, MISSING_AI_API_KEY_MESSAGE, showAISetupModal } from './MessageBoxes';
 import { YoutubePluginViewProps } from '../types';
 import {
     findActiveCaptionIndex,
@@ -936,18 +936,21 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
 
     const handleGenerateAINotes = () => {
         if (!settings.ai.enabled) {
-            const modal = new ConfirmModal(
+            showAISetupModal(
                 app,
-                'AI setup required',
                 'AI integration is turned off. Open Youtnote settings to enable AI and configure a provider.',
-                () => onOpenAISettings(),
-                'Open settings',
-                'Cancel',
-                'primary'
+                onOpenAISettings,
             );
-            modal.shouldRestoreSelection = false;
-            modal.open();
             return;
+        }
+        const provider = settings.ai.provider;
+        if (provider !== 'none' && provider !== 'custom') {
+            const secretName = settings.ai.secretNames[provider].trim();
+            const apiKey = secretName ? app.secretStorage.getSecret(secretName) : null;
+            if (!apiKey?.trim()) {
+                showAISetupModal(app, MISSING_AI_API_KEY_MESSAGE, onOpenAISettings);
+                return;
+            }
         }
         const video = activeVideo;
         if (!video) return;

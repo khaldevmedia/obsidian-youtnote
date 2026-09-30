@@ -21,7 +21,7 @@ import type {
 import { applyGeneratedNotesForYoutubeVideo, setTranscriptForYoutubeVideo, updateYoutnoteSource } from './videoTaskResults';
 import { fetchCaptionTracks, fetchTranscriptEntries } from './transcriptFetch';
 import { pickCaptionTrack } from './ui/CaptionTrackModal';
-import { AIGenerationProgressModal } from './ui/MessageBoxes';
+import { AIGenerationProgressModal, MISSING_AI_API_KEY_MESSAGE, showAISetupModal } from './ui/MessageBoxes';
 import type { AIGenerationProgressPhase } from './ui/MessageBoxes';
 import { createEmptyYoutnoteMarkdown } from './youtnote-format';
 import { hasYoutnoteFrontmatter, extractYouTubeId, formatSecondsToDisplay, compareNotes } from './utils';
@@ -545,6 +545,14 @@ export default class YoutnotePlugin extends Plugin {
         } catch (error) {
             if (!this.activeVideoTasks.isActive(handle.id)) return;
             if (error instanceof AIProviderError && error.kind === 'cancelled') return;
+            if (error instanceof AIProviderError && error.kind === 'missing-key') {
+                showAISetupModal(
+                    this.app,
+                    MISSING_AI_API_KEY_MESSAGE,
+                    this.openSettings,
+                );
+                return;
+            }
             if (error instanceof AIProviderError && error.kind === 'timeout') {
                 new Notice(`AI request timed out for "${target.videoTitle}": ${error.message} Increase the request timeout in Youtnote settings and try again.`, 6000);
                 return;

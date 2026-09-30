@@ -135,6 +135,27 @@ export class ConfirmModal extends BaseModal {
     }
 }
 
+export const MISSING_AI_API_KEY_MESSAGE =
+    'No API key is configured for the selected AI provider. Open Youtnote settings to configure one.';
+
+export const showAISetupModal = (
+    app: App,
+    message: string,
+    onOpenSettings: () => void,
+): void => {
+    const modal = new ConfirmModal(
+        app,
+        'AI setup required',
+        message,
+        onOpenSettings,
+        'Open settings',
+        'Cancel',
+        'primary',
+    );
+    modal.shouldRestoreSelection = false;
+    modal.open();
+};
+
 export class AIGenerationModal extends BaseModal {
     private hasExistingNotes: boolean;
     private hasExistingGeneralNote: boolean;
