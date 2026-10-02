@@ -38,18 +38,23 @@ ${sourceBlock(YT, 'Test Video')}
 
 <!-- youtnote:section:notes:start -->
 
-[general-note](general-note)
+<!-- youtnote:general-note:start -->
 General body.
+<!-- youtnote:general-note:end -->
 
-[1:23](timestamp)
+<!-- youtnote:timestamped-notes:start -->
+
+\`1:23\` <!-- youtnote:timestamp -->
 Note body.
+
+<!-- youtnote:timestamped-notes:end -->
 
 <!-- youtnote:section:notes:end -->
 
 <!-- youtnote:section:transcript:start -->
 
-[0:00.120](caption?durationMs=4320) first
-[5](caption) second
+\`0:00.120\` <!-- youtnote:caption durationMs=4320 --> first
+\`5\` <!-- youtnote:caption --> second
 
 <!-- youtnote:section:transcript:end -->
 
@@ -82,8 +87,12 @@ ${sourceBlock(YT, 'One')}
 
 <!-- youtnote:section:notes:start -->
 
-[0:05](timestamp)
+<!-- youtnote:timestamped-notes:start -->
+
+\`0:05\` <!-- youtnote:timestamp -->
 note one
+
+<!-- youtnote:timestamped-notes:end -->
 
 <!-- youtnote:section:notes:end -->
 
@@ -95,14 +104,18 @@ ${sourceBlock(YT2, 'Two')}
 
 <!-- youtnote:section:notes:start -->
 
-[0:10](timestamp)
+<!-- youtnote:timestamped-notes:start -->
+
+\`0:10\` <!-- youtnote:timestamp -->
 note two
+
+<!-- youtnote:timestamped-notes:end -->
 
 <!-- youtnote:section:notes:end -->
 
 <!-- youtnote:section:transcript:start -->
 
-[7](caption) cap
+\`7\` <!-- youtnote:caption --> cap
 
 <!-- youtnote:section:transcript:end -->
 
@@ -125,8 +138,12 @@ ${sourceBlock(YT, 'V')}
 
 <!-- youtnote:section:notes:start -->
 
-[0:05](timestamp)
-[5](caption) this is note body, not a caption
+<!-- youtnote:timestamped-notes:start -->
+
+\`0:05\` <!-- youtnote:timestamp -->
+\`5\` <!-- youtnote:caption --> this is note body, not a caption
+
+<!-- youtnote:timestamped-notes:end -->
 
 <!-- youtnote:section:notes:end -->
 
@@ -134,7 +151,7 @@ ${sourceBlock(YT, 'V')}
 `;
         const doc = parseOk(source);
         expect(doc.videos[0].transcript).toBeUndefined();
-        expect(doc.notes[0].bodyMarkdown).toContain('[5](caption) this is note body, not a caption');
+        expect(doc.notes[0].bodyMarkdown).toContain('`5` <!-- youtnote:caption --> this is note body, not a caption');
     });
 
     it('treats exact markers inside fenced code blocks as content', () => {
@@ -145,11 +162,19 @@ ${sourceBlock(YT, 'V')}
 
 <!-- youtnote:section:notes:start -->
 
-[0:05](timestamp)
+<!-- youtnote:timestamped-notes:start -->
+
+\`0:05\` <!-- youtnote:timestamp -->
 \`\`\`
 <!-- youtnote:video:start -->
-[1:00](timestamp)
+\`1:00\` <!-- youtnote:timestamp -->
+<!-- youtnote:general-note:start -->
+<!-- youtnote:general-note:end -->
+<!-- youtnote:timestamped-notes:start -->
+<!-- youtnote:timestamped-notes:end -->
 \`\`\`
+
+<!-- youtnote:timestamped-notes:end -->
 
 <!-- youtnote:section:notes:end -->
 
@@ -158,8 +183,13 @@ ${sourceBlock(YT, 'V')}
         const doc = parseOk(source);
         expect(doc.videos).toHaveLength(1);
         expect(doc.notes).toHaveLength(1);
+        expect(doc.notes[0].isGeneral).not.toBe(true);
         expect(doc.notes[0].bodyMarkdown).toContain('<!-- youtnote:video:start -->');
-        expect(doc.notes[0].bodyMarkdown).toContain('[1:00](timestamp)');
+        expect(doc.notes[0].bodyMarkdown).toContain('`1:00` <!-- youtnote:timestamp -->');
+        expect(doc.notes[0].bodyMarkdown).toContain('<!-- youtnote:general-note:start -->');
+        expect(doc.notes[0].bodyMarkdown).toContain('<!-- youtnote:general-note:end -->');
+        expect(doc.notes[0].bodyMarkdown).toContain('<!-- youtnote:timestamped-notes:start -->');
+        expect(doc.notes[0].bodyMarkdown).toContain('<!-- youtnote:timestamped-notes:end -->');
     });
 
     it('preserves unknown sections verbatim and in order', () => {
@@ -180,7 +210,7 @@ raw *opaque* content
 
 <!-- youtnote:section:transcript:start -->
 
-[1](caption) cap
+\`1\` <!-- youtnote:caption --> cap
 
 <!-- youtnote:section:transcript:end -->
 
@@ -276,8 +306,12 @@ ${sourceBlock(YT, 'V')}
 
 <!-- youtnote:section:notes:start -->
 
-[0:05](timestamp)
-[1:00](timestamp) trailing text stays body
+<!-- youtnote:timestamped-notes:start -->
+
+\`0:05\` <!-- youtnote:timestamp -->
+\`1:00\` <!-- youtnote:timestamp --> trailing text stays body
+
+<!-- youtnote:timestamped-notes:end -->
 
 <!-- youtnote:section:notes:end -->
 
@@ -285,10 +319,10 @@ ${sourceBlock(YT, 'V')}
 `;
         const doc = parseOk(source);
         expect(doc.notes).toHaveLength(1);
-        expect(doc.notes[0].bodyMarkdown).toContain('[1:00](timestamp) trailing text stays body');
+        expect(doc.notes[0].bodyMarkdown).toContain('`1:00` <!-- youtnote:timestamp --> trailing text stays body');
     });
 
-    it('rejects an invalid standalone timestamp marker', () => {
+    it('rejects an invalid timestamp value inside the timestamped-notes collection', () => {
         expectInvalid(`${HEADER}
 <!-- youtnote:video:start -->
 
@@ -296,12 +330,485 @@ ${sourceBlock(YT, 'V')}
 
 <!-- youtnote:section:notes:start -->
 
-[1::2](timestamp)
+<!-- youtnote:timestamped-notes:start -->
+
+\`1::2\` <!-- youtnote:timestamp -->
+
+<!-- youtnote:timestamped-notes:end -->
 
 <!-- youtnote:section:notes:end -->
 
 <!-- youtnote:video:end -->
 `);
+    });
+
+    it('rejects a bare unbounded timestamp marker outside a note record', () => {
+        expectInvalid(`${HEADER}
+<!-- youtnote:video:start -->
+
+${sourceBlock(YT, 'V')}
+
+<!-- youtnote:section:notes:start -->
+
+\`1:23\` <!-- youtnote:timestamp -->
+Note body.
+
+<!-- youtnote:section:notes:end -->
+
+<!-- youtnote:video:end -->
+`);
+    });
+
+    it('rejects legacy link-based markers where a record is required', () => {
+        expectInvalid(`${HEADER}
+<!-- youtnote:video:start -->
+
+${sourceBlock(YT, 'V')}
+
+<!-- youtnote:section:notes:start -->
+
+[1:23](timestamp)
+Note body.
+
+<!-- youtnote:section:notes:end -->
+
+<!-- youtnote:video:end -->
+`);
+        expectInvalid(`${HEADER}
+<!-- youtnote:video:start -->
+
+${sourceBlock(YT, 'V')}
+
+<!-- youtnote:section:notes:start -->
+
+[general-note](general-note)
+General body.
+
+<!-- youtnote:section:notes:end -->
+
+<!-- youtnote:video:end -->
+`);
+        expectInvalid(`${HEADER}
+<!-- youtnote:video:start -->
+
+${sourceBlock(YT, 'V')}
+
+<!-- youtnote:section:transcript:start -->
+
+[5](caption) caption text
+
+<!-- youtnote:section:transcript:end -->
+
+<!-- youtnote:video:end -->
+`);
+        expectInvalid(`${HEADER}
+<!-- youtnote:video:start -->
+
+${sourceBlock(YT, 'V')}
+
+<!-- youtnote:section:transcript:start -->
+
+[0:00.320](caption?durationMs=14260) caption text
+
+<!-- youtnote:section:transcript:end -->
+
+<!-- youtnote:video:end -->
+`);
+    });
+
+    it('rejects a general-note end marker without a start', () => {
+        expectInvalid(`${HEADER}
+<!-- youtnote:video:start -->
+
+${sourceBlock(YT, 'V')}
+
+<!-- youtnote:section:notes:start -->
+
+<!-- youtnote:general-note:end -->
+
+<!-- youtnote:section:notes:end -->
+
+<!-- youtnote:video:end -->
+`);
+    });
+
+    it('rejects a nested general-note start marker', () => {
+        expectInvalid(`${HEADER}
+<!-- youtnote:video:start -->
+
+${sourceBlock(YT, 'V')}
+
+<!-- youtnote:section:notes:start -->
+
+<!-- youtnote:general-note:start -->
+Body.
+<!-- youtnote:general-note:start -->
+Nested.
+<!-- youtnote:general-note:end -->
+
+<!-- youtnote:section:notes:end -->
+
+<!-- youtnote:video:end -->
+`);
+    });
+
+    it('rejects a general note missing its end marker before the notes section ends', () => {
+        expectInvalid(`${HEADER}
+<!-- youtnote:video:start -->
+
+${sourceBlock(YT, 'V')}
+
+<!-- youtnote:section:notes:start -->
+
+<!-- youtnote:general-note:start -->
+Body.
+
+<!-- youtnote:section:notes:end -->
+
+<!-- youtnote:video:end -->
+`);
+    });
+
+    it('parses multiple timestamped notes inside one collection', () => {
+        const source = `${HEADER}
+<!-- youtnote:video:start -->
+
+${sourceBlock(YT, 'V')}
+
+<!-- youtnote:section:notes:start -->
+
+<!-- youtnote:timestamped-notes:start -->
+
+\`0:05\` <!-- youtnote:timestamp -->
+First body.
+
+\`0:10\` <!-- youtnote:timestamp -->
+Second body.
+
+<!-- youtnote:timestamped-notes:end -->
+
+<!-- youtnote:section:notes:end -->
+
+<!-- youtnote:video:end -->
+`;
+        const doc = parseOk(source);
+        expect(doc.notes).toHaveLength(2);
+        expect(doc.notes[0].timestampSec).toBe(5);
+        expect(doc.notes[0].bodyMarkdown).toBe('First body.');
+        expect(doc.notes[1].timestampSec).toBe(10);
+        expect(doc.notes[1].bodyMarkdown).toBe('Second body.');
+        expect(doc.notes.every(n => n.isGeneral !== true)).toBe(true);
+    });
+
+    it('starts a second note when a second timestamp marker appears', () => {
+        const source = `${HEADER}
+<!-- youtnote:video:start -->
+
+${sourceBlock(YT, 'V')}
+
+<!-- youtnote:section:notes:start -->
+
+<!-- youtnote:timestamped-notes:start -->
+\`0:05\` <!-- youtnote:timestamp -->
+First body.
+\`0:10\` <!-- youtnote:timestamp -->
+<!-- youtnote:timestamped-notes:end -->
+
+<!-- youtnote:section:notes:end -->
+
+<!-- youtnote:video:end -->
+`;
+        const doc = parseOk(source);
+        expect(doc.notes).toHaveLength(2);
+        expect(doc.notes.map(n => n.timestampSec)).toEqual([5, 10]);
+        expect(doc.notes[1].bodyMarkdown).toBe('');
+    });
+
+    it('rejects a timestamped-notes end marker without a start', () => {
+        expectInvalid(`${HEADER}
+<!-- youtnote:video:start -->
+
+${sourceBlock(YT, 'V')}
+
+<!-- youtnote:section:notes:start -->
+
+<!-- youtnote:timestamped-notes:end -->
+
+<!-- youtnote:section:notes:end -->
+
+<!-- youtnote:video:end -->
+`);
+    });
+
+    it('rejects a nested or duplicate timestamped-notes collection', () => {
+        expectInvalid(`${HEADER}
+<!-- youtnote:video:start -->
+
+${sourceBlock(YT, 'V')}
+
+<!-- youtnote:section:notes:start -->
+
+<!-- youtnote:timestamped-notes:start -->
+\`0:05\` <!-- youtnote:timestamp -->
+Body.
+<!-- youtnote:timestamped-notes:start -->
+\`0:10\` <!-- youtnote:timestamp -->
+Nested.
+<!-- youtnote:timestamped-notes:end -->
+
+<!-- youtnote:section:notes:end -->
+
+<!-- youtnote:video:end -->
+`);
+        expectInvalid(`${HEADER}
+<!-- youtnote:video:start -->
+
+${sourceBlock(YT, 'V')}
+
+<!-- youtnote:section:notes:start -->
+
+<!-- youtnote:timestamped-notes:start -->
+<!-- youtnote:timestamped-notes:end -->
+
+<!-- youtnote:timestamped-notes:start -->
+<!-- youtnote:timestamped-notes:end -->
+
+<!-- youtnote:section:notes:end -->
+
+<!-- youtnote:video:end -->
+`);
+    });
+
+    it('rejects a timestamped-notes collection missing its end before the notes section ends', () => {
+        expectInvalid(`${HEADER}
+<!-- youtnote:video:start -->
+
+${sourceBlock(YT, 'V')}
+
+<!-- youtnote:section:notes:start -->
+
+<!-- youtnote:timestamped-notes:start -->
+\`0:05\` <!-- youtnote:timestamp -->
+Body.
+
+<!-- youtnote:section:notes:end -->
+
+<!-- youtnote:video:end -->
+`);
+    });
+
+    it('rejects non-blank content before the first timestamp marker in a collection', () => {
+        expectInvalid(`${HEADER}
+<!-- youtnote:video:start -->
+
+${sourceBlock(YT, 'V')}
+
+<!-- youtnote:section:notes:start -->
+
+<!-- youtnote:timestamped-notes:start -->
+Body before the first timestamp.
+\`0:05\` <!-- youtnote:timestamp -->
+<!-- youtnote:timestamped-notes:end -->
+
+<!-- youtnote:section:notes:end -->
+
+<!-- youtnote:video:end -->
+`);
+        expectInvalid(`${HEADER}
+<!-- youtnote:video:start -->
+
+${sourceBlock(YT, 'V')}
+
+<!-- youtnote:section:notes:start -->
+
+<!-- youtnote:timestamped-notes:start -->
+\`\`\`
+fenced before first timestamp
+\`\`\`
+\`0:05\` <!-- youtnote:timestamp -->
+<!-- youtnote:timestamped-notes:end -->
+
+<!-- youtnote:section:notes:end -->
+
+<!-- youtnote:video:end -->
+`);
+    });
+
+    it('rejects a general-note start inside a timestamped-notes collection and vice versa', () => {
+        expectInvalid(`${HEADER}
+<!-- youtnote:video:start -->
+
+${sourceBlock(YT, 'V')}
+
+<!-- youtnote:section:notes:start -->
+
+<!-- youtnote:timestamped-notes:start -->
+\`0:05\` <!-- youtnote:timestamp -->
+Body.
+<!-- youtnote:general-note:start -->
+<!-- youtnote:timestamped-notes:end -->
+
+<!-- youtnote:section:notes:end -->
+
+<!-- youtnote:video:end -->
+`);
+        expectInvalid(`${HEADER}
+<!-- youtnote:video:start -->
+
+${sourceBlock(YT, 'V')}
+
+<!-- youtnote:section:notes:start -->
+
+<!-- youtnote:general-note:start -->
+Body.
+<!-- youtnote:timestamped-notes:start -->
+<!-- youtnote:general-note:end -->
+
+<!-- youtnote:section:notes:end -->
+
+<!-- youtnote:video:end -->
+`);
+    });
+
+    it('rejects a mismatched end marker for the open record type', () => {
+        expectInvalid(`${HEADER}
+<!-- youtnote:video:start -->
+
+${sourceBlock(YT, 'V')}
+
+<!-- youtnote:section:notes:start -->
+
+<!-- youtnote:general-note:start -->
+Body.
+<!-- youtnote:timestamped-notes:end -->
+
+<!-- youtnote:section:notes:end -->
+
+<!-- youtnote:video:end -->
+`);
+        expectInvalid(`${HEADER}
+<!-- youtnote:video:start -->
+
+${sourceBlock(YT, 'V')}
+
+<!-- youtnote:section:notes:start -->
+
+<!-- youtnote:timestamped-notes:start -->
+\`0:05\` <!-- youtnote:timestamp -->
+Body.
+<!-- youtnote:general-note:end -->
+
+<!-- youtnote:section:notes:end -->
+
+<!-- youtnote:video:end -->
+`);
+    });
+
+    it('serializes exactly one timestamped-notes collection even with zero timestamped notes', () => {
+        const generalOnly = `${HEADER}
+<!-- youtnote:video:start -->
+
+${sourceBlock(YT, 'V')}
+
+<!-- youtnote:section:notes:start -->
+
+<!-- youtnote:general-note:start -->
+General body.
+<!-- youtnote:general-note:end -->
+
+<!-- youtnote:section:notes:end -->
+
+<!-- youtnote:video:end -->
+`;
+        const serialized = serializeYoutnoteDocument(parseOk(generalOnly));
+        expect(serialized.match(/<!-- youtnote:timestamped-notes:start -->/g)).toHaveLength(1);
+        expect(serialized.match(/<!-- youtnote:timestamped-notes:end -->/g)).toHaveLength(1);
+        expect(serialized).toContain('<!-- youtnote:timestamped-notes:start -->\n\n<!-- youtnote:timestamped-notes:end -->');
+        expect(serialized).toContain('<!-- youtnote:general-note:start -->\nGeneral body.\n<!-- youtnote:general-note:end -->\n\n<!-- youtnote:timestamped-notes:start -->');
+        expect(parseOk(serialized).notes).toHaveLength(1);
+    });
+
+    it('parses an empty timestamped-notes collection', () => {
+        const source = `${HEADER}
+<!-- youtnote:video:start -->
+
+${sourceBlock(YT, 'V')}
+
+<!-- youtnote:section:notes:start -->
+
+<!-- youtnote:timestamped-notes:start -->
+
+<!-- youtnote:timestamped-notes:end -->
+
+<!-- youtnote:section:notes:end -->
+
+<!-- youtnote:video:end -->
+`;
+        const doc = parseOk(source);
+        expect(doc.notes).toHaveLength(0);
+    });
+
+    it('parses a notes section with a general note and no collection', () => {
+        const source = `${HEADER}
+<!-- youtnote:video:start -->
+
+${sourceBlock(YT, 'V')}
+
+<!-- youtnote:section:notes:start -->
+
+<!-- youtnote:general-note:start -->
+General body.
+<!-- youtnote:general-note:end -->
+
+<!-- youtnote:section:notes:end -->
+
+<!-- youtnote:video:end -->
+`;
+        const doc = parseOk(source);
+        expect(doc.notes).toHaveLength(1);
+        expect(doc.notes[0].isGeneral).toBe(true);
+    });
+
+    it('treats timestamp-looking lines inside a general note as body', () => {
+        const source = `${HEADER}
+<!-- youtnote:video:start -->
+
+${sourceBlock(YT, 'V')}
+
+<!-- youtnote:section:notes:start -->
+
+<!-- youtnote:general-note:start -->
+Summary text.
+\`1:23\` <!-- youtnote:timestamp -->
+still the general note body
+<!-- youtnote:general-note:end -->
+
+<!-- youtnote:section:notes:end -->
+
+<!-- youtnote:video:end -->
+`;
+        const doc = parseOk(source);
+        expect(doc.notes).toHaveLength(1);
+        expect(doc.notes[0].isGeneral).toBe(true);
+        expect(doc.notes[0].timestampSec).toBe(-1);
+        expect(doc.notes[0].bodyMarkdown).toContain('`1:23` <!-- youtnote:timestamp -->');
+        expect(doc.notes[0].bodyMarkdown).toContain('still the general note body');
+    });
+
+    it('serializes without legacy synthetic links', () => {
+        const serialized = serializeYoutnoteDocument(parseOk(BASIC));
+        expect(serialized).not.toContain('](timestamp)');
+        expect(serialized).not.toContain('](caption');
+        expect(serialized).not.toContain('](general-note)');
+        expect(serialized).toContain('<!-- youtnote:general-note:start -->\nGeneral body.\n<!-- youtnote:general-note:end -->');
+        expect(serialized).toContain('<!-- youtnote:timestamped-notes:start -->\n\n`1:23` <!-- youtnote:timestamp -->\nNote body.\n\n<!-- youtnote:timestamped-notes:end -->');
+        expect(serialized).toContain('`0:00.120` <!-- youtnote:caption durationMs=4320 --> first');
+        expect(serialized).toContain('`5` <!-- youtnote:caption --> second');
+        const reparsed = parseOk(serialized);
+        expect(reparsed.notes.map(n => ({ ts: n.timestampSec, body: n.bodyMarkdown, general: n.isGeneral === true }))).toEqual(
+            parseOk(BASIC).notes.map(n => ({ ts: n.timestampSec, body: n.bodyMarkdown, general: n.isGeneral === true }))
+        );
+        expect(reparsed.videos[0].transcript).toEqual(parseOk(BASIC).videos[0].transcript);
     });
 
     it('rejects a video block with no source section', () => {
@@ -509,7 +1016,7 @@ ${sourceBlock(YT, 'V')}
 
 <!-- youtnote:section:transcript:start -->
 
-[2](caption) only captions
+\`2\` <!-- youtnote:caption --> only captions
 
 <!-- youtnote:section:transcript:end -->
 

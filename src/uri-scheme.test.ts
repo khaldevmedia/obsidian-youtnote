@@ -303,9 +303,22 @@ describe('hasStructuralDelimiter', () => {
         '<!-- youtnote:section:notes:end -->',
         '<!-- youtnote:section:transcript:start -->',
         '<!-- youtnote:section:future-thing:start version=9 -->',
+        '<!-- youtnote:general-note:start -->',
+        '<!-- youtnote:general-note:end -->',
+        '<!-- youtnote:timestamped-notes:start -->',
+        '<!-- youtnote:timestamped-notes:end -->',
     ])('returns true for v2 boundary marker %s', (line) => {
         expect(hasStructuralDelimiter(line)).toBe(true);
         expect(hasStructuralDelimiter(`Some text\n${line}`)).toBe(true);
+    });
+
+    it('returns true for a v2 timestamp note marker', () => {
+        expect(hasStructuralDelimiter('`01:23` <!-- youtnote:timestamp -->')).toBe(true);
+        expect(hasStructuralDelimiter('Some text\n`5` <!-- youtnote:timestamp -->')).toBe(true);
+    });
+
+    it('returns false when a v2 timestamp marker has trailing text', () => {
+        expect(hasStructuralDelimiter('`01:23` <!-- youtnote:timestamp --> trailing')).toBe(false);
     });
 
     it('returns false for an unrelated HTML comment', () => {

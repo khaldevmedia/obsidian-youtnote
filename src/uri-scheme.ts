@@ -1,4 +1,11 @@
 import { extractYouTubeId, normalizeYouTubeUrl, parseTimestampInput } from './utils';
+import {
+    GENERAL_NOTE_END_MARKER,
+    GENERAL_NOTE_START_MARKER,
+    NOTE_TIMESTAMP_PATTERN,
+    TIMESTAMPED_NOTES_END_MARKER,
+    TIMESTAMPED_NOTES_START_MARKER,
+} from './youtnote-format/v2';
 
 /** Maximum total URL length accepted by the handler. */
 export const MAX_URL_LENGTH = 2000;
@@ -60,7 +67,10 @@ export function hasStructuralDelimiter(text: string): boolean {
     return text.split('\n').some(rawLine => {
         const line = rawLine.trim();
         if (line === '[general-note](general-note)') return true;
+        if (line === GENERAL_NOTE_START_MARKER || line === GENERAL_NOTE_END_MARKER) return true;
+        if (line === TIMESTAMPED_NOTES_START_MARKER || line === TIMESTAMPED_NOTES_END_MARKER) return true;
         if (/^\[[\d:]+\]\(timestamp\)/.test(line)) return true;
+        if (NOTE_TIMESTAMP_PATTERN.test(line)) return true;
         if (/^<!--\s*youtnote:(?:video|section:[A-Za-z0-9_-]+):(?:start|end)[\s\S]*?-->$/.test(line)) return true;
         const videoMatch = line.match(/^\[(.*?)\]\((.+)\)$/);
         return videoMatch !== null && extractYouTubeId(videoMatch[2]) !== null;
@@ -207,7 +217,7 @@ export function validateYoutnoteUriParams(
         if (hasStructuralDelimiter(params.text)) {
             return {
                 valid: false,
-                error: 'The "text" parameter contains a line that would be interpreted as a youtnote section marker (video link, [mm:ss](timestamp), or [general-note](general-note)), which is not allowed.',
+                error: 'The "text" parameter contains a line that would be interpreted as a youtnote section marker (video link, timestamp note marker, or general-note marker), which is not allowed.',
                 mode,
                 normalizedUrl,
                 timestampSec,

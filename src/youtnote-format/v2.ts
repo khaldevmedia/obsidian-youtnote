@@ -14,6 +14,13 @@ import { buildDefaultLayout, buildSortedNotesByVideo } from './v1';
 
 export const VIDEO_START_MARKER = '<!-- youtnote:video:start -->';
 export const VIDEO_END_MARKER = '<!-- youtnote:video:end -->';
+export const GENERAL_NOTE_START_MARKER = '<!-- youtnote:general-note:start -->';
+export const GENERAL_NOTE_END_MARKER = '<!-- youtnote:general-note:end -->';
+export const TIMESTAMPED_NOTES_START_MARKER = '<!-- youtnote:timestamped-notes:start -->';
+export const TIMESTAMPED_NOTES_END_MARKER = '<!-- youtnote:timestamped-notes:end -->';
+
+export const NOTE_TIMESTAMP_PATTERN = /^`([\d:]+)` <!-- youtnote:timestamp -->\s*$/;
+const CAPTION_PATTERN = /^`([\d:.]+)` <!-- youtnote:caption(?: durationMs=(\d+))? --> ?(.*)$/;
 
 const SECTION_OPEN_PATTERN = /^<!--\s*youtnote:section:([A-Za-z0-9_-]+):start(\s[^]*)?-->$/;
 const MANAGED_SECTION_TYPES = new Set(['source', 'notes', 'transcript']);
@@ -31,6 +38,10 @@ function invalid(message: string): { ok: false; message: string } {
 }
 
 type LineResult = { ok: true } | { ok: false; message: string };
+
+type NotesFinishResult =
+    | { ok: true; notes: Note[] }
+    | { ok: false; message: string };
 
 const OK: LineResult = { ok: true };
 
@@ -62,29 +73,19 @@ class FenceTracker {
 class NotesSectionParser {
     private notes: Note[] = [];
     private currentNote: Partial<Note> | null = null;
+    private generalNoteOpen = false;
+    private timestampedNotesOpen = false;
+    private timestampedNotesSeen = false;
+    private collectionSeen = false;
 
     constructor(private video: Video) {}
 
     feed(line: string): LineResult {
-        const timeMatch = line.match(/^\[([\d:]+)\]\(timestamp\)\s*$/);
-        if (timeMatch) {
-            const result = parseTimestampInput(timeMatch[1], 0);
-            if (result.error) {
-                return invalid(`Invalid timestamp marker in a notes section: "${line.trim()}".`);
+        if (line === GENERAL_NOTE_START_MARKER) {
+            if (this.generalNoteOpen || this.timestampedNotesOpen) {
+                const where = this.generalNoteOpen ? 'general note' : 'timestamped-notes collection';
+                return invalid(`Nested "${GENERAL_NOTE_START_MARKER}" is not allowed inside a ${where}.`);
             }
-            this.commit();
-            this.currentNote = {
-                id: crypto.randomUUID() as NoteId,
-                videoId: this.video.id,
-                timestampSec: result.seconds,
-                bodyMarkdown: '',
-                createdAt: new Date().toISOString(),
-                updatedAt: new Date().toISOString(),
-            };
-            return OK;
-        }
-
-        if (line === '[general-note](general-note)') {
             this.commit();
             this.currentNote = {
                 id: crypto.randomUUID() as NoteId,
@@ -95,24 +96,89 @@ class NotesSectionParser {
                 createdAt: new Date().toISOString(),
                 updatedAt: new Date().toISOString(),
             };
+            this.generalNoteOpen = true;
+            return OK;
+        }
+
+        if (line === TIMESTAMPED_NOTES_START_MARKER) {
+            if (this.generalNoteOpen) {
+                return invalid(`"${TIMESTAMPED_NOTES_START_MARKER}" is not allowed inside a general note.`);
+            }
+            if (this.timestampedNotesOpen || this.collectionSeen) {
+                return invalid(`Duplicate "${TIMESTAMPED_NOTES_START_MARKER}" in a single notes section.`);
+            }
+            this.timestampedNotesOpen = true;
+            this.collectionSeen = true;
+            this.timestampedNotesSeen = false;
+            return OK;
+        }
+
+        if (line === GENERAL_NOTE_END_MARKER || line === TIMESTAMPED_NOTES_END_MARKER) {
+            const expectedEnd = this.generalNoteOpen ? GENERAL_NOTE_END_MARKER
+                : this.timestampedNotesOpen ? TIMESTAMPED_NOTES_END_MARKER
+                : null;
+            if (expectedEnd === null) {
+                return invalid(`"${line}" without a matching start marker.`);
+            }
+            if (line !== expectedEnd) {
+                return invalid(`"${line}" does not close the open record; expected "${expectedEnd}".`);
+            }
+            this.commit();
+            this.generalNoteOpen = false;
+            this.timestampedNotesOpen = false;
+            return OK;
+        }
+
+        if (this.generalNoteOpen) {
+            this.currentNote!.bodyMarkdown += (this.currentNote!.bodyMarkdown ? '\n' : '') + line;
+            return OK;
+        }
+
+        if (this.timestampedNotesOpen) {
+            const timeMatch = line.match(NOTE_TIMESTAMP_PATTERN);
+            if (timeMatch) {
+                const result = parseTimestampInput(timeMatch[1], 0);
+                if (result.error) {
+                    return invalid(`Invalid timestamp marker in a notes section: "${line.trim()}".`);
+                }
+                this.commit();
+                this.currentNote = {
+                    id: crypto.randomUUID() as NoteId,
+                    videoId: this.video.id,
+                    timestampSec: result.seconds,
+                    bodyMarkdown: '',
+                    createdAt: new Date().toISOString(),
+                    updatedAt: new Date().toISOString(),
+                };
+                this.timestampedNotesSeen = true;
+                return OK;
+            }
+            if (line.trim() === '') {
+                if (this.currentNote) {
+                    this.currentNote.bodyMarkdown += (this.currentNote.bodyMarkdown ? '\n' : '') + line;
+                }
+                return OK;
+            }
+            if (!this.timestampedNotesSeen) {
+                return invalid(`Non-blank content before the first timestamp marker inside a "${TIMESTAMPED_NOTES_START_MARKER}" block: "${line.trim()}".`);
+            }
+            this.currentNote!.bodyMarkdown += (this.currentNote!.bodyMarkdown ? '\n' : '') + line;
             return OK;
         }
 
         if (line.trim() === '') {
-            if (this.currentNote) {
-                this.currentNote.bodyMarkdown += (this.currentNote.bodyMarkdown ? '\n' : '') + line;
-            }
             return OK;
         }
-
-        if (!this.currentNote) {
-            return invalid(`Unexpected content inside a notes section: "${line.trim()}".`);
+        if (NOTE_TIMESTAMP_PATTERN.test(line)) {
+            return invalid(`Timestamp marker "${line.trim()}" must be inside a "${TIMESTAMPED_NOTES_START_MARKER}" ... "${TIMESTAMPED_NOTES_END_MARKER}" block.`);
         }
-        this.currentNote.bodyMarkdown += (this.currentNote.bodyMarkdown ? '\n' : '') + line;
-        return OK;
+        return invalid(`Unexpected content inside a notes section: "${line.trim()}".`);
     }
 
     feedRaw(line: string): LineResult {
+        if (this.timestampedNotesOpen && !this.timestampedNotesSeen) {
+            return invalid(`Fenced content before the first timestamp marker inside a "${TIMESTAMPED_NOTES_START_MARKER}" block is not allowed.`);
+        }
         if (!this.currentNote) {
             if (line.trim() === '') {
                 return OK;
@@ -123,9 +189,15 @@ class NotesSectionParser {
         return OK;
     }
 
-    finish(): Note[] {
+    finish(): NotesFinishResult {
+        if (this.generalNoteOpen) {
+            return invalid(`Missing "${GENERAL_NOTE_END_MARKER}" before the end of the notes section.`);
+        }
+        if (this.timestampedNotesOpen) {
+            return invalid(`Missing "${TIMESTAMPED_NOTES_END_MARKER}" before the end of the notes section.`);
+        }
         this.commit();
-        return this.notes;
+        return { ok: true, notes: this.notes };
     }
 
     private commit(): void {
@@ -138,7 +210,7 @@ class NotesSectionParser {
 }
 
 function parseTranscriptLine(line: string, video: Video): LineResult {
-    const captionMatch = line.match(/^\[([\d:.]+)\]\(caption(?:\?durationMs=(\d+))?\) ?(.*)$/);
+    const captionMatch = line.match(CAPTION_PATTERN);
     if (!captionMatch) {
         return invalid(`Unexpected content inside a transcript section: "${line.trim()}".`);
     }
@@ -361,7 +433,11 @@ export function parseV2Youtnote(source: string): ParseResult {
             };
             videos.push(currentVideo);
         } else if (sectionType === 'notes' && notesParser) {
-            notes.push(...notesParser.finish());
+            const finished = notesParser.finish();
+            if (!finished.ok) {
+                return invalid(finished.message);
+            }
+            notes.push(...finished.notes);
             notesParser = null;
         }
         currentSections.push({ kind: sectionType } as YoutnoteSectionSlot);
@@ -413,8 +489,8 @@ export function serializeV2Youtnote(document: YoutnoteDocument): string {
             lines.push('');
             const sorted = [...video.transcript].sort((a, b) => a.startMs - b.startMs);
             for (const entry of sorted) {
-                const durationQuery = entry.durationMs === undefined ? '' : `?durationMs=${entry.durationMs}`;
-                lines.push(`[${formatCaptionFileTimestamp(entry.startMs)}](caption${durationQuery}) ${entry.text}`);
+                const durationAttribute = entry.durationMs === undefined ? '' : ` durationMs=${entry.durationMs}`;
+                lines.push(`\`${formatCaptionFileTimestamp(entry.startMs)}\` <!-- youtnote:caption${durationAttribute} --> ${entry.text}`);
             }
             lines.push('');
             lines.push(sectionEndMarker('transcript'));
@@ -431,17 +507,23 @@ export function serializeV2Youtnote(document: YoutnoteDocument): string {
                 lines.push(sectionOpenMarker('notes'));
                 lines.push('');
                 const videoNotes = notesByVideo.get(video.id) || [];
-                for (const note of videoNotes) {
-                    if (note.isGeneral === true || note.timestampSec === -1) {
-                        lines.push('[general-note](general-note)');
-                    } else {
-                        lines.push(`[${formatSecondsToDisplay(note.timestampSec, 0)}](timestamp)`);
-                    }
-                    if (note.bodyMarkdown) {
-                        lines.push(note.bodyMarkdown);
-                    }
+                const generalNotes = videoNotes.filter(note => note.isGeneral === true || note.timestampSec === -1);
+                const timestampedNotes = videoNotes.filter(note => note.isGeneral !== true && note.timestampSec !== -1);
+                for (const note of generalNotes) {
+                    lines.push(GENERAL_NOTE_START_MARKER);
+                    if (note.bodyMarkdown) lines.push(note.bodyMarkdown);
+                    lines.push(GENERAL_NOTE_END_MARKER);
                     lines.push('');
                 }
+                lines.push(TIMESTAMPED_NOTES_START_MARKER);
+                lines.push('');
+                for (const note of timestampedNotes) {
+                    lines.push(`\`${formatSecondsToDisplay(note.timestampSec, 0)}\` <!-- youtnote:timestamp -->`);
+                    if (note.bodyMarkdown) lines.push(note.bodyMarkdown);
+                    lines.push('');
+                }
+                lines.push(TIMESTAMPED_NOTES_END_MARKER);
+                lines.push('');
                 lines.push(sectionEndMarker('notes'));
                 lines.push('');
             } else if (slot.kind === 'transcript') {

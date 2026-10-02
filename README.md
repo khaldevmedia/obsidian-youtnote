@@ -69,7 +69,7 @@ For more details on this issue, please **[read here](docs/error-153-ios.md)**.
 - **General notes**: Add one timestamp-less note per video for summaries, overviews, or context that doesn't belong to a specific moment. General notes sit at the top of the note list and are visually distinct.
 - **Search notes**: Filter notes for the active video by text content or timestamp. The search bar lives in the notes pane header and clears automatically when switching videos or adding new notes.
 - **URI scheme**: Let external tools (scripts, browser bookmarks, automation) add videos and notes to youtnotes in your vault via `obsidian://youtnote` URIs. Disabled by default. See the [URI Scheme Guide](docs/uri-scheme-guide.md).
-- **Video transcripts**: Fetch a video's YouTube captions into the youtnote (pick the caption track when several exist), browse them alongside the player, click a timestamp to seek, copy captions, edit caption text, and create notes directly from any caption. Stored in the file in a plain, greppable `[timestamp.mmm](caption?durationMs=N) text` syntax.
+- **Video transcripts**: Fetch a video's YouTube captions into the youtnote (pick the caption track when several exist), browse them alongside the player, click a timestamp to seek, copy captions, edit caption text, and create notes directly from any caption. Stored in the file in a plain, greppable `` `timestamp.mmm` <!-- youtnote:caption durationMs=N --> text `` syntax.
 - **AI-generated notes**: Optionally generate timestamped notes from a video's transcript using OpenAI, Anthropic, Google (Gemini), or a custom OpenAI-compatible endpoint. Configured API keys are stored in Obsidian Keychain (SecretStorage), not plugin data so they won't sync with your vault for security.
 
 
@@ -102,9 +102,23 @@ For more details on this issue, please **[read here](docs/error-153-ios.md)**.
 
 Youtnote files are plain Markdown with a versioned storage format declared by the `youtnote-format-version` frontmatter property (the Youtnote file-format version). The current version is **2**, which wraps each video in explicit `<!-- youtnote:video:start -->` / `<!-- youtnote:video:end -->` boundaries and stores the video source link, notes, and transcripts inside explicitly bounded `<!-- youtnote:section:source:... -->`, `<!-- youtnote:section:notes:... -->`, and `<!-- youtnote:section:transcript:... -->` sections. Unrelated frontmatter and unknown sections are preserved untouched.
 
+Inside a notes section, each record uses an HTML-comment structural marker rather than a Markdown link, so these generated markers do not create synthetic entries in Obsidian's link graph:
+
+- **Timestamped notes**: one `<!-- youtnote:timestamped-notes:start -->` … `<!-- youtnote:timestamped-notes:end -->` collection per notes section holds all timestamped notes for that video; each `` `M:SS` <!-- youtnote:timestamp --> `` marker line starts a note whose body runs until the next marker or the collection end. The collection block is always emitted, even when empty.
+- **General note**: a body wrapped in `<!-- youtnote:general-note:start -->` and `<!-- youtnote:general-note:end -->`.
+- **Caption** (transcript section): `` `M:SS.mmm` <!-- youtnote:caption --> text `` per line, with an optional `durationMs=N` attribute.
+
 - **Automatic migration**: older files (unversioned or `youtnote-format-version: 1`) are rewritten to file-format version 2 the first time they are opened in the Youtnote view. A notice confirms the update, and the file's videos, notes, transcripts, and other frontmatter are preserved. If a file declares version 1 but already contains version-2 content, only the declaration is corrected.
 - **Newer formats**: a file declaring a higher `youtnote-format-version` (e.g. written by a newer plugin version) is never parsed or rewritten — it opens in the regular Markdown view with an explanatory message.
 - **Downgrading**: an older plugin version does not understand version-2 markers. If you migrate a file and then downgrade the plugin, the old plugin will not be able to read the file correctly.
+- **Pre-release version-2 files**: development files that already declare `youtnote-format-version: 2` but use the obsolete link-style records, the intermediate unbounded `` `M:SS` <!-- youtnote:timestamp --> `` records, or the mistaken singular per-note `<!-- youtnote:timestamped-note:start -->`/`<!-- youtnote:timestamped-note:end -->` blocks do not enter automatic v1 migration. Convert them with the standalone `convert_pre_release_v2.py` script before opening them with the final v2 parser:
+
+  ```bash
+  python3 convert_pre_release_v2.py /path/to/file-or-vault
+  python3 convert_pre_release_v2.py --write /path/to/file-or-vault
+  ```
+
+  The first command is a dry run. `--write` creates a sibling `.pre-release-v2.bak` backup before atomically replacing each changed file. Back up the vault and stop Obsidian and synchronization tools before writing.
 
 ## Settings Overview
 All options live under `Settings → Plugin Options → Youtnote`:
@@ -124,6 +138,7 @@ All options live under `Settings → Plugin Options → Youtnote`:
 - **Single video export**: each video gets its own Markdown file (with timestamps preserved) using the `Export` button beside the note counter.
 - **Full file export**: consolidates every video + note into one Markdown file using the header action or view action.
 - General notes are exported with a `**General note:**` heading, placed at the top of their video's section.
+- Exported Markdown uses real, clickable YouTube timestamp links such as `[1:23](https://youtu.be/VIDEO_ID?t=83)` — the structural comment markers above only exist inside youtnote files.
 
 ## AI-generated notes
 
