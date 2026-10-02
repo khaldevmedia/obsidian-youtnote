@@ -20,7 +20,7 @@ export const TIMESTAMPED_NOTES_START_MARKER = '<!-- youtnote:timestamped-notes:s
 export const TIMESTAMPED_NOTES_END_MARKER = '<!-- youtnote:timestamped-notes:end -->';
 
 export const NOTE_TIMESTAMP_PATTERN = /^`([\d:]+)` <!-- youtnote:timestamp -->\s*$/;
-const CAPTION_PATTERN = /^`([\d:.]+)` <!-- youtnote:caption(?: durationMs=(\d+))? --> ?(.*)$/;
+const CAPTION_PATTERN = /^`([\d:.]+)` <!-- d=(\d+) --> ?(.*)$/;
 
 const SECTION_OPEN_PATTERN = /^<!--\s*youtnote:section:([A-Za-z0-9_-]+):start(\s[^]*)?-->$/;
 const MANAGED_SECTION_TYPES = new Set(['source', 'notes', 'transcript']);
@@ -219,11 +219,9 @@ function parseTranscriptLine(line: string, video: Video): LineResult {
         return invalid(`Invalid caption timestamp in a transcript section: "${line.trim()}".`);
     }
     const entry: TranscriptEntry = { startMs, text: captionMatch[3] };
-    if (captionMatch[2] !== undefined) {
-        const durationMs = Number(captionMatch[2]);
-        if (Number.isFinite(durationMs) && durationMs > 0) {
-            entry.durationMs = durationMs;
-        }
+    const durationMs = Number(captionMatch[2]);
+    if (Number.isFinite(durationMs) && durationMs > 0) {
+        entry.durationMs = durationMs;
     }
     if (!video.transcript) {
         video.transcript = [];
@@ -489,8 +487,10 @@ export function serializeV2Youtnote(document: YoutnoteDocument): string {
             lines.push('');
             const sorted = [...video.transcript].sort((a, b) => a.startMs - b.startMs);
             for (const entry of sorted) {
-                const durationAttribute = entry.durationMs === undefined ? '' : ` durationMs=${entry.durationMs}`;
-                lines.push(`\`${formatCaptionFileTimestamp(entry.startMs)}\` <!-- youtnote:caption${durationAttribute} --> ${entry.text}`);
+                const durationMs = entry.durationMs !== undefined && Number.isFinite(entry.durationMs) && entry.durationMs > 0
+                    ? Math.round(entry.durationMs)
+                    : 0;
+                lines.push(`\`${formatCaptionFileTimestamp(entry.startMs)}\` <!-- d=${durationMs} --> ${entry.text}`);
             }
             lines.push('');
             lines.push(sectionEndMarker('transcript'));

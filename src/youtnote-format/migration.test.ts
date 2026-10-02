@@ -39,12 +39,13 @@ describe('migrateLegacyYoutnote', () => {
         expect(result.markdown).toContain('<!-- youtnote:section:source:start -->');
         expect(result.markdown).toContain('<!-- youtnote:section:notes:start -->');
         expect(result.markdown).toContain('<!-- youtnote:section:transcript:start -->');
-        expect(result.markdown).toContain('`0:00.320` <!-- youtnote:caption durationMs=14260 --> [Music]');
-        expect(result.markdown).toContain('`5` <!-- youtnote:caption --> hello');
+        expect(result.markdown).toContain('`0:00.320` <!-- d=14260 --> [Music]');
+        expect(result.markdown).toContain('`5` <!-- d=0 --> hello');
         expect(result.markdown).toContain('<!-- youtnote:timestamped-notes:start -->\n\n`1:23` <!-- youtnote:timestamp -->\nFirst timestamped note.\n\n<!-- youtnote:timestamped-notes:end -->');
         expect(result.markdown).toContain('<!-- youtnote:general-note:start -->\nOverview of the video.\n<!-- youtnote:general-note:end -->');
         expect(result.markdown).not.toContain('](timestamp)');
         expect(result.markdown).not.toContain('](caption');
+        expect(result.markdown).not.toContain('youtnote:caption');
         expect(result.markdown).not.toContain('](general-note)');
 
         const reparsed = parseYoutnoteDocument(result.markdown);

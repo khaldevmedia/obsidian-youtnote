@@ -211,13 +211,13 @@ Another note.
         const serialized = serializeDataToMarkdown(parsed.videos, parsed.notes);
 
         const noteIdx = serialized.indexOf('`5` <!-- youtnote:timestamp -->');
-        const transcriptIdx = serialized.indexOf('`5` <!-- youtnote:caption --> first caption');
+        const transcriptIdx = serialized.indexOf('`5` <!-- d=0 --> first caption');
         const nextVideoIdx = serialized.indexOf('[Second Video]');
         expect(noteIdx).toBeGreaterThan(-1);
         expect(transcriptIdx).toBeGreaterThan(noteIdx);
         expect(transcriptIdx).toBeGreaterThan(-1);
         expect(nextVideoIdx).toBeGreaterThan(transcriptIdx);
-        expect(serialized).toContain('`1:55` <!-- youtnote:caption --> second caption');
+        expect(serialized).toContain('`1:55` <!-- d=0 --> second caption');
         expect(serialized).not.toContain('](caption');
     });
 
@@ -240,7 +240,7 @@ A note.
         const serialized = serializeDataToMarkdown(parsed.videos, parsed.notes);
         const reparsed = parseMarkdownToData(serialized);
 
-        expect(serialized).toContain('`0:00.320` <!-- youtnote:caption durationMs=14260 --> [Music]');
+        expect(serialized).toContain('`0:00.320` <!-- d=14260 --> [Music]');
         expect(serialized).not.toContain('](caption');
         expect(reparsed.videos[0].transcript).toEqual(parsed.videos[0].transcript);
         expect(reparsed.notes).toHaveLength(parsed.notes.length);
@@ -304,7 +304,7 @@ youtnote: true
         ]);
 
         const serialized = serializeDataToMarkdown(parsed.videos, parsed.notes);
-        expect(serialized).toContain('`5` <!-- youtnote:caption --> only captions here');
+        expect(serialized).toContain('`5` <!-- d=0 --> only captions here');
     });
 
     it('exports general notes with a "General note:" heading before timestamped notes', () => {

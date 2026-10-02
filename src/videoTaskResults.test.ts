@@ -145,7 +145,7 @@ describe('updateYoutnoteSource', () => {
         expect(result.status).toBe('updated');
         if (result.status !== 'updated') return;
         expect(result.markdown).toContain('<!-- youtnote:section:transcript:start -->');
-        expect(result.markdown).toContain('`0` <!-- youtnote:caption durationMs=1000 --> hello');
+        expect(result.markdown).toContain('`0` <!-- d=1000 --> hello');
     });
 
     it('reports missing-target when the video is absent', () => {

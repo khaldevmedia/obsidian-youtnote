@@ -53,8 +53,8 @@ Note body.
 
 <!-- youtnote:section:transcript:start -->
 
-\`0:00.120\` <!-- youtnote:caption durationMs=4320 --> first
-\`5\` <!-- youtnote:caption --> second
+\`0:00.120\` <!-- d=4320 --> first
+\`5\` <!-- d=0 --> second
 
 <!-- youtnote:section:transcript:end -->
 
@@ -115,7 +115,7 @@ note two
 
 <!-- youtnote:section:transcript:start -->
 
-\`7\` <!-- youtnote:caption --> cap
+\`7\` <!-- d=0 --> cap
 
 <!-- youtnote:section:transcript:end -->
 
@@ -141,7 +141,7 @@ ${sourceBlock(YT, 'V')}
 <!-- youtnote:timestamped-notes:start -->
 
 \`0:05\` <!-- youtnote:timestamp -->
-\`5\` <!-- youtnote:caption --> this is note body, not a caption
+\`5\` <!-- d=0 --> this is note body, not a caption
 
 <!-- youtnote:timestamped-notes:end -->
 
@@ -151,7 +151,7 @@ ${sourceBlock(YT, 'V')}
 `;
         const doc = parseOk(source);
         expect(doc.videos[0].transcript).toBeUndefined();
-        expect(doc.notes[0].bodyMarkdown).toContain('`5` <!-- youtnote:caption --> this is note body, not a caption');
+        expect(doc.notes[0].bodyMarkdown).toContain('`5` <!-- d=0 --> this is note body, not a caption');
     });
 
     it('treats exact markers inside fenced code blocks as content', () => {
@@ -210,7 +210,7 @@ raw *opaque* content
 
 <!-- youtnote:section:transcript:start -->
 
-\`1\` <!-- youtnote:caption --> cap
+\`1\` <!-- d=0 --> cap
 
 <!-- youtnote:section:transcript:end -->
 
@@ -800,10 +800,11 @@ still the general note body
         expect(serialized).not.toContain('](timestamp)');
         expect(serialized).not.toContain('](caption');
         expect(serialized).not.toContain('](general-note)');
+        expect(serialized).not.toContain('youtnote:caption');
         expect(serialized).toContain('<!-- youtnote:general-note:start -->\nGeneral body.\n<!-- youtnote:general-note:end -->');
         expect(serialized).toContain('<!-- youtnote:timestamped-notes:start -->\n\n`1:23` <!-- youtnote:timestamp -->\nNote body.\n\n<!-- youtnote:timestamped-notes:end -->');
-        expect(serialized).toContain('`0:00.120` <!-- youtnote:caption durationMs=4320 --> first');
-        expect(serialized).toContain('`5` <!-- youtnote:caption --> second');
+        expect(serialized).toContain('`0:00.120` <!-- d=4320 --> first');
+        expect(serialized).toContain('`5` <!-- d=0 --> second');
         const reparsed = parseOk(serialized);
         expect(reparsed.notes.map(n => ({ ts: n.timestampSec, body: n.bodyMarkdown, general: n.isGeneral === true }))).toEqual(
             parseOk(BASIC).notes.map(n => ({ ts: n.timestampSec, body: n.bodyMarkdown, general: n.isGeneral === true }))
@@ -1016,7 +1017,7 @@ ${sourceBlock(YT, 'V')}
 
 <!-- youtnote:section:transcript:start -->
 
-\`2\` <!-- youtnote:caption --> only captions
+\`2\` <!-- d=0 --> only captions
 
 <!-- youtnote:section:transcript:end -->
 
@@ -1025,6 +1026,54 @@ ${sourceBlock(YT, 'V')}
         const doc = parseOk(source);
         expect(doc.notes).toHaveLength(0);
         expect(doc.videos[0].transcript).toEqual([{ startMs: 2000, text: 'only captions' }]);
+    });
+
+    it('parses positive d as durationMs and d=0 as no durationMs property', () => {
+        const transcript = parseOk(BASIC).videos[0].transcript ?? [];
+        expect(transcript).toHaveLength(2);
+        expect(transcript[0].durationMs).toBe(4320);
+        expect(transcript[1]).not.toHaveProperty('durationMs');
+    });
+
+    it('always serializes a d field, emitting d=0 when no usable duration exists', () => {
+        const doc = parseOk(BASIC);
+        doc.videos[0].transcript = [
+            { startMs: 100, durationMs: 2500.6, text: 'rounded' },
+            { startMs: 200, text: 'absent' },
+            { startMs: 300, durationMs: 0, text: 'zero' },
+            { startMs: 400, durationMs: -7, text: 'negative' },
+        ];
+        const serialized = serializeYoutnoteDocument(doc);
+        expect(serialized).toContain('`0:00.100` <!-- d=2501 --> rounded');
+        expect(serialized).toContain('`0:00.200` <!-- d=0 --> absent');
+        expect(serialized).toContain('`0:00.300` <!-- d=0 --> zero');
+        expect(serialized).toContain('`0:00.400` <!-- d=0 --> negative');
+    });
+
+    it('rejects caption lines without a valid numeric d field', () => {
+        for (const captionLine of [
+            '`5` no comment at all',
+            '`5` <!-- --> empty comment',
+            '`5` <!-- youtnote:caption --> long form',
+            '`5` <!-- youtnote:caption durationMs=1000 --> long form with duration',
+            '`5` <!-- d=-1 --> negative duration',
+            '`5` <!-- d=abc --> non-numeric duration',
+            '`5` <!-- d= --> empty duration',
+        ]) {
+            expectInvalid(`${HEADER}
+<!-- youtnote:video:start -->
+
+${sourceBlock(YT, 'V')}
+
+<!-- youtnote:section:transcript:start -->
+
+${captionLine}
+
+<!-- youtnote:section:transcript:end -->
+
+<!-- youtnote:video:end -->
+`);
+        }
     });
 });
 
