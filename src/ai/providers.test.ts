@@ -5,7 +5,15 @@ import type { AIConversationRequest } from './types';
 import { AnthropicProvider } from './anthropic';
 import { GeminiProvider } from './gemini';
 import { CustomOpenAIProvider, OpenAIProvider } from './openai';
-import { createAIProvider } from './registry';
+import { createAIProvider, getAINoteGenerationSetupError } from './registry';
+import { createAIProviderError, createCompatibleResponseSchema } from './request';
+import {
+    createYoutnoteNotesJsonSchema,
+    generateNotesFromTranscript,
+    YOUTNOTE_AI_LEGACY_SYSTEM_PROMPT,
+} from './notes';
+import type { GenerateNotesOptions } from './notes';
+import type { AISettings, TranscriptEntry } from '../types';
 
 import { requestUrl } from 'obsidian';
 
@@ -141,6 +149,44 @@ describe('OpenAIProvider', () => {
         expect(messages[3]).toEqual({ role: 'user', content: 'Summarize' });
     });
 
+    it('rejects finish_reason length as truncated even when content is present', async () => {
+        respond(jsonResponse(200, {
+            choices: [{ message: { content: 'partial answer' }, finish_reason: 'length' }],
+        }));
+        await expect(makeProvider().sendConversation(CHAT_REQUEST))
+            .rejects.toMatchObject({ kind: 'truncated' });
+        await expect(makeProvider().sendConversation(CHAT_REQUEST))
+            .rejects.toThrow(/Maximum notes|Custom instructions/);
+    });
+
+    it('rejects finish_reason content_filter as blocked', async () => {
+        respond(jsonResponse(200, {
+            choices: [{ message: { content: 'partial' }, finish_reason: 'content_filter' }],
+        }));
+        await expect(makeProvider().sendConversation(CHAT_REQUEST))
+            .rejects.toMatchObject({ kind: 'blocked' });
+    });
+
+    it('rejects a nonempty message.refusal as refused', async () => {
+        respond(jsonResponse(200, {
+            choices: [{ message: { content: '', refusal: 'cannot help with that' }, finish_reason: 'stop' }],
+        }));
+        await expect(makeProvider().sendConversation(CHAT_REQUEST))
+            .rejects.toMatchObject({ kind: 'refused' });
+        await expect(makeProvider().sendConversation(CHAT_REQUEST))
+            .rejects.toThrow('cannot help with that');
+    });
+
+    it('rejects explicit unexpected finish reasons as a terminal provider error', async () => {
+        for (const reason of ['tool_calls', 'function_call']) {
+            respond(jsonResponse(200, {
+                choices: [{ message: { content: 'x' }, finish_reason: reason }],
+            }));
+            await expect(makeProvider().sendConversation(CHAT_REQUEST))
+                .rejects.toMatchObject({ kind: 'provider' });
+        }
+    });
+
     it('parses array-form message content parts', async () => {
         respond(jsonResponse(200, {
             choices: [{ message: { content: [{ type: 'text', text: 'Part A' }, { type: 'text', text: 'Part B' }] } }],
@@ -201,7 +247,7 @@ describe('OpenAIProvider', () => {
             json_schema: {
                 name: 'youtnote_segments',
                 strict: true,
-                schema: TEST_RESPONSE_SCHEMA.schema,
+                schema: createCompatibleResponseSchema(TEST_RESPONSE_SCHEMA.schema),
                 description: TEST_RESPONSE_SCHEMA.description,
             },
         });
@@ -228,13 +274,29 @@ describe('CustomOpenAIProvider', () => {
 
     it('shares the same chat response parsing', async () => {
         respond(jsonResponse(200, {
-            choices: [{ message: { content: 'local answer' }, finish_reason: 'length' }],
+            choices: [{ message: { content: 'local answer' }, finish_reason: 'stop' }],
             usage: { prompt_tokens: 1, completion_tokens: 2, total_tokens: 3 },
         }));
         const result = await makeProvider('optional-key').sendConversation(CHAT_REQUEST);
         expect(result.content).toBe('local answer');
-        expect(result.metadata?.finishReason).toBe('length');
+        expect(result.metadata?.finishReason).toBe('stop');
         expect(lastRequest().headers?.Authorization).toBe('Bearer optional-key');
+    });
+
+    it('rejects finish_reason length as truncated', async () => {
+        respond(jsonResponse(200, {
+            choices: [{ message: { content: 'partial' }, finish_reason: 'length' }],
+        }));
+        await expect(makeProvider().sendConversation(CHAT_REQUEST))
+            .rejects.toMatchObject({ kind: 'truncated' });
+    });
+
+    it('flags explicit unexpected finish reasons as incompatible', async () => {
+        respond(jsonResponse(200, {
+            choices: [{ message: { content: 'x' }, finish_reason: 'tool_calls' }],
+        }));
+        await expect(makeProvider().sendConversation(CHAT_REQUEST))
+            .rejects.toMatchObject({ kind: 'incompatible' });
     });
 
     it('flags a malformed success response as incompatible', async () => {
@@ -294,7 +356,7 @@ describe('CustomOpenAIProvider', () => {
             json_schema: {
                 name: 'youtnote_segments',
                 strict: true,
-                schema: TEST_RESPONSE_SCHEMA.schema,
+                schema: createCompatibleResponseSchema(TEST_RESPONSE_SCHEMA.schema),
                 description: TEST_RESPONSE_SCHEMA.description,
             },
         });
@@ -378,39 +440,75 @@ describe('AnthropicProvider', () => {
         expect(mockRequestUrl).not.toHaveBeenCalled();
     });
 
-    it('uses a forced strict tool schema and extracts the tool_use input', async () => {
+    it('sends a native output_config format and parses structured JSON from text', async () => {
         const input = { segments: [{ timestamp_seconds: 5, markdown: 'note' }] };
         respond(jsonResponse(200, {
-            content: [{ type: 'tool_use', name: 'youtnote_segments', input }],
+            content: [{ type: 'text', text: JSON.stringify(input) }],
             usage: { input_tokens: 1, output_tokens: 2 },
-            stop_reason: 'tool_use',
+            stop_reason: 'end_turn',
         }));
         const result = await makeProvider().sendConversation({ ...CHAT_REQUEST, responseSchema: TEST_RESPONSE_SCHEMA });
 
         expect(result.content).toBe(JSON.stringify(input));
+        expect(result.metadata?.finishReason).toBe('end_turn');
 
         const body = lastRequestBody();
-        expect(body.tools).toEqual([{
-            name: 'youtnote_segments',
-            description: TEST_RESPONSE_SCHEMA.description,
-            strict: true,
-            input_schema: TEST_RESPONSE_SCHEMA.schema,
-        }]);
-        expect(body.tool_choice).toEqual({
-            type: 'tool',
-            name: 'youtnote_segments',
-            disable_parallel_tool_use: true,
+        expect(body.output_config).toEqual({
+            format: {
+                type: 'json_schema',
+                schema: createCompatibleResponseSchema(TEST_RESPONSE_SCHEMA.schema),
+            },
         });
+        expect(body).not.toHaveProperty('tools');
+        expect(body).not.toHaveProperty('tool_choice');
     });
 
-    it('throws invalid-response when the structured tool call is missing or malformed', async () => {
-        respond(jsonResponse(200, { content: [{ type: 'text', text: 'no tool call' }] }));
+    it('rejects a tool_use-only payload instead of accepting it as native JSON', async () => {
+        respond(jsonResponse(200, {
+            content: [{ type: 'tool_use', name: 'youtnote_segments', input: { segments: [] } }],
+            stop_reason: 'end_turn',
+        }));
         await expect(makeProvider().sendConversation({ ...CHAT_REQUEST, responseSchema: TEST_RESPONSE_SCHEMA }))
             .rejects.toMatchObject({ kind: 'invalid-response' });
+    });
 
-        respond(jsonResponse(200, { content: [{ type: 'tool_use', name: 'youtnote_segments', input: 'not-an-object' }] }));
-        await expect(makeProvider().sendConversation({ ...CHAT_REQUEST, responseSchema: TEST_RESPONSE_SCHEMA }))
-            .rejects.toMatchObject({ kind: 'invalid-response' });
+    it('rejects stop_reason max_tokens and model_context_window_exceeded as truncated', async () => {
+        for (const stopReason of ['max_tokens', 'model_context_window_exceeded']) {
+            respond(jsonResponse(200, {
+                content: [{ type: 'text', text: 'partial' }],
+                stop_reason: stopReason,
+            }));
+            await expect(makeProvider().sendConversation(CHAT_REQUEST))
+                .rejects.toMatchObject({ kind: 'truncated' });
+            await expect(makeProvider().sendConversation(CHAT_REQUEST))
+                .rejects.toThrow(/Maximum notes|Custom instructions/);
+        }
+    });
+
+    it('rejects stop_reason refusal as refused and preserves the text explanation', async () => {
+        respond(jsonResponse(200, {
+            content: [{ type: 'text', text: 'no' }],
+            stop_reason: 'refusal',
+        }));
+        await expect(makeProvider().sendConversation(CHAT_REQUEST))
+            .rejects.toMatchObject({ kind: 'refused', message: 'Anthropic refused to complete the response: no.' });
+    });
+
+    it('rejects other explicit stop reasons as a terminal provider error', async () => {
+        for (const stopReason of ['tool_use', 'stop_sequence', 'pause_turn']) {
+            respond(jsonResponse(200, {
+                content: [{ type: 'text', text: 'answer' }],
+                stop_reason: stopReason,
+            }));
+            await expect(makeProvider().sendConversation(CHAT_REQUEST))
+                .rejects.toMatchObject({ kind: 'provider' });
+        }
+    });
+
+    it('accepts a response without stop_reason', async () => {
+        respond(jsonResponse(200, { content: [{ type: 'text', text: 'ok' }] }));
+        const result = await makeProvider().sendConversation(CHAT_REQUEST);
+        expect(result.content).toBe('ok');
     });
 });
 
@@ -473,16 +571,76 @@ describe('GeminiProvider', () => {
         ]);
     });
 
-    it('adds responseMimeType and responseSchema to generationConfig for structured requests', async () => {
+    it('adds generationConfig.responseFormat for structured requests', async () => {
         respond(jsonResponse(200, {
-            candidates: [{ content: { parts: [{ text: '{"segments":[]}' }] } }],
+            candidates: [{ content: { parts: [{ text: '{"segments":[]}' }] }, finishReason: 'STOP' }],
         }));
         await makeProvider().sendConversation({ ...CHAT_REQUEST, responseSchema: TEST_RESPONSE_SCHEMA });
-        expect(lastRequestBody().generationConfig).toEqual({
+        const generationConfig = lastRequestBody().generationConfig as Record<string, unknown>;
+        expect(generationConfig).toEqual({
             maxOutputTokens: 8192,
-            responseMimeType: 'application/json',
-            responseSchema: TEST_RESPONSE_SCHEMA.schema,
+            responseFormat: {
+                text: {
+                    mimeType: 'application/json',
+                    schema: createCompatibleResponseSchema(TEST_RESPONSE_SCHEMA.schema),
+                },
+            },
         });
+        expect(generationConfig).not.toHaveProperty('responseSchema');
+        expect(generationConfig).not.toHaveProperty('responseMimeType');
+    });
+
+    it('rejects promptFeedback.blockReason as blocked even without candidates', async () => {
+        respond(jsonResponse(200, {
+            promptFeedback: { blockReason: 'SAFETY' },
+        }));
+        await expect(makeProvider().sendConversation(CHAT_REQUEST))
+            .rejects.toMatchObject({ kind: 'blocked' });
+    });
+
+    it('rejects candidate finishReason MAX_TOKENS as truncated', async () => {
+        respond(jsonResponse(200, {
+            candidates: [{
+                content: { parts: [{ text: 'partial but valid JSON {}' }] },
+                finishReason: 'MAX_TOKENS',
+            }],
+        }));
+        await expect(makeProvider().sendConversation(CHAT_REQUEST))
+            .rejects.toMatchObject({ kind: 'truncated' });
+        await expect(makeProvider().sendConversation(CHAT_REQUEST))
+            .rejects.toThrow(/Maximum notes|Custom instructions/);
+    });
+
+    it.each(['SAFETY', 'RECITATION', 'BLOCKLIST', 'PROHIBITED_CONTENT', 'SPII'])(
+        'rejects safety finish reason %s as blocked',
+        async (finishReason) => {
+            respond(jsonResponse(200, {
+                candidates: [{ content: { parts: [{ text: 'x' }] }, finishReason }],
+            }));
+            await expect(makeProvider().sendConversation(CHAT_REQUEST))
+                .rejects.toMatchObject({ kind: 'blocked' });
+        },
+    );
+
+    it('rejects other explicit finish reasons as a terminal provider error', async () => {
+        for (const finishReason of ['OTHER', 'MALFORMED_FUNCTION_CALL']) {
+            respond(jsonResponse(200, {
+                candidates: [{ content: { parts: [{ text: 'x' }] }, finishReason }],
+            }));
+            await expect(makeProvider().sendConversation(CHAT_REQUEST))
+                .rejects.toMatchObject({ kind: 'provider' });
+        }
+    });
+
+    it('ignores thought parts when collecting answer text', async () => {
+        respond(jsonResponse(200, {
+            candidates: [{
+                content: { parts: [{ text: 'hidden reasoning', thought: true }, { text: 'answer' }] },
+                finishReason: 'STOP',
+            }],
+        }));
+        const result = await makeProvider().sendConversation(CHAT_REQUEST);
+        expect(result.content).toBe('answer');
     });
 
     it('filters listModels to generateContent and strips the models/ prefix', async () => {
@@ -552,6 +710,174 @@ describe('request classification', () => {
     });
 });
 
+describe('createCompatibleResponseSchema', () => {
+    it('strips numeric, string, and array constraints while keeping structure', () => {
+        const schema = createYoutnoteNotesJsonSchema(true, 2);
+        const converted = createCompatibleResponseSchema(schema);
+        expect(converted).toEqual({
+            type: 'object',
+            additionalProperties: false,
+            required: ['general_note', 'segments'],
+            properties: {
+                general_note: { type: 'string' },
+                segments: {
+                    type: 'array',
+                    items: {
+                        type: 'object',
+                        additionalProperties: false,
+                        required: ['timestamp_seconds', 'markdown'],
+                        properties: {
+                            timestamp_seconds: { type: 'number' },
+                            markdown: { type: 'string' },
+                        },
+                    },
+                },
+            },
+        });
+    });
+
+    it('does not mutate the canonical schema', () => {
+        const schema = createYoutnoteNotesJsonSchema(true, 2);
+        createCompatibleResponseSchema(schema);
+        expect(schema).toEqual(createYoutnoteNotesJsonSchema(true, 2));
+        const segments = (schema.properties as Record<string, Record<string, unknown>>).segments;
+        expect(segments.minItems).toBe(1);
+        expect(segments.maxItems).toBe(2);
+    });
+
+    it('preserves property names that collide with unsupported keywords', () => {
+        const schema = {
+            type: 'object',
+            additionalProperties: false,
+            required: ['minimum', 'items'],
+            properties: {
+                minimum: { type: 'number', minimum: 5, multipleOf: 2 },
+                items: { type: 'string', minLength: 2, format: 'date-time' },
+            },
+        };
+        expect(createCompatibleResponseSchema(schema)).toEqual({
+            type: 'object',
+            additionalProperties: false,
+            required: ['minimum', 'items'],
+            properties: {
+                minimum: { type: 'number' },
+                items: { type: 'string' },
+            },
+        });
+    });
+
+    it('converts nested schemas inside combinators and arrays', () => {
+        const schema = {
+            type: 'object',
+            properties: {
+                any: { anyOf: [{ type: 'string', maxLength: 5 }, { type: 'number', maximum: 3 }] },
+                deep: { type: 'object', properties: { n: { type: 'integer', exclusiveMinimum: 0 } } },
+            },
+        };
+        expect(createCompatibleResponseSchema(schema)).toEqual({
+            type: 'object',
+            properties: {
+                any: { anyOf: [{ type: 'string' }, { type: 'number' }] },
+                deep: { type: 'object', properties: { n: { type: 'integer' } } },
+            },
+        });
+    });
+
+    it('keeps the segments-only schema shape for the default max', () => {
+        const converted = createCompatibleResponseSchema(createYoutnoteNotesJsonSchema(false));
+        expect(converted).toEqual({
+            type: 'object',
+            additionalProperties: false,
+            required: ['segments'],
+            properties: {
+                segments: {
+                    type: 'array',
+                    items: {
+                        type: 'object',
+                        additionalProperties: false,
+                        required: ['timestamp_seconds', 'markdown'],
+                        properties: {
+                            timestamp_seconds: { type: 'number' },
+                            markdown: { type: 'string' },
+                        },
+                    },
+                },
+            },
+        });
+    });
+});
+
+describe('createAIProviderError', () => {
+    it.each<[string, unknown, number, boolean, string]>([
+        ['structured output rejection', { error: { message: 'Structured output is not supported for this model' } }, 400, true, 'unsupported-structured-output'],
+        ['response_format rejection', { error: { message: 'response_format is not supported' } }, 422, true, 'unsupported-structured-output'],
+        ['unsupported_parameter code', { error: { code: 'unsupported_parameter', param: 'response_format', message: 'Unsupported parameter' } }, 400, true, 'unsupported-structured-output'],
+        ['unsupported_value code', { error: { code: 'unsupported_value', param: 'output_config.format', message: 'Unsupported value' } }, 422, true, 'unsupported-structured-output'],
+        ['unsupported gemini responseFormat', { error: { code: 'unsupported_parameter', param: 'generationConfig.responseFormat', message: 'unsupported' } }, 400, true, 'unsupported-structured-output'],
+        ['stale tool_choice param', { error: { code: 'unsupported_parameter', param: 'tool_choice', message: 'tool_choice is not supported' } }, 400, true, 'provider'],
+        ['stale responseSchema param', { error: { code: 'unsupported_parameter', param: 'responseSchema', message: 'responseSchema is not supported' } }, 400, true, 'provider'],
+        ['invalid schema for response_format', { error: { message: 'Invalid schema for response_format: additionalProperties is not allowed' } }, 400, true, 'provider'],
+        ['billing with capability param', { error: { code: 'unsupported_parameter', param: 'response_format', message: 'billing quota exceeded' } }, 400, true, 'provider'],
+        ['gemini unknown field', { error: { message: 'Unknown name "responseFormat": Cannot find field.', status: 'INVALID_ARGUMENT' } }, 400, true, 'unsupported-structured-output'],
+        ['plain JSON schema rejection', { error: { message: 'JSON schema is not supported for this model' } }, 400, true, 'unsupported-structured-output'],
+        ['feature param via message', { error: { param: 'response_format', message: 'response_format is not supported' } }, 400, true, 'unsupported-structured-output'],
+        ['model_not_found code', { error: { code: 'model_not_found', param: 'model', message: 'Model unavailable; request used response_format' } }, 400, true, 'provider'],
+        ['billing_error code', { error: { code: 'billing_error', message: 'response_format is not supported' } }, 400, true, 'provider'],
+        ['insufficient_quota code', { error: { code: 'insufficient_quota', param: 'response_format', message: 'unsupported' } }, 400, true, 'provider'],
+        ['non-feature param messages', { error: { param: 'messages', message: 'response_format is not supported' } }, 400, true, 'provider'],
+        ['non-feature param model', { error: { param: 'model', message: 'structured output is not supported' } }, 400, true, 'provider'],
+        ['unrelated 400', { error: { message: 'Malformed request body' } }, 400, true, 'provider'],
+        ['schema constraint rejection', { error: { message: "json_schema is invalid: 'minimum' is not supported" } }, 400, true, 'provider'],
+        ['invalid_json_schema code', { error: { code: 'invalid_json_schema', param: 'response_format.json_schema.schema', message: 'Invalid schema' } }, 400, true, 'provider'],
+        ['param path into schema', { error: { code: 'unsupported_parameter', param: 'response_format.json_schema.schema.properties.markdown', message: 'x' } }, 400, true, 'provider'],
+        ['classification disabled', { error: { message: 'response_format is not supported' } }, 400, false, 'provider'],
+        ['wrong status 401', { error: { message: 'response_format is not supported' } }, 401, true, 'provider'],
+        ['wrong status 429', { error: { message: 'response_format is not supported' } }, 429, true, 'provider'],
+        ['wrong status 500', { error: { message: 'response_format is not supported' } }, 500, true, 'provider'],
+        ['unavailable model', { error: { message: 'The model is unavailable' } }, 400, true, 'provider'],
+        ['context length', { error: { message: 'maximum context length exceeded' } }, 400, true, 'provider'],
+        ['billing', { error: { message: 'billing quota exceeded: structured output not supported' } }, 400, true, 'provider'],
+    ])('classifies %s', (_label, json, status, structured, expectedKind) => {
+        const error = createAIProviderError(json, status, 'fallback', structured);
+        expect(error).toBeInstanceOf(AIProviderError);
+        expect(error.kind).toBe(expectedKind);
+    });
+
+    it('preserves the provider message, code, and param', () => {
+        const error = createAIProviderError(
+            { error: { code: 'unsupported_parameter', param: 'response_format', message: 'not supported here' } },
+            400,
+            'fallback',
+            true,
+        );
+        expect(error.kind).toBe('unsupported-structured-output');
+        expect(error.message).toBe('not supported here');
+        expect(error.status).toBe(400);
+        expect(error.code).toBe('unsupported_parameter');
+        expect(error.param).toBe('response_format');
+    });
+
+    it('derives code from error.type or error.status when code is absent or non-string', () => {
+        const fromType = createAIProviderError(
+            { error: { type: 'invalid_request_error', message: 'x' } }, 400, 'fallback',
+        );
+        expect(fromType.code).toBe('invalid_request_error');
+        const fromStatus = createAIProviderError(
+            { error: { code: 400, status: 'INVALID_ARGUMENT', message: 'x' } }, 400, 'fallback',
+        );
+        expect(fromStatus.code).toBe('INVALID_ARGUMENT');
+    });
+
+    it('falls back to the generic message and omits code and param', () => {
+        const error = createAIProviderError({ unexpected: true }, 503, 'Service failed.');
+        expect(error.kind).toBe('provider');
+        expect(error.message).toBe('Service failed.');
+        expect(error.status).toBe(503);
+        expect(error.code).toBeUndefined();
+        expect(error.param).toBeUndefined();
+    });
+});
+
 describe('createAIProvider', () => {
     const base = { apiKey: 'k', model: 'm', timeoutMs: 1000 };
 
@@ -567,5 +893,542 @@ describe('createAIProvider', () => {
             .toThrow(AIProviderError);
         expect(() => createAIProvider({ ...base, provider: 'custom' }))
             .toThrow(expect.objectContaining({ kind: 'invalid-config' }));
+    });
+});
+
+describe('model list pagination', () => {
+    const requestParamAt = (index: number): RequestUrlParam => {
+        const param = mockRequestUrl.mock.calls[index][0];
+        if (typeof param === 'string') {
+            throw new Error('expected RequestUrlParam');
+        }
+        return param;
+    };
+
+    it('collects Anthropic models across after_id pages, deduplicated and sorted', async () => {
+        const provider = new AnthropicProvider({ apiKey: 'sk-ant', model: 'claude-sonnet-4-5', timeoutMs: 5000 });
+        mockRequestUrl
+            .mockImplementationOnce(() => Promise.resolve(jsonResponse(200, {
+                data: [{ id: 'b-model' }, { id: 'a-model' }],
+                has_more: true,
+                last_id: 'cursor-1',
+            })) as unknown as RequestUrlResponsePromise)
+            .mockImplementationOnce(() => Promise.resolve(jsonResponse(200, {
+                data: [{ id: 'a-model' }, { id: 'c-model' }],
+                has_more: false,
+            })) as unknown as RequestUrlResponsePromise);
+        await expect(provider.listModels()).resolves.toEqual(['a-model', 'b-model', 'c-model']);
+        expect(mockRequestUrl).toHaveBeenCalledTimes(2);
+        expect(requestParamAt(0).url).toBe('https://api.anthropic.com/v1/models');
+        expect(requestParamAt(1).url).toBe('https://api.anthropic.com/v1/models?after_id=cursor-1');
+    });
+
+    it('rejects malformed or repeated Anthropic pagination cursors', async () => {
+        const provider = new AnthropicProvider({ apiKey: 'sk-ant', model: 'claude-sonnet-4-5', timeoutMs: 5000 });
+        respond(jsonResponse(200, { data: [{ id: 'x' }], has_more: true }));
+        await expect(provider.listModels()).rejects.toMatchObject({ kind: 'invalid-response' });
+
+        respond(jsonResponse(200, { data: [{ id: 'x' }], has_more: 'yes' }));
+        await expect(provider.listModels()).rejects.toMatchObject({ kind: 'invalid-response' });
+
+        mockRequestUrl.mockClear();
+        mockRequestUrl.mockImplementation(() => Promise.resolve(jsonResponse(200, {
+            data: [{ id: 'x' }],
+            has_more: true,
+            last_id: 'cursor-1',
+        })) as unknown as RequestUrlResponsePromise);
+        await expect(provider.listModels()).rejects.toMatchObject({ kind: 'invalid-response' });
+        expect(mockRequestUrl).toHaveBeenCalledTimes(2);
+    });
+
+    it('propagates an Anthropic HTTP failure on a later page without a partial list', async () => {
+        const provider = new AnthropicProvider({ apiKey: 'sk-ant', model: 'claude-sonnet-4-5', timeoutMs: 5000 });
+        mockRequestUrl
+            .mockImplementationOnce(() => Promise.resolve(jsonResponse(200, {
+                data: [{ id: 'x' }],
+                has_more: true,
+                last_id: 'cursor-1',
+            })) as unknown as RequestUrlResponsePromise)
+            .mockImplementationOnce(() => Promise.resolve(jsonResponse(500, {
+                error: { message: 'server error' },
+            })) as unknown as RequestUrlResponsePromise);
+        await expect(provider.listModels()).rejects.toMatchObject({ kind: 'provider', status: 500 });
+        expect(mockRequestUrl).toHaveBeenCalledTimes(2);
+    });
+
+    it('stops Anthropic listModels without further requests when the signal aborts between pages', async () => {
+        const controller = new AbortController();
+        const provider = new AnthropicProvider({ apiKey: 'sk-ant', model: 'claude-sonnet-4-5', timeoutMs: 5000 });
+        mockRequestUrl.mockImplementation(() => {
+            controller.abort();
+            return Promise.resolve(jsonResponse(200, {
+                data: [{ id: 'x' }],
+                has_more: true,
+                last_id: 'cursor-1',
+            })) as unknown as RequestUrlResponsePromise;
+        });
+        await expect(provider.listModels(controller.signal)).rejects.toMatchObject({ kind: 'cancelled' });
+        expect(mockRequestUrl).toHaveBeenCalledTimes(1);
+    });
+
+    it('collects Gemini models across nextPageToken pages and filters across all pages', async () => {
+        const provider = new GeminiProvider({ apiKey: 'g-key', model: 'gemini-2.0-flash', timeoutMs: 5000 });
+        mockRequestUrl
+            .mockImplementationOnce(() => Promise.resolve(jsonResponse(200, {
+                models: [
+                    { name: 'models/embedding-001', supportedGenerationMethods: ['embedContent'] },
+                    { name: 'models/gemini-b', supportedGenerationMethods: ['generateContent'] },
+                ],
+                nextPageToken: 'token-1',
+            })) as unknown as RequestUrlResponsePromise)
+            .mockImplementationOnce(() => Promise.resolve(jsonResponse(200, {
+                models: [
+                    { name: 'models/gemini-a', supportedGenerationMethods: ['generateContent'] },
+                    { name: 'models/gemini-b', supportedGenerationMethods: ['generateContent'] },
+                ],
+            })) as unknown as RequestUrlResponsePromise);
+        await expect(provider.listModels()).resolves.toEqual(['gemini-a', 'gemini-b']);
+        expect(mockRequestUrl).toHaveBeenCalledTimes(2);
+        expect(requestParamAt(0).url).toBe('https://generativelanguage.googleapis.com/v1beta/models');
+        expect(requestParamAt(1).url).toBe('https://generativelanguage.googleapis.com/v1beta/models?pageToken=token-1');
+    });
+
+    it('treats a fully filtered first Gemini page as usable when a later page has models', async () => {
+        const provider = new GeminiProvider({ apiKey: 'g-key', model: 'gemini-2.0-flash', timeoutMs: 5000 });
+        mockRequestUrl
+            .mockImplementationOnce(() => Promise.resolve(jsonResponse(200, {
+                models: [{ name: 'models/embedding-001', supportedGenerationMethods: ['embedContent'] }],
+                nextPageToken: 'token-1',
+            })) as unknown as RequestUrlResponsePromise)
+            .mockImplementationOnce(() => Promise.resolve(jsonResponse(200, {
+                models: [{ name: 'models/gemini-a', supportedGenerationMethods: ['generateContent'] }],
+            })) as unknown as RequestUrlResponsePromise);
+        await expect(provider.listModels()).resolves.toEqual(['gemini-a']);
+    });
+
+    it.each([42, null, { token: 'x' }])(
+        'rejects a present non-string Gemini nextPageToken (%s)',
+        async (nextPageToken) => {
+            const provider = new GeminiProvider({ apiKey: 'g-key', model: 'gemini-2.0-flash', timeoutMs: 5000 });
+            respond(jsonResponse(200, {
+                models: [{ name: 'models/x', supportedGenerationMethods: ['generateContent'] }],
+                nextPageToken,
+            }));
+            await expect(provider.listModels()).rejects.toMatchObject({ kind: 'invalid-response' });
+            expect(mockRequestUrl).toHaveBeenCalledTimes(1);
+        },
+    );
+
+    it('treats an empty-string Gemini nextPageToken as the end of the list', async () => {
+        const provider = new GeminiProvider({ apiKey: 'g-key', model: 'gemini-2.0-flash', timeoutMs: 5000 });
+        respond(jsonResponse(200, {
+            models: [{ name: 'models/x', supportedGenerationMethods: ['generateContent'] }],
+            nextPageToken: '',
+        }));
+        await expect(provider.listModels()).resolves.toEqual(['x']);
+        expect(mockRequestUrl).toHaveBeenCalledTimes(1);
+    });
+
+    it('rejects a repeated Gemini nextPageToken', async () => {
+        const provider = new GeminiProvider({ apiKey: 'g-key', model: 'gemini-2.0-flash', timeoutMs: 5000 });
+        mockRequestUrl.mockImplementation(() => Promise.resolve(jsonResponse(200, {
+            models: [{ name: 'models/x', supportedGenerationMethods: ['generateContent'] }],
+            nextPageToken: 'token-1',
+        })) as unknown as RequestUrlResponsePromise);
+        await expect(provider.listModels()).rejects.toMatchObject({ kind: 'invalid-response' });
+        expect(mockRequestUrl).toHaveBeenCalledTimes(2);
+    });
+
+    it('propagates a Gemini HTTP failure on a later page without a partial list', async () => {
+        const provider = new GeminiProvider({ apiKey: 'g-key', model: 'gemini-2.0-flash', timeoutMs: 5000 });
+        mockRequestUrl
+            .mockImplementationOnce(() => Promise.resolve(jsonResponse(200, {
+                models: [{ name: 'models/x', supportedGenerationMethods: ['generateContent'] }],
+                nextPageToken: 'token-1',
+            })) as unknown as RequestUrlResponsePromise)
+            .mockImplementationOnce(() => Promise.resolve(jsonResponse(403, {
+                error: { message: 'denied' },
+            })) as unknown as RequestUrlResponsePromise);
+        await expect(provider.listModels()).rejects.toMatchObject({ kind: 'provider', status: 403 });
+    });
+
+    it('stops listModels without further requests when the signal aborts between pages', async () => {
+        const controller = new AbortController();
+        const provider = new GeminiProvider({ apiKey: 'g-key', model: 'gemini-2.0-flash', timeoutMs: 5000 });
+        mockRequestUrl.mockImplementation(() => {
+            controller.abort();
+            return Promise.resolve(jsonResponse(200, {
+                models: [{ name: 'models/x', supportedGenerationMethods: ['generateContent'] }],
+                nextPageToken: 'token-1',
+            })) as unknown as RequestUrlResponsePromise;
+        });
+        await expect(provider.listModels(controller.signal)).rejects.toMatchObject({ kind: 'cancelled' });
+        expect(mockRequestUrl).toHaveBeenCalledTimes(1);
+    });
+});
+
+describe('production schema on the wire', () => {
+    const SEGMENTS_ITEM = {
+        type: 'object',
+        additionalProperties: false,
+        required: ['timestamp_seconds', 'markdown'],
+        properties: {
+            timestamp_seconds: { type: 'number' },
+            markdown: { type: 'string' },
+        },
+    };
+    const EXPECTED_WIRE_SEGMENTS_ONLY = {
+        type: 'object',
+        additionalProperties: false,
+        required: ['segments'],
+        properties: {
+            segments: { type: 'array', items: SEGMENTS_ITEM },
+        },
+    };
+    const EXPECTED_WIRE_WITH_GENERAL = {
+        type: 'object',
+        additionalProperties: false,
+        required: ['general_note', 'segments'],
+        properties: {
+            segments: { type: 'array', items: SEGMENTS_ITEM },
+            general_note: { type: 'string' },
+        },
+    };
+
+    const productionRequest = (includeGeneralNote: boolean, maxNotes?: number): AIConversationRequest => ({
+        ...CHAT_REQUEST,
+        responseSchema: {
+            name: 'youtnote_segments',
+            description: 'production schema',
+            schema: createYoutnoteNotesJsonSchema(includeGeneralNote, maxNotes),
+        },
+    });
+
+    const collectForbiddenKeywords = (value: unknown, found = new Set<string>()): Set<string> => {
+        if (Array.isArray(value)) {
+            for (const entry of value) {
+                collectForbiddenKeywords(entry, found);
+            }
+            return found;
+        }
+        if (value !== null && typeof value === 'object') {
+            for (const [key, entry] of Object.entries(value)) {
+                if (['minimum', 'maximum', 'exclusiveMinimum', 'exclusiveMaximum', 'multipleOf',
+                    'minLength', 'maxLength', 'pattern', 'format', 'minItems', 'maxItems'].includes(key)) {
+                    found.add(key);
+                }
+                collectForbiddenKeywords(entry, found);
+            }
+        }
+        return found;
+    };
+
+    const openAISuccess = () => jsonResponse(200, {
+        choices: [{ message: { content: 'ok' }, finish_reason: 'stop' }],
+    });
+    const anthropicSuccess = () => jsonResponse(200, {
+        content: [{ type: 'text', text: 'ok' }],
+        stop_reason: 'end_turn',
+    });
+    const geminiSuccess = () => jsonResponse(200, {
+        candidates: [{ content: { parts: [{ text: 'ok' }] }, finishReason: 'STOP' }],
+    });
+
+    it.each([
+        ['segments only', false, undefined, EXPECTED_WIRE_SEGMENTS_ONLY],
+        ['general note with max 2', true, 2, EXPECTED_WIRE_WITH_GENERAL],
+    ] as const)('OpenAI transmits the %s schema without forbidden constraints', async (_label, general, maxNotes, expected) => {
+        respond(openAISuccess());
+        const provider = new OpenAIProvider({ apiKey: 'sk', model: 'gpt-4o', timeoutMs: 5000 });
+        await provider.sendConversation(productionRequest(general, maxNotes));
+        const responseFormat = lastRequestBody().response_format as Record<string, unknown>;
+        const jsonSchema = responseFormat.json_schema as Record<string, unknown>;
+        expect(responseFormat.type).toBe('json_schema');
+        expect(jsonSchema.strict).toBe(true);
+        expect(jsonSchema.schema).toEqual(expected);
+        expect(collectForbiddenKeywords(jsonSchema.schema).size).toBe(0);
+    });
+
+    it.each([
+        ['segments only', false, undefined, EXPECTED_WIRE_SEGMENTS_ONLY],
+        ['general note with max 2', true, 2, EXPECTED_WIRE_WITH_GENERAL],
+    ] as const)('Custom OpenAI-compatible transmits the %s schema without forbidden constraints', async (_label, general, maxNotes, expected) => {
+        respond(openAISuccess());
+        const provider = new CustomOpenAIProvider({ baseUrl: 'http://localhost:1234/v1', apiKey: null, model: 'llama', timeoutMs: 5000 });
+        await provider.sendConversation(productionRequest(general, maxNotes));
+        const responseFormat = lastRequestBody().response_format as Record<string, unknown>;
+        const jsonSchema = responseFormat.json_schema as Record<string, unknown>;
+        expect(jsonSchema.schema).toEqual(expected);
+        expect(collectForbiddenKeywords(jsonSchema.schema).size).toBe(0);
+    });
+
+    it.each([
+        ['segments only', false, undefined, EXPECTED_WIRE_SEGMENTS_ONLY],
+        ['general note with max 2', true, 2, EXPECTED_WIRE_WITH_GENERAL],
+    ] as const)('Anthropic transmits the %s schema without forbidden constraints', async (_label, general, maxNotes, expected) => {
+        respond(anthropicSuccess());
+        const provider = new AnthropicProvider({ apiKey: 'sk-ant', model: 'claude-sonnet-4-5', timeoutMs: 5000 });
+        await provider.sendConversation(productionRequest(general, maxNotes));
+        const body = lastRequestBody();
+        expect(body).not.toHaveProperty('tools');
+        expect(body).not.toHaveProperty('tool_choice');
+        const outputConfig = body.output_config as Record<string, unknown>;
+        const format = outputConfig.format as Record<string, unknown>;
+        expect(format.type).toBe('json_schema');
+        expect(format.schema).toEqual(expected);
+        expect(collectForbiddenKeywords(format.schema).size).toBe(0);
+    });
+
+    it.each([
+        ['segments only', false, undefined, EXPECTED_WIRE_SEGMENTS_ONLY],
+        ['general note with max 2', true, 2, EXPECTED_WIRE_WITH_GENERAL],
+    ] as const)('Gemini transmits the %s schema without forbidden constraints', async (_label, general, maxNotes, expected) => {
+        respond(geminiSuccess());
+        const provider = new GeminiProvider({ apiKey: 'g-key', model: 'gemini-2.0-flash', timeoutMs: 5000 });
+        await provider.sendConversation(productionRequest(general, maxNotes));
+        const generationConfig = lastRequestBody().generationConfig as Record<string, unknown>;
+        expect(generationConfig).not.toHaveProperty('responseSchema');
+        expect(generationConfig).not.toHaveProperty('responseMimeType');
+        const responseFormat = generationConfig.responseFormat as Record<string, unknown>;
+        const text = responseFormat.text as Record<string, unknown>;
+        expect(text.mimeType).toBe('application/json');
+        expect(text.schema).toEqual(expected);
+        expect(collectForbiddenKeywords(text.schema).size).toBe(0);
+    });
+});
+
+describe('generateNotesFromTranscript provider integration', () => {
+    const TRANSCRIPT: TranscriptEntry[] = [
+        { startMs: 0, text: 'Welcome' },
+        { startMs: 10_000, text: 'First topic' },
+    ];
+    const LEGACY_MARKDOWN = [
+        '[general-note](general-note)',
+        'Video summary.',
+        '',
+        '[00:10](timestamp)',
+        'First note.',
+    ].join('\n');
+    const OPTIONS: GenerateNotesOptions = {
+        includeGeneralNote: true,
+        maxNotes: 5,
+        customInstructions: 'Be brief.',
+    };
+
+    const parseBody = (param: RequestUrlParam | string): Record<string, unknown> => {
+        if (typeof param === 'string' || typeof param.body !== 'string') {
+            throw new Error('expected RequestUrlParam with a string body');
+        }
+        return JSON.parse(param.body) as Record<string, unknown>;
+    };
+
+    const bodyAt = (index: number): Record<string, unknown> => parseBody(mockRequestUrl.mock.calls[index][0]);
+
+    const respondByCapability = (
+        isStructured: (body: Record<string, unknown>) => boolean,
+        errorJson: unknown,
+        successJson: unknown,
+    ): void => {
+        mockRequestUrl.mockImplementation((param) => {
+            const structured = isStructured(parseBody(param));
+            return Promise.resolve(jsonResponse(structured ? 400 : 200, structured ? errorJson : successJson)) as unknown as RequestUrlResponsePromise;
+        });
+    };
+
+    it('falls back to Markdown when OpenAI rejects structured output', async () => {
+        respondByCapability(
+            body => body.response_format !== undefined,
+            { error: { code: 'unsupported_parameter', param: 'response_format', message: 'response_format is not supported' } },
+            { choices: [{ message: { content: LEGACY_MARKDOWN }, finish_reason: 'stop' }] },
+        );
+        const result = await generateNotesFromTranscript(
+            new OpenAIProvider({ apiKey: 'sk', model: 'gpt-4o', timeoutMs: 5000 }),
+            TRANSCRIPT,
+            OPTIONS,
+        );
+        expect(result.format).toBe('unstructured');
+        expect(result.corrected).toBe(true);
+        expect(mockRequestUrl).toHaveBeenCalledTimes(2);
+        const second = bodyAt(1);
+        expect(second).not.toHaveProperty('response_format');
+        const messages = second.messages as { role: string; content: string }[];
+        expect(messages[0]).toEqual({ role: 'system', content: YOUTNOTE_AI_LEGACY_SYSTEM_PROMPT });
+        expect(messages[1].content).toContain('Generate one general-note block');
+        expect(messages[1].content).toContain('Additional instructions: Be brief.');
+        expect(messages[1].content).toContain('Return at most 5 timestamped notes');
+        expect(messages[1].content).toContain('[0] Welcome');
+    });
+
+    it('falls back to Markdown when the custom provider rejects structured output', async () => {
+        respondByCapability(
+            body => body.response_format !== undefined,
+            { error: { code: 'unsupported_parameter', param: 'response_format', message: 'response_format is not supported' } },
+            { choices: [{ message: { content: LEGACY_MARKDOWN } }] },
+        );
+        const result = await generateNotesFromTranscript(
+            new CustomOpenAIProvider({ baseUrl: 'http://localhost:1234/v1', apiKey: null, model: 'llama', timeoutMs: 5000 }),
+            TRANSCRIPT,
+            OPTIONS,
+        );
+        expect(result.format).toBe('unstructured');
+        expect(mockRequestUrl).toHaveBeenCalledTimes(2);
+        const second = bodyAt(1);
+        expect(second).not.toHaveProperty('response_format');
+        const messages = second.messages as { role: string; content: string }[];
+        expect(messages[0]).toEqual({ role: 'system', content: YOUTNOTE_AI_LEGACY_SYSTEM_PROMPT });
+        expect(messages[1].content).toContain('Generate one general-note block');
+        expect(messages[1].content).toContain('Additional instructions: Be brief.');
+        expect(messages[1].content).toContain('Return at most 5 timestamped notes');
+        expect(messages[1].content).toContain('[0] Welcome');
+    });
+
+    it('falls back to Markdown when Anthropic rejects structured output', async () => {
+        respondByCapability(
+            body => body.output_config !== undefined,
+            { error: { type: 'invalid_request_error', message: 'output_config.format is not supported for this model' } },
+            { content: [{ type: 'text', text: LEGACY_MARKDOWN }], stop_reason: 'end_turn' },
+        );
+        const result = await generateNotesFromTranscript(
+            new AnthropicProvider({ apiKey: 'sk-ant', model: 'claude-sonnet-4-5', timeoutMs: 5000 }),
+            TRANSCRIPT,
+            OPTIONS,
+        );
+        expect(result.format).toBe('unstructured');
+        expect(mockRequestUrl).toHaveBeenCalledTimes(2);
+        const second = bodyAt(1);
+        expect(second).not.toHaveProperty('output_config');
+        expect(second).not.toHaveProperty('tools');
+        expect(second.system).toBe(YOUTNOTE_AI_LEGACY_SYSTEM_PROMPT);
+        const messages = second.messages as { role: string; content: string }[];
+        expect(messages[0].content).toContain('Generate one general-note block');
+        expect(messages[0].content).toContain('Additional instructions: Be brief.');
+        expect(messages[0].content).toContain('Return at most 5 timestamped notes');
+        expect(messages[0].content).toContain('[0] Welcome');
+    });
+
+    it('falls back to Markdown when Gemini rejects structured output', async () => {
+        const controller = new AbortController();
+        respondByCapability(
+            body => (body.generationConfig as Record<string, unknown> | undefined)?.responseFormat !== undefined,
+            { error: { code: 400, status: 'INVALID_ARGUMENT', message: 'Unknown name "responseFormat": Cannot find field.' } },
+            { candidates: [{ content: { parts: [{ text: LEGACY_MARKDOWN }] }, finishReason: 'STOP' }] },
+        );
+        const result = await generateNotesFromTranscript(
+            new GeminiProvider({ apiKey: 'g-key', model: 'gemini-2.0-flash', timeoutMs: 5000 }),
+            TRANSCRIPT,
+            { ...OPTIONS, signal: controller.signal },
+        );
+        expect(result.format).toBe('unstructured');
+        expect(controller.signal.aborted).toBe(false);
+        expect(mockRequestUrl).toHaveBeenCalledTimes(2);
+        const second = bodyAt(1);
+        const generationConfig = second.generationConfig as Record<string, unknown>;
+        expect(generationConfig).not.toHaveProperty('responseFormat');
+        expect(generationConfig).not.toHaveProperty('responseSchema');
+        const systemInstruction = second.systemInstruction as { parts: { text: string }[] };
+        expect(systemInstruction.parts[0].text).toBe(YOUTNOTE_AI_LEGACY_SYSTEM_PROMPT);
+        const contents = second.contents as { parts: { text: string }[] }[];
+        expect(contents[0].parts[0].text).toContain('Generate one general-note block');
+        expect(contents[0].parts[0].text).toContain('Additional instructions: Be brief.');
+        expect(contents[0].parts[0].text).toContain('Return at most 5 timestamped notes');
+        expect(contents[0].parts[0].text).toContain('[0] Welcome');
+    });
+});
+
+describe('getAINoteGenerationSetupError', () => {
+    const makeAI = (mutate?: (ai: AISettings) => void): AISettings => {
+        const ai: AISettings = {
+            enabled: true,
+            provider: 'openai',
+            secretNames: { openai: 's1', anthropic: '', google: '', custom: '' },
+            models: { openai: 'gpt-4o', anthropic: '', google: '', custom: '' },
+            availableModels: { openai: [], anthropic: [], google: [], custom: [] },
+            customBaseUrl: '',
+            hostedTimeoutSeconds: 120,
+            customTimeoutSeconds: 300,
+        };
+        mutate?.(ai);
+        return ai;
+    };
+
+    it('returns invalid-config for disabled AI without reading secrets', () => {
+        const getSecret = vi.fn(() => null);
+        const error = getAINoteGenerationSetupError(makeAI(ai => { ai.enabled = false; }), getSecret);
+        expect(error).toMatchObject({ kind: 'invalid-config' });
+        expect(getSecret).not.toHaveBeenCalled();
+    });
+
+    it('returns invalid-config for provider none without reading secrets', () => {
+        const getSecret = vi.fn(() => null);
+        const error = getAINoteGenerationSetupError(makeAI(ai => { ai.provider = 'none'; }), getSecret);
+        expect(error).toMatchObject({ kind: 'invalid-config' });
+        expect(error?.message).toContain('No AI provider');
+        expect(getSecret).not.toHaveBeenCalled();
+    });
+
+    it('returns missing-key for a hosted provider with a blank secret name', () => {
+        const getSecret = vi.fn(() => null);
+        const error = getAINoteGenerationSetupError(
+            makeAI(ai => { ai.secretNames.openai = '  '; }),
+            getSecret,
+        );
+        expect(error).toMatchObject({ kind: 'missing-key' });
+        expect(getSecret).not.toHaveBeenCalled();
+    });
+
+    it('returns missing-key when the hosted secret resolves empty', () => {
+        const getSecret = vi.fn((_name: string) => '   ');
+        const error = getAINoteGenerationSetupError(makeAI(), getSecret);
+        expect(error).toMatchObject({ kind: 'missing-key' });
+        expect(getSecret).toHaveBeenCalledTimes(1);
+        expect(getSecret).toHaveBeenCalledWith('s1');
+    });
+
+    it('returns null for a fully configured hosted provider', () => {
+        const getSecret = vi.fn(() => 'sk-live');
+        expect(getAINoteGenerationSetupError(makeAI(), getSecret)).toBeNull();
+        expect(getSecret).toHaveBeenCalledTimes(1);
+    });
+
+    it('returns invalid-config when the selected model is blank', () => {
+        const getSecret = vi.fn(() => 'sk-live');
+        const error = getAINoteGenerationSetupError(
+            makeAI(ai => { ai.models.openai = ' '; }),
+            getSecret,
+        );
+        expect(error).toMatchObject({ kind: 'invalid-config' });
+        expect(error?.message).toContain('No AI model');
+    });
+
+    it.each(['', '   ', 'not a url', 'ftp://x', 'javascript:alert(1)'])(
+        'returns invalid-config for invalid custom base URL "%s" without reading secrets',
+        (baseUrl) => {
+            const getSecret = vi.fn(() => null);
+            const error = getAINoteGenerationSetupError(
+                makeAI(ai => {
+                    ai.provider = 'custom';
+                    ai.models.custom = 'llama';
+                    ai.customBaseUrl = baseUrl;
+                }),
+                getSecret,
+            );
+            expect(error).toMatchObject({ kind: 'invalid-config' });
+            expect(error?.message).toContain('base URL');
+            expect(getSecret).not.toHaveBeenCalled();
+        },
+    );
+
+    it('allows a valid keyless custom provider without reading secrets', () => {
+        const getSecret = vi.fn(() => null);
+        const error = getAINoteGenerationSetupError(
+            makeAI(ai => {
+                ai.provider = 'custom';
+                ai.models.custom = 'llama';
+                ai.customBaseUrl = 'http://localhost:11434/v1';
+            }),
+            getSecret,
+        );
+        expect(error).toBeNull();
+        expect(getSecret).not.toHaveBeenCalled();
     });
 });

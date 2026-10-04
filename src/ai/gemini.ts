@@ -1,4 +1,4 @@
-import { AIProviderError } from './types';
+import { AIProviderError, AI_TRUNCATED_RESPONSE_HINT } from './types';
 import type {
     AIAttachment,
     AIConversationRequest,
@@ -8,7 +8,8 @@ import type {
     ConfiguredAIProviderId,
 } from './types';
 import {
-    extractProviderErrorMessage,
+    createAIProviderError,
+    createCompatibleResponseSchema,
     isRecord,
     isSuccessStatus,
     parseJsonResponse,
@@ -18,6 +19,16 @@ import type { AIRequestOptions } from './request';
 
 const GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta';
 const GEMINI_MAX_OUTPUT_TOKENS = 8192;
+
+const GEMINI_SAFETY_FINISH_REASONS = new Set([
+    'SAFETY',
+    'RECITATION',
+    'BLOCKLIST',
+    'PROHIBITED_CONTENT',
+    'SPII',
+    'IMAGE_SAFETY',
+    'MODEL_ARMOR',
+]);
 
 export interface GeminiProviderConfig {
     apiKey: string | null;
@@ -55,8 +66,12 @@ export class GeminiProvider implements AIProvider {
 
         const generationConfig: Record<string, unknown> = { maxOutputTokens: GEMINI_MAX_OUTPUT_TOKENS };
         if (request.responseSchema) {
-            generationConfig.responseMimeType = 'application/json';
-            generationConfig.responseSchema = request.responseSchema.schema;
+            generationConfig.responseFormat = {
+                text: {
+                    mimeType: 'application/json',
+                    schema: createCompatibleResponseSchema(request.responseSchema.schema),
+                },
+            };
         }
 
         const requestOptions: AIRequestOptions = {
@@ -76,10 +91,11 @@ export class GeminiProvider implements AIProvider {
         const response = await sendAIRequest(requestOptions);
         const json = parseJsonResponse(response);
         if (!isSuccessStatus(response.status)) {
-            throw new AIProviderError(
-                'provider',
-                extractProviderErrorMessage(json, `Gemini request failed (status ${response.status}).`),
+            throw createAIProviderError(
+                json,
                 response.status,
+                `Gemini request failed (status ${response.status}).`,
+                request.responseSchema !== undefined,
             );
         }
         return this.parseResponse(json, model);
@@ -87,38 +103,58 @@ export class GeminiProvider implements AIProvider {
 
     async listModels(signal?: AbortSignal): Promise<string[]> {
         const key = this.requireApiKey();
-
-        const requestOptions: AIRequestOptions = {
-            url: `${GEMINI_BASE_URL}/models`,
-            headers: this.buildHeaders(key),
-            timeoutMs: this.timeoutMs,
-        };
-        if (signal) {
-            requestOptions.signal = signal;
-        }
-        const response = await sendAIRequest(requestOptions);
-        const json = parseJsonResponse(response);
-        if (!isSuccessStatus(response.status)) {
-            throw new AIProviderError(
-                'provider',
-                extractProviderErrorMessage(json, `Gemini request failed (status ${response.status}).`),
-                response.status,
-            );
-        }
-
-        if (!isRecord(json) || !Array.isArray(json.models)) {
-            throw new AIProviderError('invalid-response', 'Gemini returned an unexpected model list.');
-        }
+        const headers = this.buildHeaders(key);
         const ids = new Set<string>();
-        for (const entry of json.models) {
-            if (!isRecord(entry) || typeof entry.name !== 'string' || !entry.name.trim()) {
-                continue;
+        const seenTokens = new Set<string>();
+        let url = `${GEMINI_BASE_URL}/models`;
+
+        while (true) {
+            if (signal?.aborted) {
+                throw new AIProviderError('cancelled', 'The request was cancelled.');
             }
-            const methods = entry.supportedGenerationMethods;
-            if (!Array.isArray(methods) || !methods.includes('generateContent')) {
-                continue;
+            const requestOptions: AIRequestOptions = {
+                url,
+                headers,
+                timeoutMs: this.timeoutMs,
+            };
+            if (signal) {
+                requestOptions.signal = signal;
             }
-            ids.add(entry.name.replace(/^models\//, ''));
+            const response = await sendAIRequest(requestOptions);
+            if (signal?.aborted) {
+                throw new AIProviderError('cancelled', 'The request was cancelled.');
+            }
+            const json = parseJsonResponse(response);
+            if (!isSuccessStatus(response.status)) {
+                throw createAIProviderError(
+                    json,
+                    response.status,
+                    `Gemini request failed (status ${response.status}).`,
+                );
+            }
+
+            if (!isRecord(json) || !Array.isArray(json.models)) {
+                throw new AIProviderError('invalid-response', 'Gemini returned an unexpected model list.');
+            }
+            for (const entry of json.models) {
+                if (!isRecord(entry) || typeof entry.name !== 'string' || !entry.name.trim()) {
+                    continue;
+                }
+                const methods = entry.supportedGenerationMethods;
+                if (!Array.isArray(methods) || !methods.includes('generateContent')) {
+                    continue;
+                }
+                ids.add(entry.name.replace(/^models\//, ''));
+            }
+            const nextToken = json.nextPageToken;
+            if (nextToken === undefined || nextToken === '') {
+                break;
+            }
+            if (typeof nextToken !== 'string' || seenTokens.has(nextToken)) {
+                throw new AIProviderError('invalid-response', 'Gemini returned an unusable model list pagination token.');
+            }
+            seenTokens.add(nextToken);
+            url = `${GEMINI_BASE_URL}/models?${new URLSearchParams({ pageToken: nextToken }).toString()}`;
         }
         if (ids.size === 0) {
             throw new AIProviderError('invalid-response', 'Gemini returned no usable models.');
@@ -185,15 +221,51 @@ export class GeminiProvider implements AIProvider {
     }
 
     private parseResponse(json: unknown, model: string): AIConversationResponse {
-        if (!isRecord(json) || !Array.isArray(json.candidates) || json.candidates.length === 0) {
+        if (!isRecord(json)) {
+            throw new AIProviderError('invalid-response', 'Gemini returned an unexpected response (missing candidates).');
+        }
+        if (isRecord(json.promptFeedback)
+            && typeof json.promptFeedback.blockReason === 'string'
+            && json.promptFeedback.blockReason
+            && json.promptFeedback.blockReason !== 'BLOCK_REASON_UNSPECIFIED') {
+            throw new AIProviderError(
+                'blocked',
+                `Gemini blocked the response (${json.promptFeedback.blockReason}).`,
+            );
+        }
+        if (!Array.isArray(json.candidates) || json.candidates.length === 0) {
             throw new AIProviderError('invalid-response', 'Gemini returned an unexpected response (missing candidates).');
         }
         const candidate: unknown = json.candidates[0];
-        if (!isRecord(candidate) || !isRecord(candidate.content) || !Array.isArray(candidate.content.parts)) {
+        if (!isRecord(candidate)) {
+            throw new AIProviderError('invalid-response', 'Gemini returned an unexpected response (missing content).');
+        }
+        const finishReason = typeof candidate.finishReason === 'string' && candidate.finishReason
+            ? candidate.finishReason
+            : undefined;
+        if (finishReason === 'MAX_TOKENS') {
+            throw new AIProviderError(
+                'truncated',
+                `Gemini stopped before completing the response (MAX_TOKENS). ${AI_TRUNCATED_RESPONSE_HINT}`,
+            );
+        }
+        if (finishReason !== undefined && GEMINI_SAFETY_FINISH_REASONS.has(finishReason)) {
+            throw new AIProviderError('blocked', `Gemini blocked the response (${finishReason}).`);
+        }
+        if (finishReason !== undefined && finishReason !== 'STOP' && finishReason !== 'FINISH_REASON_UNSPECIFIED') {
+            throw new AIProviderError(
+                'provider',
+                `Gemini response ended with unexpected finish reason "${finishReason}".`,
+            );
+        }
+        if (!isRecord(candidate.content) || !Array.isArray(candidate.content.parts)) {
             throw new AIProviderError('invalid-response', 'Gemini returned an unexpected response (missing content).');
         }
         const texts: string[] = [];
         for (const part of candidate.content.parts) {
+            if (isRecord(part) && part.thought === true) {
+                continue;
+            }
             if (isRecord(part) && typeof part.text === 'string') {
                 texts.push(part.text);
             }

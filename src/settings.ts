@@ -1,6 +1,7 @@
 import { App, Notice, PluginSettingTab, SecretComponent, Setting } from "obsidian";
 import YoutnotePlugin from "./main";
 import { AISettings, PluginSettings } from "./types";
+import { AIProviderError } from "./ai/types";
 import type { AIProviderId, ConfiguredAIProviderId } from "./ai/types";
 
 export const DEFAULT_SETTINGS: PluginSettings = {
@@ -83,6 +84,40 @@ export function mergePluginSettings(raw: unknown): PluginSettings {
 	const merged = Object.assign({}, DEFAULT_SETTINGS, source);
 	merged.ai = mergeAISettings(source.ai);
 	return merged;
+}
+
+export type AIModelListRefreshResult =
+	| { status: 'updated'; models: string[]; selectedModelUnavailable: boolean }
+	| { status: 'stale' };
+
+export async function refreshAIModelList(
+	ai: AISettings,
+	provider: ConfiguredAIProviderId,
+	fetchModels: () => Promise<string[]>,
+): Promise<AIModelListRefreshResult> {
+	const selectedAtStart = ai.models[provider];
+	const secretNameAtStart = ai.secretNames[provider];
+	const baseUrlAtStart = ai.customBaseUrl;
+	const models = await fetchModels();
+	if (ai.provider !== provider
+		|| ai.secretNames[provider] !== secretNameAtStart
+		|| (provider === 'custom' && ai.customBaseUrl !== baseUrlAtStart)) {
+		return { status: 'stale' };
+	}
+	if (!Array.isArray(models) || models.length === 0) {
+		throw new AIProviderError('invalid-response', 'The provider returned no usable models.');
+	}
+	const selectedAtCompletion = ai.models[provider];
+	ai.availableModels[provider] = models;
+	if (!selectedAtStart.trim() && !selectedAtCompletion.trim()) {
+		ai.models[provider] = models[0];
+	}
+	const chosen = ai.models[provider];
+	return {
+		status: 'updated',
+		models,
+		selectedModelUnavailable: chosen.trim() !== '' && !models.includes(chosen),
+	};
 }
 
 // ─── Shared setting definitions ──────────────────────────────────────────
@@ -408,7 +443,7 @@ export class YoutnoteSettingTab extends PluginSettingTab {
 				{
 					kind: 'custom',
 					name: 'Model',
-					desc: 'Select a fetched model, or enter a model ID directly when using Custom.',
+					desc: 'Select a fetched model, or enter a model ID directly. The model must support text generation; when using Custom, enter the chat model ID your OpenAI-compatible endpoint serves.',
 					visible: showProviderRows,
 					render: (setting) => {
 						const id = providerId();
@@ -465,13 +500,15 @@ export class YoutnoteSettingTab extends PluginSettingTab {
 							button.setButtonText(label).onClick(async () => {
 								button.setDisabled(true).setButtonText(pendingLabel);
 								try {
-									const models = await plugin.listAIModels(id);
-									ai().availableModels[id] = models;
-									if (!models.includes(ai().models[id])) {
-										ai().models[id] = models[0];
+									const result = await refreshAIModelList(ai(), id, () => plugin.listAIModels(id));
+									if (result.status === 'stale') {
+										return;
 									}
 									await persist();
-									new Notice(`Loaded ${models.length} model${models.length === 1 ? '' : 's'}.`);
+									const countMessage = `Loaded ${result.models.length} model${result.models.length === 1 ? '' : 's'}.`;
+									new Notice(result.selectedModelUnavailable
+										? `${countMessage} The selected model is not in the fetched list.`
+										: countMessage);
 									rerender();
 								} catch (error) {
 									new Notice(error instanceof Error ? error.message : String(error));

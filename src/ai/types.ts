@@ -56,13 +56,21 @@ export type AIErrorKind =
     | 'network'
     | 'provider'
     | 'incompatible'
-    | 'invalid-response';
+    | 'invalid-response'
+    | 'unsupported-structured-output'
+    | 'truncated'
+    | 'refused'
+    | 'blocked';
+
+export const AI_TRUNCATED_RESPONSE_HINT = 'Try a smaller "Maximum notes" value or ask for shorter notes through "Custom instructions".';
 
 export class AIProviderError extends Error {
     constructor(
         public readonly kind: AIErrorKind,
         message: string,
         public readonly status?: number,
+        public readonly code?: string,
+        public readonly param?: string,
     ) {
         super(message);
         this.name = 'AIProviderError';

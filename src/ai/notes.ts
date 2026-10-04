@@ -1,4 +1,4 @@
-import { AIProviderError } from './types';
+import { AIProviderError, AI_TRUNCATED_RESPONSE_HINT } from './types';
 import type {
     AIConversationRequest,
     AIConversationResponse,
@@ -143,6 +143,46 @@ const GENERAL_NOTE_DELIMITER = /^\[general-note\]\(general-note\)\s*$/;
 const DELIMITER_LIKE_OPEN = /^\s*\[[\d:]+\]\(/;
 const DELIMITER_LIKE_CLOSE = /\]\(timestamp\)/;
 const CODE_FENCE = /^\s*(`{3,}|~{3,})/;
+
+const TRUNCATED_FINISH_REASONS = new Set(['LENGTH', 'MAX_TOKENS', 'MODEL_CONTEXT_WINDOW_EXCEEDED']);
+const BLOCKED_FINISH_REASONS = new Set([
+    'CONTENT_FILTER',
+    'SAFETY',
+    'RECITATION',
+    'BLOCKLIST',
+    'PROHIBITED_CONTENT',
+    'SPII',
+    'IMAGE_SAFETY',
+    'MODEL_ARMOR',
+]);
+
+const SUCCESS_FINISH_REASONS = new Set(['STOP', 'END_TURN', 'FINISH_REASON_UNSPECIFIED']);
+
+function assertCompleteResponse(response: AIConversationResponse): void {
+    const finishReason = response.metadata?.finishReason;
+    if (!finishReason) {
+        return;
+    }
+    const normalized = finishReason.trim().toUpperCase();
+    if (TRUNCATED_FINISH_REASONS.has(normalized)) {
+        throw new AIProviderError(
+            'truncated',
+            `The AI provider stopped before completing the response (${finishReason}). ${AI_TRUNCATED_RESPONSE_HINT}`,
+        );
+    }
+    if (normalized === 'REFUSAL') {
+        throw new AIProviderError('refused', 'The AI provider refused to generate notes.');
+    }
+    if (BLOCKED_FINISH_REASONS.has(normalized)) {
+        throw new AIProviderError('blocked', `The AI provider blocked the response (${finishReason}).`);
+    }
+    if (!SUCCESS_FINISH_REASONS.has(normalized)) {
+        throw new AIProviderError(
+            'provider',
+            `The AI provider response ended with unexpected finish reason "${finishReason}".`,
+        );
+    }
+}
 
 interface ParseSuccess {
     ok: true;
@@ -472,19 +512,32 @@ export async function generateNotesFromTranscript(
         format: 'structured',
     });
 
+    const assertNotCancelled = (): void => {
+        if (options.signal?.aborted) {
+            throw new AIProviderError('cancelled', 'The request was cancelled.');
+        }
+    };
+
     const attemptStructured = async (): Promise<
         | { ok: true; response: AIConversationResponse; segments: GeneratedNoteSegment[]; generalNoteMarkdown: string | undefined }
-        | { ok: false; response: AIConversationResponse | null; error: string }
+        | { ok: false; unsupported: boolean; response: AIConversationResponse | null; error: string }
     > => {
         let response: AIConversationResponse;
         try {
             response = await provider.sendConversation(buildStructuredRequest());
         } catch (error) {
-            if (error instanceof AIProviderError && error.kind === 'invalid-response') {
-                return { ok: false, response: null, error: error.message };
+            if (error instanceof AIProviderError) {
+                if (error.kind === 'unsupported-structured-output') {
+                    return { ok: false, unsupported: true, response: null, error: error.message };
+                }
+                if (error.kind === 'invalid-response') {
+                    return { ok: false, unsupported: false, response: null, error: error.message };
+                }
             }
             throw error;
         }
+        assertNotCancelled();
+        assertCompleteResponse(response);
         const parsed = tryParseStructuredSegments(
             response.content,
             effectiveMaxNotes,
@@ -492,14 +545,61 @@ export async function generateNotesFromTranscript(
             includeGeneralNote,
         );
         if (!parsed.ok) {
-            return { ok: false, response, error: parsed.error };
+            return { ok: false, unsupported: false, response, error: parsed.error };
         }
         return { ok: true, response, segments: parsed.segments, generalNoteMarkdown: parsed.generalNoteMarkdown };
     };
 
+    const sendLegacyRequest = async (): Promise<GeneratedNotesResult> => {
+        assertNotCancelled();
+        const legacyRequest: AIConversationRequest = {
+            systemPrompt: YOUTNOTE_AI_LEGACY_SYSTEM_PROMPT,
+            messages: [{
+                role: 'user',
+                content: buildTranscriptRequest(
+                    transcript,
+                    options,
+                    includeGeneralNote
+                        ? 'Generate one general-note block followed by timestamped Youtnote note blocks from the following transcript. The general note can be a description of the video or a concise summary and may use Obsidian Markdown.'
+                        : 'Generate timestamped Youtnote note blocks ([MM:SS](timestamp) followed by the Markdown note body) from the following transcript.',
+                    false,
+                ),
+            }],
+        };
+        if (options.signal) {
+            legacyRequest.signal = options.signal;
+        }
+        const fallbackResponse = await provider.sendConversation(legacyRequest);
+        assertNotCancelled();
+        assertCompleteResponse(fallbackResponse);
+        const fallbackParsed = tryParseGeneratedNotes(
+            fallbackResponse.content,
+            effectiveMaxNotes,
+            options.maxTimestampSec,
+            includeGeneralNote,
+        );
+        if (!fallbackParsed.ok) {
+            throw new AIProviderError(
+                'invalid-response',
+                `AI structured correction and unstructured fallback both failed: ${fallbackParsed.error}`,
+            );
+        }
+        return {
+            notes: fallbackParsed.notes,
+            noteMarkdown: fallbackResponse.content.trim() + '\n',
+            response: fallbackResponse,
+            corrected: true,
+            format: 'unstructured',
+        };
+    };
+
+    assertNotCancelled();
     const first = await attemptStructured();
     if (first.ok) {
         return toStructuredResult(first.segments, first.generalNoteMarkdown, first.response, false);
+    }
+    if (first.unsupported) {
+        return sendLegacyRequest();
     }
 
     if (first.response) {
@@ -509,46 +609,10 @@ export async function generateNotesFromTranscript(
         role: 'user',
         content: `Your previous response failed JSON validation: ${first.error} Return only valid JSON matching the required schema, with no code fence or explanation.`,
     });
+    assertNotCancelled();
     const second = await attemptStructured();
     if (second.ok) {
         return toStructuredResult(second.segments, second.generalNoteMarkdown, second.response, true);
     }
-
-    const legacyRequest: AIConversationRequest = {
-        systemPrompt: YOUTNOTE_AI_LEGACY_SYSTEM_PROMPT,
-        messages: [{
-            role: 'user',
-            content: buildTranscriptRequest(
-                transcript,
-                options,
-                includeGeneralNote
-                    ? 'Generate one general-note block followed by timestamped Youtnote note blocks from the following transcript. The general note can be a description of the video or a concise summary and may use Obsidian Markdown.'
-                    : 'Generate timestamped Youtnote note blocks ([MM:SS](timestamp) followed by the Markdown note body) from the following transcript.',
-                false,
-            ),
-        }],
-    };
-    if (options.signal) {
-        legacyRequest.signal = options.signal;
-    }
-    const third = await provider.sendConversation(legacyRequest);
-    const thirdResult = tryParseGeneratedNotes(
-        third.content,
-        effectiveMaxNotes,
-        options.maxTimestampSec,
-        includeGeneralNote,
-    );
-    if (!thirdResult.ok) {
-        throw new AIProviderError(
-            'invalid-response',
-            `AI structured correction and unstructured fallback both failed: ${thirdResult.error}`,
-        );
-    }
-    return {
-        notes: thirdResult.notes,
-        noteMarkdown: third.content.trim() + '\n',
-        response: third,
-        corrected: true,
-        format: 'unstructured',
-    };
+    return sendLegacyRequest();
 }

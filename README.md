@@ -139,10 +139,16 @@ Youtnote can generate timestamped notes from a video's transcript with an AI pro
 - **Provider**: OpenAI, Anthropic, Google (Gemini), or **Custom** for any OpenAI-compatible endpoint (for example a local server such as Ollama or LM Studio).
 - **API key secret**: Configured keys are stored in Obsidian Keychain via SecretStorage, not in `data.json`. Required for hosted providers; optional for Custom, where local servers often need no key.
 - **Base URL** (Custom only): the OpenAI-compatible `/v1` base URL, e.g. `http://localhost:11434/v1`. Self-signed TLS certificates are not supported. Plain `http://` connections are unencrypted and may not work on iOS — a warning is shown in settings.
-- **Model**: pick from the cached model list (Refresh models / Test connection fetches it), or type an ID directly for Custom.
+- **Model**: choose a text-generation model supported by the selected provider, or type a chat model ID directly for Custom. Refresh models / Test connection loads the model list without replacing an existing selection; a warning appears if the selected model is absent from the refreshed list.
 - **Request timeout**: seconds before a request times out; the custom timeout defaults higher because local models can be slower.
 
-Generation waits for the provider's complete, non-streamed response: the hosted providers request structured JSON output, and Custom endpoints receive the same schema request when they are compatible. Responses are validated, retried once with a correction request when needed, and finally fall back to the legacy Markdown format — in that compatibility mode a notice asks you to review the notes for formatting. The notes are then saved to the Youtnote file. While a request is in progress a `Generating notes…` status with a Cancel button is shown; cancelling discards the result even if the response arrives afterward.
+Youtnote checks that a provider, model, and required API key are configured before starting generation or asking to fetch a missing transcript. Custom providers also require a valid base URL, but their API key remains optional.
+
+Generation uses the selected video's transcript text and waits for a complete, non-streamed response. Youtnote requests structured JSON and validates timestamps, note bodies, maximum note counts, and any requested general note before saving. Invalid output gets one correction request; if it still fails validation, Youtnote attempts Markdown compatibility mode. If the provider explicitly rejects structured output, Youtnote goes directly to compatibility mode. A notice identifies compatibility-mode results so you can review their formatting.
+
+Incomplete, refused, or blocked responses are not saved or automatically retried. If generation reaches an output limit, try a smaller **Maximum notes** value or ask for shorter notes through **Custom instructions**. Authentication, billing, rate-limit, and endpoint errors are reported rather than treated as formatting failures.
+
+Successful results follow your chosen append/replace options for timestamped notes and the general note. While generation is in progress, a **Cancel** button lets you discard the result even if the response arrives later. Failed or cancelled generation does not replace existing notes.
 
 ## AI Agent Skill
 

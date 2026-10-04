@@ -10,7 +10,8 @@ vi.mock('obsidian', () => ({
 
 vi.mock('./main', () => ({ default: class YoutnotePlugin {} }));
 
-import { DEFAULT_SETTINGS, mergePluginSettings } from './settings';
+import { DEFAULT_SETTINGS, mergePluginSettings, refreshAIModelList, YoutnoteSettingTab } from './settings';
+import type { AISettings } from './types';
 
 describe('mergePluginSettings', () => {
     it('returns defaults for missing or non-object input', () => {
@@ -100,5 +101,221 @@ describe('mergePluginSettings', () => {
         expect(merged.ai.availableModels).not.toBe(DEFAULT_SETTINGS.ai.availableModels);
         merged.ai.availableModels.openai.push('x');
         expect(DEFAULT_SETTINGS.ai.availableModels.openai).toEqual([]);
+    });
+});
+
+describe('refreshAIModelList', () => {
+    const makeAI = (mutate?: (ai: AISettings) => void): AISettings => {
+        const ai: AISettings = {
+            enabled: true,
+            provider: 'openai',
+            secretNames: { openai: 's1', anthropic: '', google: '', custom: '' },
+            models: { openai: '', anthropic: '', google: '', custom: '' },
+            availableModels: { openai: [], anthropic: [], google: [], custom: [] },
+            customBaseUrl: '',
+            hostedTimeoutSeconds: 120,
+            customTimeoutSeconds: 300,
+        };
+        mutate?.(ai);
+        return ai;
+    };
+
+    it('applies a completed fetch and reports an available selection', async () => {
+        const ai = makeAI(aiSettings => { aiSettings.models.openai = 'b-model'; });
+        const result = await refreshAIModelList(ai, 'openai', () => Promise.resolve(['a-model', 'b-model']));
+        expect(result).toEqual({
+            status: 'updated',
+            models: ['a-model', 'b-model'],
+            selectedModelUnavailable: false,
+        });
+        expect(ai.availableModels.openai).toEqual(['a-model', 'b-model']);
+        expect(ai.models.openai).toBe('b-model');
+    });
+
+    it('preserves a nonblank selection missing from the refreshed list', async () => {
+        const ai = makeAI(aiSettings => { aiSettings.models.openai = 'old-model'; });
+        const result = await refreshAIModelList(ai, 'openai', () => Promise.resolve(['a-model', 'b-model']));
+        expect(result).toMatchObject({ status: 'updated', selectedModelUnavailable: true });
+        expect(ai.models.openai).toBe('old-model');
+        expect(ai.availableModels.openai).toEqual(['a-model', 'b-model']);
+    });
+
+    it('initializes the first model when the selection is empty at start and completion', async () => {
+        const ai = makeAI();
+        const result = await refreshAIModelList(ai, 'openai', () => Promise.resolve(['a-model', 'b-model']));
+        expect(result).toMatchObject({ status: 'updated', selectedModelUnavailable: false });
+        expect(ai.models.openai).toBe('a-model');
+    });
+
+    it('keeps a selection the user changed while the fetch was pending', async () => {
+        const ai = makeAI();
+        const result = await refreshAIModelList(ai, 'openai', () => {
+            ai.models.openai = 'user-picked';
+            return Promise.resolve(['a-model', 'b-model']);
+        });
+        expect(result).toMatchObject({ status: 'updated', selectedModelUnavailable: true });
+        expect(ai.models.openai).toBe('user-picked');
+    });
+
+    it('leaves the selection empty when the user clears it while the fetch is pending', async () => {
+        const ai = makeAI(aiSettings => { aiSettings.models.openai = 'chosen'; });
+        const result = await refreshAIModelList(ai, 'openai', () => {
+            ai.models.openai = '';
+            return Promise.resolve(['a-model', 'b-model']);
+        });
+        expect(result).toMatchObject({ status: 'updated', selectedModelUnavailable: false });
+        expect(ai.models.openai).toBe('');
+        expect(ai.availableModels.openai).toEqual(['a-model', 'b-model']);
+    });
+
+    it('propagates a failed fetch without mutating cache or selection', async () => {
+        const ai = makeAI(aiSettings => {
+            aiSettings.models.openai = 'chosen';
+            aiSettings.availableModels.openai = ['cached'];
+        });
+        await expect(refreshAIModelList(ai, 'openai', () => Promise.reject(new Error('boom'))))
+            .rejects.toThrow('boom');
+        expect(ai.availableModels.openai).toEqual(['cached']);
+        expect(ai.models.openai).toBe('chosen');
+    });
+
+    it('rejects an empty model list without mutating', async () => {
+        const ai = makeAI(aiSettings => { aiSettings.models.openai = 'chosen'; });
+        await expect(refreshAIModelList(ai, 'openai', () => Promise.resolve([])))
+            .rejects.toMatchObject({ kind: 'invalid-response' });
+        expect(ai.models.openai).toBe('chosen');
+        expect(ai.availableModels.openai).toEqual([]);
+    });
+
+    it.each<['provider' | 'secret']>([['provider'], ['secret']])(
+        'returns stale and discards the fetch when the %s changes mid-request',
+        async (changed) => {
+            const ai = makeAI(aiSettings => {
+                aiSettings.models.openai = 'chosen';
+                aiSettings.availableModels.openai = ['cached'];
+            });
+            const result = await refreshAIModelList(ai, 'openai', () => {
+                if (changed === 'provider') {
+                    ai.provider = 'anthropic';
+                } else {
+                    ai.secretNames.openai = 'other-secret';
+                }
+                return Promise.resolve(['a-model']);
+            });
+            expect(result).toEqual({ status: 'stale' });
+            expect(ai.availableModels.openai).toEqual(['cached']);
+            expect(ai.models.openai).toBe('chosen');
+        },
+    );
+
+    it('returns stale when the custom base URL changes during a custom refresh', async () => {
+        const ai = makeAI(aiSettings => {
+            aiSettings.provider = 'custom';
+            aiSettings.models.custom = 'chosen';
+            aiSettings.availableModels.custom = ['cached'];
+            aiSettings.customBaseUrl = 'http://localhost:11434/v1';
+        });
+        const result = await refreshAIModelList(ai, 'custom', () => {
+            ai.customBaseUrl = 'http://localhost:1234/v1';
+            return Promise.resolve(['a-model']);
+        });
+        expect(result).toEqual({ status: 'stale' });
+        expect(ai.availableModels.custom).toEqual(['cached']);
+        expect(ai.models.custom).toBe('chosen');
+    });
+
+    it('still applies a hosted refresh when the custom base URL changes mid-request', async () => {
+        const ai = makeAI(aiSettings => {
+            aiSettings.models.openai = 'chosen';
+        });
+        const result = await refreshAIModelList(ai, 'openai', () => {
+            ai.customBaseUrl = 'http://localhost:1234/v1';
+            return Promise.resolve(['a-model']);
+        });
+        expect(result).toMatchObject({ status: 'updated', models: ['a-model'], selectedModelUnavailable: true });
+        expect(ai.availableModels.openai).toEqual(['a-model']);
+        expect(ai.models.openai).toBe('chosen');
+    });
+});
+
+describe('Model list refresh button', () => {
+    const buildRefreshClick = (ai: AISettings, listAIModels: () => Promise<string[]>) => {
+        const saveDataState = vi.fn(() => Promise.resolve());
+        const plugin = {
+            settings: { ai },
+            saveDataState,
+            refreshAllViews: vi.fn(),
+            listAIModels,
+        };
+        const tab = new YoutnoteSettingTab(
+            {} as never,
+            plugin as never,
+        );
+        (tab as unknown as { display: () => void }).display = vi.fn();
+        const group = (tab as unknown as {
+            buildAIGroup(): { items: { name: string; render?: (setting: unknown) => void }[] };
+        }).buildAIGroup();
+        const item = group.items.find(entry => entry.name === 'Model list');
+        expect(item).toBeDefined();
+        const captured: { click?: () => Promise<void> } = {};
+        const button = {
+            setButtonText: vi.fn(function (this: unknown) { return this; }),
+            setDisabled: vi.fn(function (this: unknown) { return this; }),
+            onClick: vi.fn((callback: () => Promise<void>) => {
+                captured.click = callback;
+                return button;
+            }),
+        };
+        const setting = {
+            addButton: vi.fn((callback: (component: unknown) => void) => {
+                callback(button);
+                return setting;
+            }),
+        };
+        item!.render!(setting);
+        expect(captured.click).toBeDefined();
+        return { captured, saveDataState, listAIModels, button };
+    };
+
+    it('persists a refreshed model list and reports the count', async () => {
+        const ai: AISettings = {
+            enabled: true,
+            provider: 'openai',
+            secretNames: { openai: 's1', anthropic: '', google: '', custom: '' },
+            models: { openai: '', anthropic: '', google: '', custom: '' },
+            availableModels: { openai: [], anthropic: [], google: [], custom: [] },
+            customBaseUrl: '',
+            hostedTimeoutSeconds: 120,
+            customTimeoutSeconds: 300,
+        };
+        const listAIModels = vi.fn(() => Promise.resolve(['m1', 'm2']));
+        const { captured, saveDataState } = buildRefreshClick(ai, listAIModels);
+        await captured.click!();
+        expect(listAIModels).toHaveBeenCalledTimes(1);
+        expect(saveDataState).toHaveBeenCalledTimes(1);
+        expect(ai.availableModels.openai).toEqual(['m1', 'm2']);
+        expect(ai.models.openai).toBe('m1');
+    });
+
+    it('ignores a stale refresh result without persisting', async () => {
+        const ai: AISettings = {
+            enabled: true,
+            provider: 'openai',
+            secretNames: { openai: 's1', anthropic: '', google: '', custom: '' },
+            models: { openai: 'chosen', anthropic: '', google: '', custom: '' },
+            availableModels: { openai: ['cached'], anthropic: [], google: [], custom: [] },
+            customBaseUrl: '',
+            hostedTimeoutSeconds: 120,
+            customTimeoutSeconds: 300,
+        };
+        const listAIModels = vi.fn(() => {
+            ai.provider = 'anthropic';
+            return Promise.resolve(['m1']);
+        });
+        const { captured, saveDataState } = buildRefreshClick(ai, listAIModels);
+        await captured.click!();
+        expect(saveDataState).not.toHaveBeenCalled();
+        expect(ai.availableModels.openai).toEqual(['cached']);
+        expect(ai.models.openai).toBe('chosen');
     });
 });

@@ -1,5 +1,5 @@
 import type { RequestUrlResponse } from 'obsidian';
-import { AIProviderError } from './types';
+import { AIProviderError, AI_TRUNCATED_RESPONSE_HINT } from './types';
 import type {
     AIAttachment,
     AIConversationRequest,
@@ -9,6 +9,8 @@ import type {
     ConfiguredAIProviderId,
 } from './types';
 import {
+    createAIProviderError,
+    createCompatibleResponseSchema,
     extractProviderErrorMessage,
     isRecord,
     isSuccessStatus,
@@ -161,8 +163,35 @@ function parseChatCompletion(json: unknown, ctx: OpenAICompatibleContext): AICon
         throw malformedError(ctx, 'missing choices');
     }
     const choice: unknown = json.choices[0];
-    if (!isRecord(choice) || !isRecord(choice.message)) {
+    if (!isRecord(choice)) {
         throw malformedError(ctx, 'missing message');
+    }
+    const finishReason = typeof choice.finish_reason === 'string' && choice.finish_reason
+        ? choice.finish_reason
+        : undefined;
+    if (finishReason === 'length') {
+        throw new AIProviderError(
+            'truncated',
+            `${ctx.providerName} stopped before completing the response (length). ${AI_TRUNCATED_RESPONSE_HINT}`,
+        );
+    }
+    if (finishReason === 'content_filter') {
+        throw new AIProviderError('blocked', `${ctx.providerName} blocked the response (content filter).`);
+    }
+    if (finishReason !== undefined && finishReason !== 'stop') {
+        if (ctx.malformedIsIncompatible) {
+            throw malformedError(ctx, `unexpected finish reason "${finishReason}"`);
+        }
+        throw new AIProviderError(
+            'provider',
+            `${ctx.providerName} response ended with unexpected finish reason "${finishReason}".`,
+        );
+    }
+    if (!isRecord(choice.message)) {
+        throw malformedError(ctx, 'missing message');
+    }
+    if (typeof choice.message.refusal === 'string' && choice.message.refusal.trim()) {
+        throw new AIProviderError('refused', `${ctx.providerName} refused to complete the response: ${choice.message.refusal}`);
     }
     const content = extractTextContent(choice.message.content);
     if (content === null) {
@@ -211,7 +240,7 @@ function parseModelList(json: unknown, ctx: OpenAICompatibleContext): string[] {
     return [...ids].sort();
 }
 
-function throwForErrorStatus(response: RequestUrlResponse, json: unknown, ctx: OpenAICompatibleContext): void {
+function throwForErrorStatus(response: RequestUrlResponse, json: unknown, ctx: OpenAICompatibleContext, structured: boolean): void {
     if (ctx.malformedIsIncompatible && (json === undefined || response.status === 404 || response.status === 405)) {
         const detail = extractProviderErrorMessage(json, 'The endpoint returned a non-JSON response.');
         throw new AIProviderError(
@@ -220,10 +249,11 @@ function throwForErrorStatus(response: RequestUrlResponse, json: unknown, ctx: O
             response.status,
         );
     }
-    throw new AIProviderError(
-        'provider',
-        extractProviderErrorMessage(json, `${ctx.providerName} request failed (status ${response.status}).`),
+    throw createAIProviderError(
+        json,
         response.status,
+        `${ctx.providerName} request failed (status ${response.status}).`,
+        structured,
     );
 }
 
@@ -245,7 +275,7 @@ async function sendConversation(
             json_schema: {
                 name: request.responseSchema.name,
                 strict: true,
-                schema: request.responseSchema.schema,
+                schema: createCompatibleResponseSchema(request.responseSchema.schema),
                 ...(request.responseSchema.description ? { description: request.responseSchema.description } : {}),
             },
         };
@@ -264,7 +294,7 @@ async function sendConversation(
     const response = await sendAIRequest(requestOptions);
     const json = parseJsonResponse(response);
     if (!isSuccessStatus(response.status)) {
-        throwForErrorStatus(response, json, ctx);
+        throwForErrorStatus(response, json, ctx, request.responseSchema !== undefined);
     }
     return parseChatCompletion(json, ctx);
 }
@@ -284,7 +314,7 @@ async function listModels(ctx: OpenAICompatibleContext, signal?: AbortSignal): P
     const response = await sendAIRequest(requestOptions);
     const json = parseJsonResponse(response);
     if (!isSuccessStatus(response.status)) {
-        throwForErrorStatus(response, json, ctx);
+        throwForErrorStatus(response, json, ctx, false);
     }
     return parseModelList(json, ctx);
 }

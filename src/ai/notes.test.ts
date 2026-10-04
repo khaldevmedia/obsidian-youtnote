@@ -568,4 +568,244 @@ describe('generateNotesFromTranscript', () => {
             .rejects.toMatchObject({ kind: 'invalid-config' });
         expect(sendConversation).not.toHaveBeenCalled();
     });
+
+    it('falls back to the legacy request directly when structured output is unsupported', async () => {
+        let call = 0;
+        const sendConversation = vi.fn((request: AIConversationRequest) => {
+            void request;
+            call++;
+            return call === 1
+                ? Promise.reject(new AIProviderError('unsupported-structured-output', 'not supported'))
+                : Promise.resolve(response(VALID_RESPONSE));
+        });
+        const provider: AIProvider = {
+            id: 'openai',
+            sendConversation,
+            listModels: vi.fn(() => Promise.resolve([])),
+        };
+        const controller = new AbortController();
+        const result = await generateNotesFromTranscript(provider, TRANSCRIPT, {
+            signal: controller.signal,
+            customInstructions: 'Focus on definitions',
+            maxNotes: 5,
+        });
+
+        expect(result.format).toBe('unstructured');
+        expect(result.corrected).toBe(true);
+        expect(result.notes).toHaveLength(2);
+        expect(sendConversation).toHaveBeenCalledTimes(2);
+
+        const legacy = sendConversation.mock.calls[1][0];
+        expect(legacy.systemPrompt).toBe(YOUTNOTE_AI_LEGACY_SYSTEM_PROMPT);
+        expect(legacy.responseSchema).toBeUndefined();
+        expect(legacy.signal).toBe(controller.signal);
+        expect(legacy.messages).toHaveLength(1);
+        expect(legacy.messages[0].content).toContain('Focus on definitions');
+        expect(legacy.messages[0].content).toContain('at most 5 timestamped notes');
+    });
+
+    it('reaches the legacy fallback when the correction attempt is rejected as unsupported', async () => {
+        let call = 0;
+        const sendConversation = vi.fn((request: AIConversationRequest) => {
+            void request;
+            call++;
+            if (call === 1) {
+                return Promise.resolve(response('not json'));
+            }
+            if (call === 2) {
+                return Promise.reject(new AIProviderError('unsupported-structured-output', 'not supported'));
+            }
+            return Promise.resolve(response(VALID_RESPONSE));
+        });
+        const provider: AIProvider = {
+            id: 'openai',
+            sendConversation,
+            listModels: vi.fn(() => Promise.resolve([])),
+        };
+        const result = await generateNotesFromTranscript(provider, TRANSCRIPT);
+
+        expect(result.format).toBe('unstructured');
+        expect(result.corrected).toBe(true);
+        expect(sendConversation).toHaveBeenCalledTimes(3);
+
+        const correction = sendConversation.mock.calls[1][0];
+        expect(correction.responseSchema?.name).toBe('youtnote_segments');
+        expect(correction.messages[2].content).toContain('failed JSON validation');
+        const legacy = sendConversation.mock.calls[2][0];
+        expect(legacy.systemPrompt).toBe(YOUTNOTE_AI_LEGACY_SYSTEM_PROMPT);
+        expect(legacy.responseSchema).toBeUndefined();
+    });
+
+    it.each([
+        'provider',
+        'network',
+        'timeout',
+        'incompatible',
+        'missing-key',
+        'invalid-config',
+        'truncated',
+        'refused',
+        'blocked',
+        'cancelled',
+    ] as const)('propagates %s errors at the first attempt without fallback', async (kind) => {
+        const sendConversation = vi.fn(() => Promise.reject(new AIProviderError(kind, 'boom')));
+        const provider: AIProvider = {
+            id: 'openai',
+            sendConversation,
+            listModels: vi.fn(() => Promise.resolve([])),
+        };
+        await expect(generateNotesFromTranscript(provider, TRANSCRIPT))
+            .rejects.toMatchObject({ kind });
+        expect(sendConversation).toHaveBeenCalledTimes(1);
+    });
+
+    it.each(['provider', 'truncated', 'refused', 'blocked'] as const)(
+        'propagates %s errors at the correction attempt without fallback',
+        async (kind) => {
+            let call = 0;
+            const sendConversation = vi.fn(() => {
+                call++;
+                return call === 1
+                    ? Promise.resolve(response('not json'))
+                    : Promise.reject(new AIProviderError(kind, 'boom'));
+            });
+            const provider: AIProvider = {
+                id: 'openai',
+                sendConversation,
+                listModels: vi.fn(() => Promise.resolve([])),
+            };
+            await expect(generateNotesFromTranscript(provider, TRANSCRIPT))
+                .rejects.toMatchObject({ kind });
+            expect(sendConversation).toHaveBeenCalledTimes(2);
+        },
+    );
+
+    it.each(['provider', 'truncated', 'refused', 'blocked'] as const)(
+        'propagates %s errors at the legacy attempt',
+        async (kind) => {
+            let call = 0;
+            const sendConversation = vi.fn(() => {
+                call++;
+                return call < 3
+                    ? Promise.resolve(response('bad'))
+                    : Promise.reject(new AIProviderError(kind, 'boom'));
+            });
+            const provider: AIProvider = {
+                id: 'openai',
+                sendConversation,
+                listModels: vi.fn(() => Promise.resolve([])),
+            };
+            await expect(generateNotesFromTranscript(provider, TRANSCRIPT))
+                .rejects.toMatchObject({ kind });
+            expect(sendConversation).toHaveBeenCalledTimes(3);
+        },
+    );
+
+    it.each([
+        ['length', 'truncated'],
+        ['MAX_TOKENS', 'truncated'],
+        ['max_tokens', 'truncated'],
+        ['model_context_window_exceeded', 'truncated'],
+        ['SAFETY', 'blocked'],
+        ['PROHIBITED_CONTENT', 'blocked'],
+        ['content_filter', 'blocked'],
+        ['refusal', 'refused'],
+    ] as const)('rejects a %s finish reason as %s despite parseable content', async (finishReason, kind) => {
+        const { provider, sendConversation } = makeProvider(() => ({
+            content: VALID_JSON,
+            metadata: { finishReason },
+        }));
+        await expect(generateNotesFromTranscript(provider, TRANSCRIPT))
+            .rejects.toMatchObject({ kind });
+        expect(sendConversation).toHaveBeenCalledTimes(1);
+    });
+
+    it('rejects a truncated finish reason on the legacy fallback before validating content', async () => {
+        let call = 0;
+        const sendConversation = vi.fn((request: AIConversationRequest) => {
+            void request;
+            call++;
+            if (call < 3) {
+                return Promise.resolve(response('bad'));
+            }
+            return Promise.resolve<AIConversationResponse>({
+                content: VALID_RESPONSE,
+                metadata: { finishReason: 'length' },
+            });
+        });
+        const provider: AIProvider = {
+            id: 'openai',
+            sendConversation,
+            listModels: vi.fn(() => Promise.resolve([])),
+        };
+        await expect(generateNotesFromTranscript(provider, TRANSCRIPT))
+            .rejects.toMatchObject({ kind: 'truncated' });
+        expect(sendConversation).toHaveBeenCalledTimes(3);
+    });
+
+    it('rejects without any request when the signal is already aborted', async () => {
+        const { provider, sendConversation } = makeProvider(() => response(VALID_JSON));
+        const controller = new AbortController();
+        controller.abort();
+        await expect(generateNotesFromTranscript(provider, TRANSCRIPT, { signal: controller.signal }))
+            .rejects.toMatchObject({ kind: 'cancelled' });
+        expect(sendConversation).not.toHaveBeenCalled();
+    });
+
+    it('does not issue further requests after the signal aborts mid-flow', async () => {
+        const controller = new AbortController();
+        const { provider, sendConversation } = makeProvider(() => {
+            controller.abort();
+            return response('not json');
+        });
+        await expect(generateNotesFromTranscript(provider, TRANSCRIPT, { signal: controller.signal }))
+            .rejects.toMatchObject({ kind: 'cancelled' });
+        expect(sendConversation).toHaveBeenCalledTimes(1);
+    });
+
+    it('rejects a structured response that resolves valid content after the signal aborts', async () => {
+        const controller = new AbortController();
+        const { provider, sendConversation } = makeProvider(() => {
+            controller.abort();
+            return response(VALID_JSON);
+        });
+        await expect(generateNotesFromTranscript(provider, TRANSCRIPT, { signal: controller.signal }))
+            .rejects.toMatchObject({ kind: 'cancelled' });
+        expect(sendConversation).toHaveBeenCalledTimes(1);
+    });
+
+    it('rejects a legacy response that resolves valid content after the signal aborts', async () => {
+        const controller = new AbortController();
+        let call = 0;
+        const sendConversation = vi.fn((request: AIConversationRequest) => {
+            void request;
+            call++;
+            if (call < 3) {
+                return Promise.resolve(response('bad'));
+            }
+            controller.abort();
+            return Promise.resolve(response(VALID_RESPONSE));
+        });
+        const provider: AIProvider = {
+            id: 'openai',
+            sendConversation,
+            listModels: vi.fn(() => Promise.resolve([])),
+        };
+        await expect(generateNotesFromTranscript(provider, TRANSCRIPT, { signal: controller.signal }))
+            .rejects.toMatchObject({ kind: 'cancelled' });
+        expect(sendConversation).toHaveBeenCalledTimes(3);
+    });
+
+    it.each(['OTHER', 'tool_calls', 'pause_turn', 'MALFORMED_FUNCTION_CALL'] as const)(
+        'rejects an explicit %s finish reason as a terminal provider error despite parseable content',
+        async (finishReason) => {
+            const { provider, sendConversation } = makeProvider(() => ({
+                content: VALID_JSON,
+                metadata: { finishReason },
+            }));
+            await expect(generateNotesFromTranscript(provider, TRANSCRIPT))
+                .rejects.toMatchObject({ kind: 'provider' });
+            expect(sendConversation).toHaveBeenCalledTimes(1);
+        },
+    );
 });

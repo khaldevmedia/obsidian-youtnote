@@ -3,7 +3,7 @@ import { YoutnoteSettingTab, mergePluginSettings } from './settings';
 import { YoutnoteView, VIEW_TYPE } from './view';
 import { PluginSettings, PluginData, MarkdownEditorClass, Video, Note, VideoId, NoteId, TranscriptEntry } from './types';
 import type { AIGenerationDialogOptions } from './types';
-import { createAIProvider } from './ai/registry';
+import { createAIProvider, getAINoteGenerationSetupError } from './ai/registry';
 import type { AIProviderFactoryConfig } from './ai/registry';
 import { generateNotesFromTranscript } from './ai/notes';
 import type { GeneratedNoteDraft, GeneratedNotesResult, GenerateNotesOptions } from './ai/notes';
@@ -336,13 +336,14 @@ export default class YoutnotePlugin extends Plugin {
 
     async generateAINotes(transcript: TranscriptEntry[], options: GenerateNotesOptions): Promise<GeneratedNotesResult> {
         const ai = this.settings.ai;
-        if (!ai.enabled) {
-            throw new AIProviderError('invalid-config', 'AI-generated notes are disabled. Enable them in Youtnote settings.');
+        const setupError = getAINoteGenerationSetupError(
+            ai,
+            name => this.app.secretStorage.getSecret(name) ?? null,
+        );
+        if (setupError) {
+            throw setupError;
         }
-        if (ai.provider === 'none') {
-            throw new AIProviderError('invalid-config', 'No AI provider is configured. Select one in Youtnote settings.');
-        }
-        const provider = this.createConfiguredAIProvider(ai.provider);
+        const provider = this.createConfiguredAIProvider(ai.provider as ConfiguredAIProviderId);
         return generateNotesFromTranscript(provider, transcript, options);
     }
 
@@ -370,6 +371,18 @@ export default class YoutnotePlugin extends Plugin {
     }
 
     startAINoteGeneration(view: YoutnoteView, videoId: VideoId, dialogOptions: AIGenerationDialogOptions): void {
+        const setupError = getAINoteGenerationSetupError(
+            this.settings.ai,
+            name => this.app.secretStorage.getSecret(name) ?? null,
+        );
+        if (setupError) {
+            showAISetupModal(
+                this.app,
+                setupError.kind === 'missing-key' ? MISSING_AI_API_KEY_MESSAGE : setupError.message,
+                this.openSettings,
+            );
+            return;
+        }
         const resolved = this.resolveTaskTarget(view, videoId);
         if (!resolved) return;
         const state = this.getVideoTaskState(resolved.target.file, resolved.target.youtubeId);

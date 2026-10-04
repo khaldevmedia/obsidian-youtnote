@@ -1,4 +1,4 @@
-import { AIProviderError } from './types';
+import { AIProviderError, AI_TRUNCATED_RESPONSE_HINT } from './types';
 import type {
     AIAttachment,
     AIConversationRequest,
@@ -8,7 +8,8 @@ import type {
     ConfiguredAIProviderId,
 } from './types';
 import {
-    extractProviderErrorMessage,
+    createAIProviderError,
+    createCompatibleResponseSchema,
     isRecord,
     isSuccessStatus,
     parseJsonResponse,
@@ -62,16 +63,11 @@ export class AnthropicProvider implements AIProvider {
             messages: this.buildMessages(request),
         };
         if (request.responseSchema) {
-            body.tools = [{
-                name: request.responseSchema.name,
-                description: request.responseSchema.description ?? 'Return the structured response.',
-                strict: true,
-                input_schema: request.responseSchema.schema,
-            }];
-            body.tool_choice = {
-                type: 'tool',
-                name: request.responseSchema.name,
-                disable_parallel_tool_use: true,
+            body.output_config = {
+                format: {
+                    type: 'json_schema',
+                    schema: createCompatibleResponseSchema(request.responseSchema.schema),
+                },
             };
         }
 
@@ -88,44 +84,69 @@ export class AnthropicProvider implements AIProvider {
         const response = await sendAIRequest(requestOptions);
         const json = parseJsonResponse(response);
         if (!isSuccessStatus(response.status)) {
-            throw new AIProviderError(
-                'provider',
-                extractProviderErrorMessage(json, `Anthropic request failed (status ${response.status}).`),
+            throw createAIProviderError(
+                json,
                 response.status,
+                `Anthropic request failed (status ${response.status}).`,
+                request.responseSchema !== undefined,
             );
         }
-        return this.parseResponse(json, request);
+        return this.parseResponse(json);
     }
 
     async listModels(signal?: AbortSignal): Promise<string[]> {
         const key = this.requireApiKey();
-
-        const requestOptions: AIRequestOptions = {
-            url: `${ANTHROPIC_BASE_URL}/models`,
-            headers: this.buildHeaders(key),
-            timeoutMs: this.timeoutMs,
-        };
-        if (signal) {
-            requestOptions.signal = signal;
-        }
-        const response = await sendAIRequest(requestOptions);
-        const json = parseJsonResponse(response);
-        if (!isSuccessStatus(response.status)) {
-            throw new AIProviderError(
-                'provider',
-                extractProviderErrorMessage(json, `Anthropic request failed (status ${response.status}).`),
-                response.status,
-            );
-        }
-
-        if (!isRecord(json) || !Array.isArray(json.data)) {
-            throw new AIProviderError('invalid-response', 'Anthropic returned an unexpected model list.');
-        }
         const ids = new Set<string>();
-        for (const entry of json.data) {
-            if (isRecord(entry) && typeof entry.id === 'string' && entry.id.trim()) {
-                ids.add(entry.id.trim());
+        const seenCursors = new Set<string>();
+        let url = `${ANTHROPIC_BASE_URL}/models`;
+
+        while (true) {
+            if (signal?.aborted) {
+                throw new AIProviderError('cancelled', 'The request was cancelled.');
             }
+            const requestOptions: AIRequestOptions = {
+                url,
+                headers: this.buildHeaders(key),
+                timeoutMs: this.timeoutMs,
+            };
+            if (signal) {
+                requestOptions.signal = signal;
+            }
+            const response = await sendAIRequest(requestOptions);
+            if (signal?.aborted) {
+                throw new AIProviderError('cancelled', 'The request was cancelled.');
+            }
+            const json = parseJsonResponse(response);
+            if (!isSuccessStatus(response.status)) {
+                throw createAIProviderError(
+                    json,
+                    response.status,
+                    `Anthropic request failed (status ${response.status}).`,
+                );
+            }
+
+            if (!isRecord(json) || !Array.isArray(json.data)) {
+                throw new AIProviderError('invalid-response', 'Anthropic returned an unexpected model list.');
+            }
+            for (const entry of json.data) {
+                if (isRecord(entry) && typeof entry.id === 'string' && entry.id.trim()) {
+                    ids.add(entry.id.trim());
+                }
+            }
+            if (json.has_more !== undefined && typeof json.has_more !== 'boolean') {
+                throw new AIProviderError('invalid-response', 'Anthropic returned an unexpected model list pagination flag.');
+            }
+            if (json.has_more !== true) {
+                break;
+            }
+            const lastId = typeof json.last_id === 'string' && json.last_id.trim()
+                ? json.last_id.trim()
+                : null;
+            if (!lastId || seenCursors.has(lastId)) {
+                throw new AIProviderError('invalid-response', 'Anthropic returned an unusable model list pagination cursor.');
+            }
+            seenCursors.add(lastId);
+            url = `${ANTHROPIC_BASE_URL}/models?${new URLSearchParams({ after_id: lastId }).toString()}`;
         }
         if (ids.size === 0) {
             throw new AIProviderError('invalid-response', 'Anthropic returned no usable models.');
@@ -199,33 +220,53 @@ export class AnthropicProvider implements AIProvider {
         );
     }
 
-    private parseResponse(json: unknown, request: AIConversationRequest): AIConversationResponse {
-        if (!isRecord(json) || !Array.isArray(json.content)) {
+    private parseResponse(json: unknown): AIConversationResponse {
+        if (!isRecord(json)) {
+            throw new AIProviderError('invalid-response', 'Anthropic returned an unexpected response (missing content).');
+        }
+        if (typeof json.stop_reason === 'string' && json.stop_reason) {
+            if (json.stop_reason === 'max_tokens' || json.stop_reason === 'model_context_window_exceeded') {
+                throw new AIProviderError(
+                    'truncated',
+                    `Anthropic stopped before completing the response (${json.stop_reason}). ${AI_TRUNCATED_RESPONSE_HINT}`,
+                );
+            }
+            if (json.stop_reason === 'refusal') {
+                let detail = '';
+                if (Array.isArray(json.content)) {
+                    const explanations: string[] = [];
+                    for (const block of json.content) {
+                        if (isRecord(block) && block.type === 'text' && typeof block.text === 'string' && block.text.trim()) {
+                            explanations.push(block.text.trim());
+                        }
+                    }
+                    if (explanations.length > 0) {
+                        detail = `: ${explanations.join(' ')}`;
+                    }
+                }
+                throw new AIProviderError('refused', `Anthropic refused to complete the response${detail}.`);
+            }
+            if (json.stop_reason !== 'end_turn') {
+                throw new AIProviderError(
+                    'provider',
+                    `Anthropic response ended with unexpected stop reason "${json.stop_reason}".`,
+                );
+            }
+        }
+        if (!Array.isArray(json.content)) {
             throw new AIProviderError('invalid-response', 'Anthropic returned an unexpected response (missing content).');
         }
 
-        let content: string;
-        const schema = request.responseSchema;
-        if (schema) {
-            const toolBlock: unknown = json.content.find((block: unknown) =>
-                isRecord(block) && block.type === 'tool_use' && block.name === schema.name && isRecord(block.input)
-            );
-            if (!isRecord(toolBlock) || !isRecord(toolBlock.input)) {
-                throw new AIProviderError('invalid-response', 'Anthropic returned an unexpected response (missing structured tool call).');
+        const texts: string[] = [];
+        for (const block of json.content) {
+            if (isRecord(block) && block.type === 'text' && typeof block.text === 'string') {
+                texts.push(block.text);
             }
-            content = JSON.stringify(toolBlock.input);
-        } else {
-            const texts: string[] = [];
-            for (const block of json.content) {
-                if (isRecord(block) && block.type === 'text' && typeof block.text === 'string') {
-                    texts.push(block.text);
-                }
-            }
-            if (texts.length === 0) {
-                throw new AIProviderError('invalid-response', 'Anthropic returned an unexpected response (no text content).');
-            }
-            content = texts.join('\n');
         }
+        if (texts.length === 0) {
+            throw new AIProviderError('invalid-response', 'Anthropic returned an unexpected response (no text content).');
+        }
+        const content = texts.join('\n');
 
         const metadata: AIResponseMetadata = {};
         if (isRecord(json.usage)) {
