@@ -18,6 +18,10 @@ export abstract class BaseModal extends Modal {
 
     protected abstract renderButtons(buttonsEl: HTMLElement): void;
 
+    protected renderMessage(messageEl: HTMLElement): void {
+        messageEl.setText(this.message);
+    }
+
     protected renderContent(_contentEl: HTMLElement): void {}
 
     protected createButton(
@@ -54,7 +58,7 @@ export abstract class BaseModal extends Modal {
         titleEl.setText(this.title);
 
         const messageEl = contentEl.createDiv({ cls: 'youtnote-plugin__base-modal-message' });
-        messageEl.setText(this.message);
+        this.renderMessage(messageEl);
 
         this.renderContent(contentEl);
 
@@ -133,6 +137,94 @@ export class ConfirmModal extends BaseModal {
             true
         );
     }
+}
+
+export type LegacyConversionDecision = 'convert' | 'read-only';
+
+export class LegacyFormatConversionModal extends BaseModal {
+    private fileName: string;
+    private resolveDecision: ((decision: LegacyConversionDecision) => void) | null = null;
+    private convertRequested = false;
+    readonly decision: Promise<LegacyConversionDecision>;
+
+    constructor(app: App, fileName: string) {
+        super(
+            app,
+            'Convert this file to Youtnote format v2?',
+            'This new version of the Youtnote plugin ships with new features like downloading transcripts and generating notes with AI. Supporting these new features required creating a new version of the file format (v2). ' +
+            'The file you are trying to open still uses legacy Youtnote format. You can convert it by clicking on the "Convert to v2" button.'
+        );
+        this.fileName = fileName;
+        this.decision = new Promise(resolve => {
+            this.resolveDecision = resolve;
+        });
+    }
+
+    protected renderMessage(messageEl: HTMLElement): void {
+        messageEl.addClass('youtnote-plugin__conversion-message');
+        messageEl.createEl('p', { text: this.message });
+        const warningEl = messageEl.createEl('p');
+        warningEl.createEl('strong', {
+            text: 'Warning',
+            cls: 'youtnote-plugin__conversion-warning-heading',
+        });
+        messageEl.createEl('p', {
+            text: 'Converting this file makes it incompatible with older versions of the plugin. ' +
+                'If an older version opens it, all video notes and transcripts can be erased leaving only the videos.',
+        });
+        messageEl.createEl('p', {
+            text: 'In synced vaults, that data loss can sync to your other devices. ' +
+                'If this vault is synced across devices, update Youtnote on every device before converting. ' +
+                'If any device still uses an older version of Youtnote, choose "Open read-only" instead.',
+        });
+        messageEl.createEl('p', {
+            text: 'Once all your youtnote files are converted to v2, you won\'t see this message again.',
+        });
+        messageEl.createEl('p', {
+            text: 'Choose open read-only to view this file without editing it or changing its format.' });
+    }
+
+    protected renderContent(contentEl: HTMLElement): void {
+        contentEl.createDiv({ cls: 'youtnote-plugin__base-modal-filename', text: this.fileName });
+    }
+
+    protected renderButtons(buttonsEl: HTMLElement): void {
+        this.createButton(
+            buttonsEl,
+            'Open read-only',
+            'youtnote-plugin__modal-button youtnote-plugin__modal-button--primary',
+            undefined,
+            true
+        ).dataset.youtnoteAction = 'read-only';
+        this.createButton(
+            buttonsEl,
+            'Convert to v2',
+            'youtnote-plugin__modal-button youtnote-plugin__modal-button--secondary',
+            () => {
+                this.convertRequested = true;
+            }
+        ).dataset.youtnoteAction = 'convert';
+    }
+
+    onClose(): void {
+        super.onClose();
+        const resolve = this.resolveDecision;
+        this.resolveDecision = null;
+        resolve?.(this.convertRequested ? 'convert' : 'read-only');
+    }
+}
+
+export function promptLegacyConversionDecision(app: App, fileName: string, signal?: AbortSignal): Promise<LegacyConversionDecision> {
+    if (signal?.aborted) {
+        return Promise.resolve('read-only');
+    }
+    const modal = new LegacyFormatConversionModal(app, fileName);
+    const onAbort = () => modal.close();
+    signal?.addEventListener('abort', onAbort);
+    modal.open();
+    return modal.decision.finally(() => {
+        signal?.removeEventListener('abort', onAbort);
+    });
 }
 
 export const MISSING_AI_API_KEY_MESSAGE =

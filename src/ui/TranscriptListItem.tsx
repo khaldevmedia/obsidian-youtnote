@@ -9,6 +9,7 @@ export const TranscriptListItem: React.FC<TranscriptListItemProps> = React.memo(
     displayTimestamp,
     isActive,
     isEditing,
+    readOnly,
     onSeek,
     onCopy,
     onCreateNote,
@@ -58,23 +59,25 @@ export const TranscriptListItem: React.FC<TranscriptListItemProps> = React.memo(
                 });
         });
 
-        menu.addItem((item) => {
-            item
-                .setTitle('Create note from this caption')
-                .setIcon('square-plus')
-                .onClick(() => {
-                    onCreateNote(entry, displayTimestamp);
-                });
-        });
+        if (!readOnly) {
+            menu.addItem((item) => {
+                item
+                    .setTitle('Create note from this caption')
+                    .setIcon('square-plus')
+                    .onClick(() => {
+                        onCreateNote(entry, displayTimestamp);
+                    });
+            });
 
-        menu.addItem((item) => {
-            item
-                .setTitle('Edit caption text')
-                .setIcon('pencil')
-                .onClick(() => {
-                    onStartEdit(index);
-                });
-        });
+            menu.addItem((item) => {
+                item
+                    .setTitle('Edit caption text')
+                    .setIcon('pencil')
+                    .onClick(() => {
+                        onStartEdit(index);
+                    });
+            });
+        }
 
         menu.showAtMouseEvent(e.nativeEvent);
     };
@@ -99,7 +102,7 @@ export const TranscriptListItem: React.FC<TranscriptListItemProps> = React.memo(
             >
                 {displayTimestamp}
             </span>
-            {isEditing ? (
+            {isEditing && !readOnly ? (
                 <>
                 <span
                     key="editing"
@@ -149,7 +152,7 @@ export const TranscriptListItem: React.FC<TranscriptListItemProps> = React.memo(
                 <span
                     key="display"
                     className="youtnote-plugin__transcript-text"
-                    onDoubleClick={() => onStartEdit(index)}
+                    onDoubleClick={() => { if (!readOnly) onStartEdit(index); }}
                 >
                     {entry.text}
                 </span>
@@ -169,6 +172,7 @@ export const TranscriptListItem: React.FC<TranscriptListItemProps> = React.memo(
                         }}
                         aria-label="Copy caption"
                     />
+                    {!readOnly && (
                     <button
                         ref={(el) => {
                             if (el) {
@@ -182,6 +186,8 @@ export const TranscriptListItem: React.FC<TranscriptListItemProps> = React.memo(
                         }}
                         aria-label="Create note from this caption"
                     />
+                    )}
+                    {!readOnly && (
                     <button
                         ref={(el) => {
                             if (el) {
@@ -195,6 +201,7 @@ export const TranscriptListItem: React.FC<TranscriptListItemProps> = React.memo(
                         }}
                         aria-label="Edit caption text"
                     />
+                    )}
                 </div>
             )}
         </div>

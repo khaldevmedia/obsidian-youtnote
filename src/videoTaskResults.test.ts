@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
     applyGeneratedNotesForYoutubeVideo,
     setTranscriptForYoutubeVideo,
@@ -164,5 +164,95 @@ describe('updateYoutnoteSource', () => {
         const result = updateYoutnoteSource(source, () => ({ notes: [] }));
         expect(result.status).toBe('incompatible');
         expect(result).not.toHaveProperty('markdown');
+    });
+
+    it.each([
+        ['unversioned', '---\nyoutnote: true\n---\n\n[Video](https://www.youtube.com/watch?v=aaaaaaaaaaa)\n'],
+        ['declared v1', '---\nyoutnote: true\nyoutnote-format-version: 1\n---\n\n[Video](https://www.youtube.com/watch?v=aaaaaaaaaaa)\n'],
+    ])('refuses %s legacy sources before calling apply', (_label, source) => {
+        const apply = vi.fn(() => ({ notes: [] }));
+        const result = updateYoutnoteSource(source, apply);
+        expect(result.status).toBe('incompatible');
+        if (result.status === 'incompatible') {
+            expect(result.message).toContain('legacy Youtnote format');
+            expect(result.message).toContain('Convert to v2');
+        }
+        expect(apply).not.toHaveBeenCalled();
+    });
+
+    it('preserves file-level sections through a transcript source update', () => {
+        const source = `---
+youtnote: true
+youtnote-format-version: 2
+---
+
+<!-- youtnote:section:topic-description:start id=x -->
+file-level payload
+<!-- youtnote:section:topic-description:end -->
+
+<!-- youtnote:video:start -->
+
+<!-- youtnote:section:source:start -->
+[Video](https://www.youtube.com/watch?v=aaaaaaaaaaa)
+<!-- youtnote:section:source:end -->
+
+<!-- youtnote:section:notes:start -->
+
+<!-- youtnote:section:notes:end -->
+
+<!-- youtnote:video:end -->
+`;
+        const result = updateYoutnoteSource(source, (document) => {
+            const videos = setTranscriptForYoutubeVideo(document.videos, 'aaaaaaaaaaa', ENTRIES);
+            return videos ? { videos } : null;
+        });
+        expect(result.status).toBe('updated');
+        if (result.status !== 'updated') return;
+        const section = result.markdown.indexOf('section:topic-description:start');
+        expect(section).toBeGreaterThan(-1);
+        expect(result.markdown).toContain('file-level payload');
+        expect(section).toBeLessThan(result.markdown.indexOf('youtnote:video:start'));
+        expect(result.markdown).toContain('`0` <!-- d=1000 --> hello');
+    });
+
+    it('preserves file-level sections through a generated-notes source update', () => {
+        const source = `---
+youtnote: true
+youtnote-format-version: 2
+---
+
+<!-- youtnote:section:topic-description:start -->
+file-level payload
+<!-- youtnote:section:topic-description:end -->
+
+<!-- youtnote:video:start -->
+
+<!-- youtnote:section:source:start -->
+[Video](https://www.youtube.com/watch?v=aaaaaaaaaaa)
+<!-- youtnote:section:source:end -->
+
+<!-- youtnote:section:notes:start -->
+
+<!-- youtnote:section:notes:end -->
+
+<!-- youtnote:video:end -->
+`;
+        const result = updateYoutnoteSource(source, (document) => {
+            const notes = applyGeneratedNotesForYoutubeVideo(
+                document.videos,
+                document.notes,
+                'aaaaaaaaaaa',
+                [{ timestampSec: 3, bodyMarkdown: 'draft' }],
+                { mode: 'append', generalNoteMode: 'append' },
+            );
+            return notes ? { notes } : null;
+        });
+        expect(result.status).toBe('updated');
+        if (result.status !== 'updated') return;
+        const section = result.markdown.indexOf('section:topic-description:start');
+        expect(section).toBeGreaterThan(-1);
+        expect(result.markdown).toContain('file-level payload');
+        expect(section).toBeLessThan(result.markdown.indexOf('youtnote:video:start'));
+        expect(result.markdown).toContain('draft');
     });
 });

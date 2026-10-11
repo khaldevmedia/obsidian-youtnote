@@ -127,6 +127,7 @@ export interface YoutnoteViewContext {
     plugin: Component & { MarkdownEditor: MarkdownEditorClass | null };
     videos: Video[];
     notes: Note[];
+    getMutationGuard(): () => boolean;
 }
 
 export interface ObsidianEditorProps {
@@ -143,6 +144,7 @@ export interface VideoListItemProps {
     app: App;
     video: Video;
     isActive: boolean;
+    readOnly: boolean;
     onSelect: (id: VideoId) => void;
     onDelete: (id: VideoId) => void;
 }
@@ -161,6 +163,7 @@ export interface NoteListItemProps {
     maxDuration: number;
     newLineTrigger: PluginSettings['newLineTrigger'];
     isGeneral: boolean;
+    readOnly: boolean;
     onToggleExpand: (e: React.MouseEvent<HTMLDivElement>, noteId: NoteId, timestampSec: number) => void;
     onSelect: (noteId: NoteId, timestampSec: number) => void;
     onStartEdit: (noteId: NoteId, body: string) => void;
@@ -214,6 +217,7 @@ export interface TranscriptListItemProps {
     displayTimestamp: string;
     isActive: boolean;
     isEditing: boolean;
+    readOnly: boolean;
     onSeek: (index: number, startMs: number) => void;
     onCopy: (entry: TranscriptEntry, displayTimestamp: string) => void;
     onCreateNote: (entry: TranscriptEntry, displayTimestamp: string) => void;
@@ -247,6 +251,10 @@ export interface YoutubePluginViewProps {
     onGenerateAINotes: (videoId: VideoId, options: AIGenerationDialogOptions) => void;
     onCancelVideoTasks: (videoId: VideoId, kind?: 'transcript' | 'ai') => void;
     onOpenAISettings: () => void;
+    readOnly: boolean;
+    canConvert: boolean;
+    conversionPending: boolean;
+    onRequestConversion: () => void;
 }
 
 export interface PlayerAdapter {

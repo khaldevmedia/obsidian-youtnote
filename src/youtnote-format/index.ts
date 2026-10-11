@@ -66,8 +66,25 @@ function transcriptsEqual(a: TranscriptEntry[] | undefined, b: TranscriptEntry[]
     );
 }
 
+function opaqueSectionsEquivalent(a: YoutnoteDocument, b: YoutnoteDocument): boolean {
+    if (a.fileSections.length !== b.fileSections.length) {
+        return false;
+    }
+    return a.fileSections.every((section, i) => {
+        const other = b.fileSections[i];
+        return section.type === other.type &&
+            section.openingMarker === other.openingMarker &&
+            section.body === other.body &&
+            section.hasBody === other.hasBody &&
+            section.closingMarker === other.closingMarker;
+    });
+}
+
 export function youtnoteDocumentsEquivalent(a: YoutnoteDocument, b: YoutnoteDocument): boolean {
     if (a.videos.length !== b.videos.length || a.notes.length !== b.notes.length) {
+        return false;
+    }
+    if (!opaqueSectionsEquivalent(a, b)) {
         return false;
     }
     const videoIndexById = new Map(b.videos.map((video, index) => [video.id, index]));

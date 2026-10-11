@@ -1086,3 +1086,125 @@ describe('createEmptyYoutnoteMarkdown', () => {
         expect(doc.notes).toHaveLength(0);
     });
 });
+
+describe('file-level opaque sections', () => {
+    it('collects unknown top-level sections and hoists them before videos on serialize', () => {
+        const source = `${HEADER}
+<!-- youtnote:section:topic-description:start id=a -->
+first payload
+<!-- youtnote:section:topic-description:end -->
+
+<!-- youtnote:video:start -->
+
+${sourceBlock(YT, 'One')}
+
+<!-- youtnote:video:end -->
+
+<!-- youtnote:section:meta:start x="1" -->
+between
+<!-- youtnote:section:meta:end -->
+
+<!-- youtnote:video:start -->
+
+${sourceBlock(YT2, 'Two')}
+
+<!-- youtnote:video:end -->
+
+<!-- youtnote:section:meta:start -->
+after
+<!-- youtnote:section:meta:end -->
+`;
+        const doc = parseOk(source);
+        expect(doc.fileSections.map(s => s.type)).toEqual(['topic-description', 'meta', 'meta']);
+        expect(doc.fileSections[0].openingMarker).toBe('<!-- youtnote:section:topic-description:start id=a -->');
+        expect(doc.fileSections[0].body).toBe('first payload');
+        expect(doc.videos).toHaveLength(2);
+
+        const serialized = serializeYoutnoteDocument(doc);
+        const firstVideo = serialized.indexOf('<!-- youtnote:video:start -->');
+        expect(serialized.indexOf('first payload')).toBeLessThan(firstVideo);
+        expect(serialized.indexOf('between')).toBeLessThan(firstVideo);
+        expect(serialized.indexOf('after')).toBeLessThan(firstVideo);
+        expect(serialized.indexOf('first payload')).toBeLessThan(serialized.indexOf('between'));
+        expect(serialized.indexOf('between')).toBeLessThan(serialized.indexOf('after'));
+
+        const reparsed = parseOk(serialized);
+        expect(reparsed.fileSections).toEqual(doc.fileSections);
+        expect(serializeYoutnoteDocument(reparsed)).toBe(serialized);
+    });
+
+    it('preserves file sections in a document with zero videos', () => {
+        const source = `${HEADER}
+<!-- youtnote:section:topic-description:start -->
+only file-level content
+<!-- youtnote:section:topic-description:end -->
+`;
+        const doc = parseOk(source);
+        expect(doc.videos).toHaveLength(0);
+        expect(doc.fileSections).toHaveLength(1);
+        const serialized = serializeYoutnoteDocument(doc);
+        expect(serialized).toContain('only file-level content');
+        expect(parseOk(serialized).fileSections).toEqual(doc.fileSections);
+    });
+
+    it('keeps fenced nested-looking markers as opaque body text', () => {
+        const source = `${HEADER}
+<!-- youtnote:section:data:start -->
+\`\`\`
+<!-- youtnote:video:start -->
+<!-- youtnote:section:source:start -->
+\`\`\`
+<!-- youtnote:section:data:end -->
+`;
+        const doc = parseOk(source);
+        expect(doc.fileSections).toHaveLength(1);
+        expect(doc.fileSections[0].body).toContain('<!-- youtnote:video:start -->');
+        expect(serializeYoutnoteDocument(doc)).toContain('<!-- youtnote:section:data:start -->');
+    });
+
+    it('preserves empty and blank file-section bodies', () => {
+        const source = `${HEADER}
+<!-- youtnote:section:empty:start -->
+<!-- youtnote:section:empty:end -->
+
+<!-- youtnote:section:blank:start -->
+
+<!-- youtnote:section:blank:end -->
+`;
+        const doc = parseOk(source);
+        expect(doc.fileSections).toHaveLength(2);
+        expect(doc.fileSections[0].hasBody).toBe(false);
+        expect(doc.fileSections[0].body).toBe('');
+        const reparsed = parseOk(serializeYoutnoteDocument(doc));
+        expect(reparsed.fileSections.map(s => s.hasBody)).toEqual(doc.fileSections.map(s => s.hasBody));
+        expect(reparsed.fileSections.map(s => s.body)).toEqual(doc.fileSections.map(s => s.body));
+    });
+
+    it.each(['source', 'notes', 'transcript'])('rejects a managed "%s" section at top level', (type) => {
+        expectInvalid(`${HEADER}
+<!-- youtnote:section:${type}:start -->
+x
+<!-- youtnote:section:${type}:end -->
+`);
+    });
+
+    it.each([
+        ['stray end marker', `<!-- youtnote:section:data:end -->\n`],
+        ['unterminated section', `<!-- youtnote:section:data:start -->\nbody\n`],
+        ['mismatched end', `<!-- youtnote:section:data:start -->\nbody\n<!-- youtnote:section:other:end -->\n`],
+    ])('rejects malformed file-section boundaries: %s', (_label, body) => {
+        expectInvalid(`${HEADER}\n${body}`);
+    });
+
+    it('rejects non-marker content at top level', () => {
+        expectInvalid(`${HEADER}\nsome stray paragraph\n`);
+    });
+
+    it('initializes fileSections to an empty array for legacy v1 documents', () => {
+        const legacy = parseOk('---\nyoutnote: true\n---\n\n[V](https://www.youtube.com/watch?v=dQw4w9WgXcQ)\n');
+        expect(legacy.sourceFormatVersion).toBe(1);
+        expect(legacy.fileSections).toEqual([]);
+        const declared = parseOk('---\nyoutnote: true\nyoutnote-format-version: 1\n---\n\n[V](https://www.youtube.com/watch?v=dQw4w9WgXcQ)\n');
+        expect(declared.fileSections).toEqual([]);
+    });
+});

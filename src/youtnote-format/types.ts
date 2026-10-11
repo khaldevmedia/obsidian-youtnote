@@ -15,6 +15,7 @@ export interface OpaqueYoutnoteSection {
     type: string;
     openingMarker: string;
     body: string;
+    hasBody: boolean;
     closingMarker: string;
 }
 
@@ -35,6 +36,7 @@ export interface YoutnoteDocument {
     videos: Video[];
     notes: Note[];
     videoLayouts: YoutnoteVideoLayout[];
+    fileSections: OpaqueYoutnoteSection[];
 }
 
 export type FormatDetection =

@@ -91,6 +91,29 @@ to avoid conflicts with other plugins */
     padding: 0;
 }
 
+.youtnote-plugin__readonly-banner {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    padding: 8px 10px;
+    border-radius: 6px;
+    background: var(--background-secondary);
+    border: 1px solid var(--background-modifier-border);
+    font-size: var(--font-ui-smaller);
+    color: var(--text-muted);
+}
+
+.youtnote-plugin__readonly-banner-text {
+    flex: 1 1 auto;
+    min-width: 180px;
+}
+
+.youtnote-plugin__readonly-banner-convert-button {
+    flex: 0 0 auto;
+    cursor: pointer;
+}
+
 
 .is-mobile .youtnote-plugin__plugin-container.youtnote-plugin__iframe-sticky .youtnote-plugin__player-container {
     position: sticky;
@@ -1171,6 +1194,19 @@ button.youtnote-plugin__add-btn {
     font-size: var(--font-ui-medium);
     color: var(--text-normal);
     line-height: 1.5;
+}
+
+.youtnote-plugin__conversion-message > p {
+    margin: 0 0 12px;
+}
+
+.youtnote-plugin__conversion-message > p:last-child {
+    margin-bottom: 0;
+}
+
+.youtnote-plugin__conversion-warning-heading {
+    color: var(--text-warning);
+    font-weight: 700;
 }
 
 .youtnote-plugin__base-modal-buttons {

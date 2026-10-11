@@ -1,11 +1,12 @@
 import { beforeAll, describe, expect, it, vi } from 'vitest';
+import { Notice } from 'obsidian';
 import type { TFile } from 'obsidian';
 import { ActiveVideoTaskRegistry } from './activeVideoTasks';
 import type { VideoTaskTarget } from './activeVideoTasks';
 import { AIProviderError } from './ai/types';
 import type { AIGenerationDialogOptions, PluginSettings, TranscriptEntry, Video, VideoId } from './types';
 import type YoutnotePlugin from './main';
-import type { YoutnoteView } from './view';
+import { YoutnoteView } from './view';
 import { fetchCaptionTracks } from './transcriptFetch';
 import { AIGenerationProgressModal, showAISetupModal } from './ui/MessageBoxes';
 import type { GeneratedNotesResult } from './ai/notes';
@@ -313,7 +314,7 @@ describe('YoutnotePlugin AI task workflow', () => {
         return plugin;
     };
 
-    const makeView = () => {
+    const makeView = (writable = true) => {
         const file = unsafeCast<TFile>({ path: 'video.md', basename: 'video' });
         const video = unsafeCast<Video>({
             id: 'video-1' as VideoId,
@@ -321,7 +322,14 @@ describe('YoutnotePlugin AI task workflow', () => {
             title: 'Video',
             transcript: TRANSCRIPT,
         });
-        const view = unsafeCast<YoutnoteView>({ file, videos: [video] });
+        const view = unsafeCast<YoutnoteView>({
+            file,
+            videos: [video],
+            notes: [],
+            isWritable: () => writable,
+            getMutationGuard: () => () => writable,
+            handleSetActiveVideoId: vi.fn(),
+        });
         return { file, video, view };
     };
 
@@ -486,4 +494,269 @@ describe('YoutnotePlugin AI task workflow', () => {
         await invokeRunAITask(fixture);
         expect(persistGeneratedNotesResult).not.toHaveBeenCalled();
     });
+
+    it('rejects transcript fetch and AI generation on a read-only view before any task starts', () => {
+        vi.mocked(showAISetupModal).mockClear();
+        vi.mocked(fetchCaptionTracks).mockClear();
+        const noticesBefore = unsafeCast<{ calls: string[] }>(Notice).calls.length;
+        const plugin = makePlugin(ai => {
+            ai.provider = 'custom';
+            ai.models.custom = 'llama';
+            ai.customBaseUrl = 'http://localhost:11434/v1';
+        });
+        const internals = unsafeCast<Record<string, unknown>>(plugin);
+        const runAITask = vi.fn(() => Promise.resolve());
+        const runTranscriptTask = vi.fn(() => Promise.resolve());
+        internals.runAITask = runAITask;
+        internals.runTranscriptTask = runTranscriptTask;
+        const { file, video, view } = makeView(false);
+        plugin.startTranscriptFetch(view, video.id);
+        plugin.startAINoteGeneration(view, video.id, DIALOG_OPTIONS);
+        expect(runTranscriptTask).not.toHaveBeenCalled();
+        expect(runAITask).not.toHaveBeenCalled();
+        expect(fetchCaptionTracks).not.toHaveBeenCalled();
+        expect(vi.mocked(showAISetupModal)).not.toHaveBeenCalled();
+        const registry = internals.activeVideoTasks as ActiveVideoTaskRegistry;
+        expect(registry.getVideoState(file, 'abcdefghijk')).toEqual({ transcriptPhase: null, aiPhase: null });
+        const notices = unsafeCast<{ calls: string[] }>(Notice).calls.slice(noticesBefore);
+        expect(notices).toHaveLength(2);
+        expect(notices.every(message => message.includes('read-only'))).toBe(true);
+    });
+
+    const makeOpenLeafView = (plugin: YoutnotePlugin, file: TFile, writable: boolean | (() => boolean)) => {
+        const isWritable = typeof writable === 'function' ? writable : () => writable;
+        const handleUpdateVideos = vi.fn();
+        const handleUpdateNotes = vi.fn();
+        const handleSetActiveVideoId = vi.fn();
+        const save = vi.fn(() => Promise.resolve());
+        const view = unsafeCast<YoutnoteView>(Object.assign(
+            Object.create(unsafeCast<{ prototype: object }>(YoutnoteView).prototype),
+            {
+                file,
+                videos: [unsafeCast<Video>({
+                    id: 'video-1' as VideoId,
+                    url: 'https://www.youtube.com/watch?v=abcdefghijk',
+                    title: 'Video',
+                    transcript: TRANSCRIPT,
+                    durationSec: 120,
+                })],
+                notes: [],
+                isWritable,
+                getMutationGuard: () => {
+                    const owned = view.file;
+                    return () => isWritable() && view.file === owned;
+                },
+                handleUpdateVideos,
+                handleUpdateNotes,
+                handleSetActiveVideoId,
+                save,
+            },
+        ));
+        unsafeCast<Record<string, unknown>>(plugin.app).workspace = {
+            getLeavesOfType: vi.fn(() => [{ view }]),
+        };
+        return { view, handleUpdateVideos, handleUpdateNotes, handleSetActiveVideoId, save };
+    };
+
+    it('discards a completed transcript when the open view is no longer writable', async () => {
+        const fixture = makeTaskFixture();
+        const noticesBefore = unsafeCast<{ calls: string[] }>(Notice).calls.length;
+        const { handleUpdateVideos, save } = makeOpenLeafView(fixture.plugin, fixture.target.file, false);
+        const persist = unsafeCast<{
+            persistTranscriptResult(handle: unknown, target: unknown, entries: TranscriptEntry[]): Promise<boolean>;
+        }>(fixture.plugin);
+        const result = await persist.persistTranscriptResult(fixture.handle, fixture.target, TRANSCRIPT);
+        expect(result).toBe(false);
+        expect(handleUpdateVideos).not.toHaveBeenCalled();
+        expect(save).not.toHaveBeenCalled();
+        const notices = unsafeCast<{ calls: string[] }>(Notice).calls.slice(noticesBefore);
+        expect(notices.some(message => message.includes('read-only'))).toBe(true);
+    });
+
+    it('discards completed generated notes when the open view is no longer writable', async () => {
+        const fixture = makeTaskFixture();
+        const noticesBefore = unsafeCast<{ calls: string[] }>(Notice).calls.length;
+        const { handleUpdateNotes, save } = makeOpenLeafView(fixture.plugin, fixture.target.file, false);
+        const persist = unsafeCast<{
+            persistGeneratedNotesResult(
+                handle: unknown,
+                target: unknown,
+                drafts: unknown[],
+                options: unknown,
+            ): Promise<boolean>;
+        }>(fixture.plugin);
+        const result = await persist.persistGeneratedNotesResult(
+            fixture.handle,
+            fixture.target,
+            generatedResult().notes,
+            { mode: 'append', generalNoteMode: 'append' },
+        );
+        expect(result).toBe(false);
+        expect(handleUpdateNotes).not.toHaveBeenCalled();
+        expect(save).not.toHaveBeenCalled();
+        const notices = unsafeCast<{ calls: string[] }>(Notice).calls.slice(noticesBefore);
+        expect(notices.some(message => message.includes('read-only'))).toBe(true);
+    });
+
+    it('reports a persist as unsuccessful when the view turns read-only during the save', async () => {
+        const fixture = makeTaskFixture();
+        let writable = true;
+        const { save } = makeOpenLeafView(fixture.plugin, fixture.target.file, () => writable);
+        save.mockImplementation(() => {
+            writable = false;
+            return Promise.resolve();
+        });
+        const persist = unsafeCast<{
+            persistTranscriptResult(handle: unknown, target: unknown, entries: TranscriptEntry[]): Promise<boolean>;
+        }>(fixture.plugin);
+        const result = await persist.persistTranscriptResult(fixture.handle, fixture.target, TRANSCRIPT);
+        expect(result).toBe(false);
+    });
+
+    it('rejects a URI append on a read-only view before fetching metadata', async () => {
+        const fixture = makeTaskFixture();
+        const { handleUpdateVideos } = makeOpenLeafView(fixture.plugin, fixture.target.file, false);
+        const fetchVideoMetadata = vi.fn(() =>
+            Promise.resolve({ title: 't', thumbnail: 't', durationSec: 60 }));
+        fixture.internals.fetchVideoMetadata = fetchVideoMetadata;
+        const noticesBefore = unsafeCast<{ calls: string[] }>(Notice).calls.length;
+        await unsafeCast<{ handleUriSchemeAppend(url: string): Promise<void> }>(fixture.plugin)
+            .handleUriSchemeAppend('https://www.youtube.com/watch?v=bbbbbbbbbbb');
+        expect(fetchVideoMetadata).not.toHaveBeenCalled();
+        expect(handleUpdateVideos).not.toHaveBeenCalled();
+        const notices = unsafeCast<{ calls: string[] }>(Notice).calls.slice(noticesBefore);
+        expect(notices.some(message => message.includes('uri scheme error') && message.includes('read-only'))).toBe(true);
+    });
+
+    it('rejects a URI append when the target becomes read-only during the metadata fetch', async () => {
+        const fixture = makeTaskFixture();
+        let writable = true;
+        const { handleUpdateVideos } = makeOpenLeafView(fixture.plugin, fixture.target.file, () => writable);
+        let resolveMetadata: ((value: { title: string; thumbnail: string; durationSec: number }) => void) | null = null;
+        fixture.internals.fetchVideoMetadata = vi.fn(() =>
+            new Promise<{ title: string; thumbnail: string; durationSec: number }>(resolve => {
+                resolveMetadata = resolve;
+            }));
+        const noticesBefore = unsafeCast<{ calls: string[] }>(Notice).calls.length;
+        const pending = unsafeCast<{ handleUriSchemeAppend(url: string): Promise<void> }>(fixture.plugin)
+            .handleUriSchemeAppend('https://www.youtube.com/watch?v=bbbbbbbbbbb');
+        await Promise.resolve();
+        writable = false;
+        resolveMetadata!({ title: 't', thumbnail: 't', durationSec: 60 });
+        await pending;
+        expect(handleUpdateVideos).not.toHaveBeenCalled();
+        const notices = unsafeCast<{ calls: string[] }>(Notice).calls.slice(noticesBefore);
+        expect(notices.some(message => message.includes('uri scheme error') && message.includes('read-only'))).toBe(true);
+        expect(notices.some(message => message.includes('Video added'))).toBe(false);
+    });
+
+    it('rejects a URI note on an existing target when the view file switches during the duration wait', async () => {
+        const fixture = makeTaskFixture();
+        const { view, handleUpdateNotes } = makeOpenLeafView(fixture.plugin, fixture.target.file, true);
+        const otherFile = unsafeCast<TFile>({ path: 'other.md' });
+        const noticesBefore = unsafeCast<{ calls: string[] }>(Notice).calls.length;
+        const pending = unsafeCast<{
+            handleUriSchemeNote(url: string, timestampSec: number, text: string): Promise<void>;
+        }>(fixture.plugin).handleUriSchemeNote('https://www.youtube.com/watch?v=abcdefghijk', 5, 'body');
+        unsafeCast<Record<string, unknown>>(view).file = otherFile;
+        await pending;
+        expect(handleUpdateNotes).not.toHaveBeenCalled();
+        const notices = unsafeCast<{ calls: string[] }>(Notice).calls.slice(noticesBefore);
+        expect(notices.some(message => message.includes('uri scheme error') && message.includes('read-only'))).toBe(true);
+        expect(notices.some(message => message.includes('Note added'))).toBe(false);
+    });
+
+    it('rejects a URI note on a newly created target when the view file switches during the duration wait', async () => {
+        const fixture = makeTaskFixture();
+        const plugin = fixture.plugin;
+        unsafeCast<Record<string, unknown>>(plugin.app).workspace = {
+            getLeavesOfType: vi.fn(() => []),
+        };
+        const newFile = unsafeCast<TFile>({ path: 'new.md' });
+        const isWritable = () => true;
+        const handleUpdateNotes = vi.fn();
+        const handleUpdateVideos = vi.fn();
+        const newView = unsafeCast<YoutnoteView>(Object.assign(
+            Object.create(unsafeCast<{ prototype: object }>(YoutnoteView).prototype),
+            {
+                file: newFile,
+                videos: [],
+                notes: [],
+                isWritable,
+                getMutationGuard: () => {
+                    const owned = newView.file;
+                    return () => isWritable() && newView.file === owned;
+                },
+                handleUpdateVideos,
+                handleUpdateNotes,
+                handleSetActiveVideoId: vi.fn(),
+                save: vi.fn(() => Promise.resolve()),
+            },
+        ));
+        fixture.internals.fetchVideoMetadata = vi.fn(() =>
+            Promise.resolve({ title: 't', thumbnail: 't', durationSec: 60 }));
+        fixture.internals.createYoutnoteFile = vi.fn(() =>
+            Promise.resolve({ leaf: { view: newView }, file: newFile }));
+        let resolveDuration: ((value: number) => void) | null = null;
+        fixture.internals.waitForVideoDuration = vi.fn(() =>
+            new Promise<number>(resolve => { resolveDuration = resolve; }));
+        const noticesBefore = unsafeCast<{ calls: string[] }>(Notice).calls.length;
+        const pending = unsafeCast<{
+            handleUriSchemeNote(url: string, timestampSec: number, text: string): Promise<void>;
+        }>(plugin).handleUriSchemeNote('https://www.youtube.com/watch?v=bbbbbbbbbbb', 5, 'body');
+        for (let i = 0; i < 20; i++) await Promise.resolve();
+        unsafeCast<Record<string, unknown>>(newView).file = unsafeCast<TFile>({ path: 'other.md' });
+        resolveDuration!(120);
+        await pending;
+        expect(handleUpdateNotes).not.toHaveBeenCalled();
+        const notices = unsafeCast<{ calls: string[] }>(Notice).calls.slice(noticesBefore);
+        expect(notices.some(message => message.includes('uri scheme error') && message.includes('read-only'))).toBe(true);
+        expect(notices.some(message => message.includes('Note added'))).toBe(false);
+    });
+
+    it('rejects a URI video auto-add when the view file switches during the metadata fetch', async () => {
+        const fixture = makeTaskFixture();
+        const { view, handleUpdateVideos } = makeOpenLeafView(fixture.plugin, fixture.target.file, true);
+        let resolveMetadata: ((value: { title: string; thumbnail: string; durationSec: number }) => void) | null = null;
+        fixture.internals.fetchVideoMetadata = vi.fn(() =>
+            new Promise<{ title: string; thumbnail: string; durationSec: number }>(resolve => {
+                resolveMetadata = resolve;
+            }));
+        const noticesBefore = unsafeCast<{ calls: string[] }>(Notice).calls.length;
+        const pending = unsafeCast<{
+            handleUriSchemeNote(url: string, timestampSec: number, text: string): Promise<void>;
+        }>(fixture.plugin).handleUriSchemeNote('https://www.youtube.com/watch?v=bbbbbbbbbbb', 5, 'body');
+        await Promise.resolve();
+        unsafeCast<Record<string, unknown>>(view).file = unsafeCast<TFile>({ path: 'other.md' });
+        resolveMetadata!({ title: 't', thumbnail: 't', durationSec: 60 });
+        await pending;
+        expect(handleUpdateVideos).not.toHaveBeenCalled();
+        const notices = unsafeCast<{ calls: string[] }>(Notice).calls.slice(noticesBefore);
+        expect(notices.some(message => message.includes('uri scheme error') && message.includes('read-only'))).toBe(true);
+        expect(notices.some(message => message.includes('Note added'))).toBe(false);
+    });
+
+    it.each(['addVideoToView', 'addNoteToView', 'addGeneralNoteToView'] as const)(
+        'direct helper %s performs no mutation on a read-only view',
+        (helper) => {
+            const fixture = makeTaskFixture();
+            const { view, handleUpdateVideos, handleUpdateNotes } = makeOpenLeafView(
+                fixture.plugin,
+                fixture.target.file,
+                false,
+            );
+            const noticesBefore = unsafeCast<{ calls: string[] }>(Notice).calls.length;
+            const helpers = unsafeCast<Record<string, (...args: unknown[]) => unknown>>(fixture.plugin);
+            const result = helper === 'addVideoToView'
+                ? helpers.addVideoToView(view, 'https://www.youtube.com/watch?v=bbbbbbbbbbb', { title: 't', thumbnail: 't', durationSec: 1 })
+                : helper === 'addNoteToView'
+                    ? helpers.addNoteToView(view, 'video-1', 5, 'body')
+                    : helpers.addGeneralNoteToView(view, 'video-1', 'body');
+            expect(result).toBeFalsy();
+            expect(handleUpdateVideos).not.toHaveBeenCalled();
+            expect(handleUpdateNotes).not.toHaveBeenCalled();
+            const notices = unsafeCast<{ calls: string[] }>(Notice).calls.slice(noticesBefore);
+            expect(notices.some(message => message.includes('read-only'))).toBe(true);
+        },
+    );
 });

@@ -205,6 +205,7 @@ export function readLegacyDocument(source: string): { ok: true; document: Youtno
                 videoId: video.id,
                 sections: buildDefaultLayout(video),
             })),
+            fileSections: [],
         },
     };
 }

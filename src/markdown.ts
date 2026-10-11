@@ -20,6 +20,7 @@ export function serializeDataToMarkdown(videos: Video[], notes: Note[]): string 
             videos: [],
             notes: [],
             videoLayouts: [],
+            fileSections: [],
         },
         videos,
         notes,

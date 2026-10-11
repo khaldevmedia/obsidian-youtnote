@@ -7,29 +7,35 @@ import { ConfirmModal } from './MessageBoxes';
 import { NoteListItemProps } from '../types';
 
 // Component for markdown rendering
-const MarkdownNoteBody: React.FC<{ app: import('obsidian').App; body: string; sourcePath: string; onDoubleClick: () => void; isExpanded: boolean }> = React.memo(({ app, body, sourcePath, onDoubleClick, isExpanded }) => {
+const MarkdownNoteBody: React.FC<{ app: import('obsidian').App; body: string; sourcePath: string; onDoubleClick: () => void; isExpanded: boolean; readOnly: boolean }> = React.memo(({ app, body, sourcePath, onDoubleClick, isExpanded, readOnly }) => {
     const containerRef = useRef<HTMLDivElement>(null);
     const componentRef = useRef<Component | null>(null);
 
     useEffect(() => {
         if (!containerRef.current) return;
-        
+
         // Create a new component for lifecycle management
         if (!componentRef.current) {
             componentRef.current = new Component();
         }
-        
+
         // Clear previous content
         containerRef.current.empty();
-        
+
         // Render markdown
-        void MarkdownRenderer.render(app, body, containerRef.current, sourcePath, componentRef.current);
-        
+        void MarkdownRenderer.render(app, body, containerRef.current, sourcePath, componentRef.current)
+            .then(() => {
+                if (!readOnly || !containerRef.current) return;
+                containerRef.current.querySelectorAll('input, textarea').forEach(el => {
+                    (el as HTMLInputElement | HTMLTextAreaElement).disabled = true;
+                });
+            });
+
         return () => {
             componentRef.current?.unload();
             componentRef.current = null;
         };
-    }, [app, body, sourcePath]);
+    }, [app, body, sourcePath, readOnly]);
 
     return (
         <div 
@@ -77,6 +83,7 @@ export const NoteListItem: React.FC<NoteListItemProps> = React.memo(({
     maxDuration,
     newLineTrigger,
     isGeneral,
+    readOnly,
     onToggleExpand,
     onSelect,
     onStartEdit,
@@ -88,15 +95,17 @@ export const NoteListItem: React.FC<NoteListItemProps> = React.memo(({
     onTimestampChange,
     onDelete
 }) => {
-    const isEditingTimestamp = editingTimestampId === note.id;
+    const isEditingTimestamp = !readOnly && editingTimestampId === note.id;
 
     const handleTimestampDoubleClick = (e: React.MouseEvent) => {
         e.stopPropagation();
+        if (readOnly) return;
         const formattedValue = formatSecondsToDisplay(note.timestampSec, maxDuration);
         onStartTimestampEdit(note.id, formattedValue);
     };
 
     const handleBodyDoubleClick = () => {
+        if (readOnly) return;
         onStartEdit(note.id, note.bodyMarkdown);
     };
 
@@ -129,7 +138,7 @@ export const NoteListItem: React.FC<NoteListItemProps> = React.memo(({
 
     const handleContextMenu = (e: React.MouseEvent) => {
         // Disable context menu on mobile while the note is being edited
-        if ((isEditingTimestamp) ||(Platform.isMobile && isEditing)) {
+        if (readOnly || (isEditingTimestamp) ||(Platform.isMobile && isEditing)) {
             return;
         }
 
@@ -286,14 +295,14 @@ export const NoteListItem: React.FC<NoteListItemProps> = React.memo(({
                         className="youtnote-plugin__timestamp"
                         onClick={(e) => e.stopPropagation()}
                         onDoubleClick={handleTimestampDoubleClick}
-                        aria-label="Double click to edit"
+                        aria-label={readOnly ? undefined : 'Double click to edit'}
                     >
                         {formatSecondsToDisplay(note.timestampSec, maxDuration)}
                     </span>
                 )}
             </div>
 
-            {isEditing ? (
+            {isEditing && !readOnly ? (
                 <div className="youtnote-plugin__note-editor-container" onClick={(e) => e.stopPropagation()}>
                     <ObsidianEditor
                         app={app}
@@ -318,16 +327,17 @@ export const NoteListItem: React.FC<NoteListItemProps> = React.memo(({
                     )}
                 </div>
             ) : (
-                <MarkdownNoteBody 
+                <MarkdownNoteBody
                     app={app}
                     body={note.bodyMarkdown}
                     sourcePath=""
-                    onDoubleClick={handleBodyDoubleClick}
+                    onDoubleClick={readOnly ? () => {} : handleBodyDoubleClick}
                     isExpanded={isExpanded}
+                    readOnly={readOnly}
                 />
             )}
 
-            {isExpanded && (
+            {isExpanded && !readOnly && (
                 <div className="youtnote-plugin__note-actions">
                     <button 
                         ref={editIconRef} 

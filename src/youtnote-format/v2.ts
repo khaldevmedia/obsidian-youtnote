@@ -239,6 +239,7 @@ export function parseV2Youtnote(source: string): ParseResult {
     const videos: Video[] = [];
     const notes: Note[] = [];
     const videoLayouts: YoutnoteVideoLayout[] = [];
+    const fileSections: OpaqueYoutnoteSection[] = [];
 
     const lines = body.split('\n');
     const fence = new FenceTracker();
@@ -249,6 +250,7 @@ export function parseV2Youtnote(source: string): ParseResult {
     let managedSeen = new Set<string>();
     let sectionType = '';
     let sectionOpening = '';
+    let sectionScope: 'file' | 'video' = 'video';
     let sectionOpaqueLines: string[] = [];
     let sourceLines: string[] = [];
     let notesParser: NotesSectionParser | null = null;
@@ -262,14 +264,21 @@ export function parseV2Youtnote(source: string): ParseResult {
             const wasFenced = fence.inFence;
             fence.feed(line);
             if (!wasFenced && !fence.inFence && line === sectionEndMarker(sectionType)) {
-                currentSections.push({
+                const opaque: OpaqueYoutnoteSection = {
                     kind: 'opaque',
                     type: sectionType,
                     openingMarker: sectionOpening,
                     body: sectionOpaqueLines.join('\n'),
+                    hasBody: sectionOpaqueLines.length > 0,
                     closingMarker: line,
-                });
-                state = 'video';
+                };
+                if (sectionScope === 'file') {
+                    fileSections.push(opaque);
+                    state = 'top';
+                } else {
+                    currentSections.push(opaque);
+                    state = 'video';
+                }
             } else {
                 sectionOpaqueLines.push(line);
             }
@@ -304,10 +313,24 @@ export function parseV2Youtnote(source: string): ParseResult {
             }
             const sectionMatch = line.match(SECTION_OPEN_PATTERN);
             if (sectionMatch) {
+                const type = sectionMatch[1];
+                if (state === 'top') {
+                    if (MANAGED_SECTION_TYPES.has(type)) {
+                        return fail(`The "${type}" section is only valid inside a video block.`);
+                    }
+                    sectionScope = 'file';
+                    sectionType = type;
+                    sectionOpening = line;
+                    sectionOpaqueLines = [];
+                    sourceLines = [];
+                    notesParser = null;
+                    state = 'section';
+                    fence.feed(line);
+                    continue;
+                }
                 if (state !== 'video') {
                     return fail(`Section marker "${line.trim()}" is not inside a video block.`);
                 }
-                const type = sectionMatch[1];
                 if (MANAGED_SECTION_TYPES.has(type)) {
                     if (line !== sectionOpenMarker(type)) {
                         return fail(`The "${type}" section does not accept attributes.`);
@@ -324,6 +347,7 @@ export function parseV2Youtnote(source: string): ParseResult {
                     return fail(`A "${type}" section requires a "${sectionOpenMarker('source')}" section first.`);
                 }
                 managedSeen.add(type);
+                sectionScope = 'video';
                 sectionType = type;
                 sectionOpening = line;
                 sectionOpaqueLines = [];
@@ -405,6 +429,7 @@ export function parseV2Youtnote(source: string): ParseResult {
             videos,
             notes,
             videoLayouts,
+            fileSections,
         },
     };
 
@@ -453,8 +478,17 @@ export function parseV2Youtnote(source: string): ParseResult {
     }
 }
 
+function emitOpaqueSection(lines: string[], section: OpaqueYoutnoteSection): void {
+    lines.push(section.openingMarker);
+    if (section.hasBody) {
+        lines.push(section.body);
+    }
+    lines.push(section.closingMarker);
+    lines.push('');
+}
+
 export function serializeV2Youtnote(document: YoutnoteDocument): string {
-    if (document.videos.length === 0) {
+    if (document.videos.length === 0 && document.fileSections.length === 0) {
         return `${withFormatVersion(document.frontmatter, CURRENT_FORMAT_VERSION)}\n\n`;
     }
 
@@ -464,6 +498,10 @@ export function serializeV2Youtnote(document: YoutnoteDocument): string {
 
     lines.push(withFormatVersion(document.frontmatter, CURRENT_FORMAT_VERSION));
     lines.push('');
+
+    for (const section of document.fileSections) {
+        emitOpaqueSection(lines, section);
+    }
 
     for (const video of document.videos) {
         const layout = layoutsByVideo.get(video.id);
@@ -529,12 +567,7 @@ export function serializeV2Youtnote(document: YoutnoteDocument): string {
             } else if (slot.kind === 'transcript') {
                 emitTranscript();
             } else {
-                lines.push(slot.openingMarker);
-                if (slot.body !== '') {
-                    lines.push(slot.body);
-                }
-                lines.push(slot.closingMarker);
-                lines.push('');
+                emitOpaqueSection(lines, slot);
             }
         }
 

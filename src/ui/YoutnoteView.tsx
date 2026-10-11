@@ -43,8 +43,13 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
     onFetchTranscript,
     onGenerateAINotes,
     onCancelVideoTasks,
-    onOpenAISettings
+    onOpenAISettings,
+    readOnly,
+    canConvert,
+    conversionPending,
+    onRequestConversion
 }) => {
+    const renderMutationGuard = view.getMutationGuard();
     const activeVideoNotes = useMemo(
         () => notes
             .filter(n => n.videoId === activeVideoId)
@@ -184,6 +189,15 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
         setFollowTranscriptPlayback(true);
         setCaptionCenterRequest(null);
     }, [showTranscript]);
+
+    useEffect(() => {
+        if (readOnly) {
+            setEditingNoteId(null);
+            setEditingTimestampId(null);
+            setTimestampError(null);
+            setEditingTranscriptIndex(null);
+        }
+    }, [readOnly]);
     
     // Handle singleExpandMode changes - collapse extra notes when switching to single mode
     useEffect(() => {
@@ -261,13 +275,15 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
     }, [activeVideoId, activeVideoNotes.length, videos.length, notes.length, hasGeneralNote, showTranscript, hasTranscript]);
 
     useEffect(() => {
-        if (videoListRef.current) {
+        if (!readOnly && videoListRef.current) {
+            const guard = renderMutationGuard;
             const sortable = Sortable.create(videoListRef.current, {
                 handle: '.youtnote-plugin__drag-handle',
                 animation: 150,
                 forceFallback: true,
                 fallbackOnBody: true,
                 onEnd: (evt: SortableEvent) => {
+                    if (!guard()) return;
                     const oldIndex = evt.oldIndex!;
                     const newIndex = evt.newIndex!;
                     if (oldIndex !== newIndex) {
@@ -282,7 +298,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
                 sortable.destroy();
             };
         }
-    }, [onUpdateVideos]);
+    }, [onUpdateVideos, readOnly, videos]);
 
     useEffect(() => {
         const requestId = ++videoLoadRequestRef.current;
@@ -337,8 +353,11 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
         const existingAdapter = playerAdapterRef.current;
 
         const handleDurationUpdate = async (adapter: YouTubeIframeAdapter, videoId: VideoId) => {
+            const guard = renderMutationGuard;
+            if (readOnly) return;
             try {
                 const duration = await adapter.getDuration();
+                if (!guard()) return;
                 // Read from the view's videos (source of truth) instead of videosRef.current
                 // which can be stale if an external caller (e.g. URI scheme) updated videos
                 const latestVideos = view.videos;
@@ -532,8 +551,9 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
     };
 
     const handleAddNote = async () => {
-        if (!activeVideoId) return;
-        
+        const guard = renderMutationGuard;
+        if (readOnly || !activeVideoId) return;
+
         let currentTime = 0;
         const playerAdapter = playerAdapterRef.current;
         if (playerAdapter && playerAdapter.isReady()) {
@@ -543,6 +563,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
                 console.warn("Could not get current time from player adapter", err);
             }
         }
+        if (!guard()) return;
 
         const normalizedTimestamp = Math.floor(currentTime);
         const newNoteId = crypto.randomUUID() as NoteId;
@@ -579,7 +600,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
     };
 
     const handleAddGeneralNote = () => {
-        if (!activeVideoId) return;
+        if (readOnly || !activeVideoId || !renderMutationGuard()) return;
         // Enforce at most one general note per video
         if (hasGeneralNote) return;
 
@@ -619,7 +640,8 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
 
     const handleAddVideoSubmit = async (e: React.SubmitEvent<HTMLFormElement>) => {
         e.preventDefault();
-        if (!newVideoUrl || isFetchingMetadata) return;
+        const guard = renderMutationGuard;
+        if (readOnly || !newVideoUrl || isFetchingMetadata) return;
 
         const ytId = extractYouTubeId(newVideoUrl);
         if (!ytId) {
@@ -667,7 +689,8 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
 
             interface OEmbedData { title?: string; thumbnail_url?: string; }
             const data = response.json as OEmbedData;
-            
+            if (!guard()) return;
+
             const ytId = extractYouTubeId(normalizedUrl);
             const newVideo: Video = {
                 id: crypto.randomUUID() as VideoId,
@@ -697,6 +720,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
     };
 
     const saveNoteEdit = () => {
+        if (readOnly || !renderMutationGuard()) return;
         if (editingNoteId) {
             const newNotes = notes.map(n => n.id === editingNoteId ? { ...n, bodyMarkdown: editNoteBody, updatedAt: new Date().toISOString() } : n)
                 .sort((a, b) => a.timestampSec - b.timestampSec);
@@ -726,6 +750,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
     };
 
     const saveTimestampEdit = async (noteId: NoteId) => {
+        if (readOnly || !renderMutationGuard()) return;
         if (!editTimestampValue.trim()) {
             setEditingTimestampId(null);
             setTimestampError(null);
@@ -782,10 +807,12 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
     };
 
     const deleteNote = (noteId: NoteId) => {
+        if (readOnly || !renderMutationGuard()) return;
         onUpdateNotes(notes.filter(n => n.id !== noteId));
     };
 
     const deleteVideo = (videoId: VideoId) => {
+        if (readOnly || !renderMutationGuard()) return;
         onCancelVideoTasks(videoId);
         const remainingVideos = videos.filter(v => v.id !== videoId);
         onUpdateVideos(remainingVideos);
@@ -798,7 +825,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
     };
 
     const handleMergeDuplicateNotes = () => {
-        if (!activeVideoId) return;
+        if (readOnly || !activeVideoId || !renderMutationGuard()) return;
 
         const notesByTimestamp = new Map<number, Note[]>();
         activeVideoNotes.forEach(note => {
@@ -835,6 +862,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
             'Merge duplicates?',
             `Found ${duplicateGroups.length} group(s) of notes with duplicate timestamps${timestampSummary}. Do you really want to merge them?`,
             () => {
+                if (!renderMutationGuard()) return;
                 const now = new Date().toISOString();
                 const notesToDelete = new Set<NoteId>();
                 const mergedBodies = new Map<NoteId, string>();
@@ -883,23 +911,29 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
     };
 
     const handleFetchTranscript = () => {
-        if (!activeVideo) return;
+        if (readOnly || !activeVideo) return;
         onFetchTranscript(activeVideo.id);
     };
 
     const handleRefetchTranscript = () => {
+        const guard = renderMutationGuard;
+        if (readOnly) return;
         new ConfirmModal(
             app,
             'Re-fetch transcript?',
             'This will replace the current transcript, including any edits you made.',
-            () => handleFetchTranscript(),
+            () => {
+                if (!guard() || readOnly) return;
+                handleFetchTranscript();
+            },
             'Re-fetch',
             'Cancel'
         ).open();
     };
 
     const handleDeleteTranscript = () => {
-        if (!activeVideoId || !hasTranscript) return;
+        const guard = renderMutationGuard;
+        if (readOnly || !activeVideoId || !hasTranscript) return;
         const targetVideoId = activeVideoId;
 
         new ConfirmModal(
@@ -907,6 +941,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
             'Delete transcript?',
             'Do you really want to delete this transcript and all its captions? Notes created from captions will not be deleted.',
             () => {
+                if (!guard()) return;
                 onCancelVideoTasks(targetVideoId, 'transcript');
                 onUpdateVideos(videosRef.current.map(video => {
                     if (video.id !== targetVideoId) return video;
@@ -926,16 +961,22 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
     };
 
     const openAIGenerationDialog = (targetVideoId: VideoId) => {
+        const guard = renderMutationGuard;
+        if (readOnly) return;
         const targetNotes = view.notes.filter(note => note.videoId === targetVideoId);
         new AIGenerationModal(
             app,
             targetNotes.length > 0,
             targetNotes.some(note => note.isGeneral === true || note.timestampSec === -1),
-            (dialogOptions) => onGenerateAINotes(targetVideoId, dialogOptions)
+            (dialogOptions) => {
+                if (!guard() || readOnly) return;
+                onGenerateAINotes(targetVideoId, dialogOptions);
+            }
         ).open();
     };
 
     const handleGenerateAINotes = () => {
+        if (readOnly) return;
         const setupError = getAINoteGenerationSetupError(
             settings.ai,
             name => app.secretStorage.getSecret(name) ?? null,
@@ -952,11 +993,15 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
         if (!video) return;
         const transcript = video.transcript ?? [];
         if (transcript.length === 0) {
+            const guard = renderMutationGuard;
             new ConfirmModal(
                 app,
                 'Fetch transcript first?',
                 'AI note generation needs a transcript. The transcript will be fetched and notes generated in the background.',
-                () => openAIGenerationDialog(video.id),
+                () => {
+                    if (!guard() || readOnly) return;
+                    openAIGenerationDialog(video.id);
+                },
                 'Continue',
                 'Cancel',
                 'primary'
@@ -986,7 +1031,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
     }, [handleCopyCaption]);
 
     const handleCreateNoteFromCaption = useCallback((entry: TranscriptEntry, displayTimestamp: string) => {
-        if (!activeVideoId) return;
+        if (readOnly || !activeVideoId || !renderMutationGuard()) return;
 
         const newNoteId = crypto.randomUUID() as NoteId;
         const newNote: Note = {
@@ -1015,9 +1060,13 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
                 return next;
             });
         }
-    }, [activeVideoId, notes, onUpdateNotes, settings.switchToNotesAfterTranscriptNote, settings.singleExpandMode]);
+    }, [activeVideoId, notes, onUpdateNotes, readOnly, renderMutationGuard, settings.switchToNotesAfterTranscriptNote, settings.singleExpandMode]);
 
     const handleSaveTranscriptEdit = useCallback((index: number, rawText: string) => {
+        if (readOnly || !renderMutationGuard()) {
+            setEditingTranscriptIndex(null);
+            return;
+        }
         const text = rawText.replace(/\s+/g, ' ').trim();
         const current = activeTranscript[index];
         if (!text || !current || text === current.text) {
@@ -1030,7 +1079,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
                 : v
         ));
         setEditingTranscriptIndex(null);
-    }, [activeTranscript, activeVideoId, onUpdateVideos, view]);
+    }, [activeTranscript, activeVideoId, onUpdateVideos, readOnly, renderMutationGuard, view]);
 
     const handleCancelTranscriptEdit = useCallback(() => setEditingTranscriptIndex(null), []);
 
@@ -1143,7 +1192,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
             }}
             className="youtnote-plugin__ai-generate-btn"
             onClick={handleGenerateAINotes}
-            disabled={isFetchingTranscript}
+            disabled={readOnly || isFetchingTranscript}
             aria-label="Generate notes with AI"
         />
     );
@@ -1173,14 +1222,29 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
     );
 
     return (
-        <div 
-            ref={containerRef}
-            className={classNames('youtnote-plugin__plugin-container', {
-                'youtnote-plugin__iframe-sticky': isStickyEnabled,
-                'youtnote-plugin__is-resizing': isResizing,
-                'youtnote-plugin__disabled': !isPlayerReady,
-            })}
-        >
+        <>
+            {readOnly && canConvert && (
+                <div className="youtnote-plugin__readonly-banner" role="status">
+                    <span className="youtnote-plugin__readonly-banner-text">
+                        Read-only: this file still uses the legacy format. Convert to v2 to edit.
+                    </span>
+                    <button
+                        className="youtnote-plugin__readonly-banner-convert-button mod-cta"
+                        onClick={onRequestConversion}
+                        disabled={conversionPending}
+                    >
+                        See options
+                    </button>
+                </div>
+            )}
+            <div
+                ref={containerRef}
+                className={classNames('youtnote-plugin__plugin-container', {
+                    'youtnote-plugin__iframe-sticky': isStickyEnabled,
+                    'youtnote-plugin__is-resizing': isResizing,
+                    'youtnote-plugin__disabled': !isPlayerReady,
+                })}
+            >
             {/* On mobile, player is hoisted out of video-pane as a stable direct flex child
                of plugin-container. This keeps its tree position constant so toggling
                isStickyEnabled never causes the iframe to remount/reload. It also makes
@@ -1188,8 +1252,8 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
             {isMobile && playerSection}
 
             {/* Left Pane / Top Column */}
-            <div 
-                className="youtnote-plugin__video-pane" 
+            <div
+                className="youtnote-plugin__video-pane"
                 style={isMobile ? undefined : { width: `${leftPaneWidth}%` }}
             >
                 {!isMobile && playerSection}
@@ -1214,12 +1278,14 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
                             app={app}
                             video={v}
                             isActive={activeVideoId === v.id}
+                            readOnly={readOnly}
                             onSelect={setActiveVideoId}
                             onDelete={deleteVideo}
                         />
                     ))}
                 </div>
                 
+                {!readOnly && (
                 <form className="youtnote-plugin__add-video-form" onSubmit={(e) => { void handleAddVideoSubmit(e); }}>
                     <input 
                         type="url" 
@@ -1242,6 +1308,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
                     >
                     </button>
                 </form>
+                )}
             </div>
 
             {/* Resize Handle */}
@@ -1292,7 +1359,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
                                                 onClick={() => setShowTranscript(false)}
                                                 aria-label="Back to notes"
                                             />
-                                            {hasTranscript && (
+                                            {hasTranscript && !readOnly && (
                                                 <button
                                                     ref={(el) => {
                                                         if (el) {
@@ -1306,7 +1373,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
                                                     aria-label="Re-fetch transcript from YouTube"
                                                 />
                                             )}
-                                            {hasTranscript && (
+                                            {hasTranscript && !readOnly && (
                                                 <button
                                                     ref={(el) => {
                                                         if (el) {
@@ -1347,6 +1414,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
                                                 aria-label="Show transcript"
                                             />
                                             {aiGenerateButton}
+                                            {!readOnly && (
                                             <button
                                                 ref={addGeneralNoteButtonRef}
                                                 className="youtnote-plugin__add-general-note-btn"
@@ -1354,7 +1422,8 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
                                                 disabled={hasGeneralNote}
                                                 aria-label="Add general note"
                                             />
-                                            {activeVideoNotes.length > 0 && (
+                                            )}
+                                            {activeVideoNotes.length > 0 && !readOnly && (
                                                 <button
                                                     ref={mergeNotesButtonRef}
                                                     className="youtnote-plugin__merge-notes-btn"
@@ -1425,12 +1494,14 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
                         ) : !hasTranscript ? (
                             <div className="youtnote-plugin__transcript-empty">
                                 <div>No transcript fetched for this video yet.</div>
+                                {!readOnly && (
                                 <button
                                     className="mod-cta"
                                     onClick={handleFetchTranscript}
                                 >
                                     Fetch transcript
                                 </button>
+                                )}
                             </div>
                         ) : filteredTranscript.length === 0 ? (
                             <div className="youtnote-plugin__transcript-empty">
@@ -1444,7 +1515,8 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
                                     index={item.index}
                                     displayTimestamp={item.display}
                                     isActive={activeTranscriptIndex === item.index}
-                                    isEditing={editingTranscriptIndex === item.index}
+                                    isEditing={!readOnly && editingTranscriptIndex === item.index}
+                                    readOnly={readOnly}
                                     onSeek={handleTranscriptSeek}
                                     onCopy={handleCopyCaptionClick}
                                     onCreateNote={handleCreateNoteFromCaption}
@@ -1473,7 +1545,8 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
                                 note={note}
                             isExpanded={expandedNotes.has(note.id)}
                             isActive={activeNoteId === note.id}
-                            isEditing={editingNoteId === note.id}
+                            isEditing={!readOnly && editingNoteId === note.id}
+                            readOnly={readOnly}
                             editingTimestampId={editingTimestampId}
                             editTimestampValue={editTimestampValue}
                             timestampError={timestampError}
@@ -1496,7 +1569,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
                     ))}
                 </div>
                 )}
-                {!showTranscript && (
+                {!showTranscript && !readOnly && (
                 <button
                     ref={(el) => {
                         if (el) {
@@ -1511,6 +1584,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
                 </button>
                 )}
             </div>
-        </div>
+            </div>
+        </>
     );
 };

@@ -9,6 +9,7 @@ import {
     updateYoutnoteDocument,
 } from './youtnote-format';
 import type { ParseYoutnoteResult, YoutnoteDocument } from './youtnote-format';
+import { CURRENT_FORMAT_VERSION } from './youtnote-format';
 
 export function setTranscriptForYoutubeVideo(
     videos: Video[],
@@ -65,6 +66,12 @@ export function updateYoutnoteSource(
     const parsed = parseYoutnoteDocument(source);
     if (!parsed.ok) {
         return { status: 'incompatible', message: describeParseFailure(parsed) };
+    }
+    if (parsed.document.sourceFormatVersion !== CURRENT_FORMAT_VERSION) {
+        return {
+            status: 'incompatible',
+            message: 'the file uses the legacy Youtnote format and must be converted to format v2 before it can be updated (open it and choose "Convert to v2")',
+        };
     }
     const updated = apply(parsed.document);
     if (!updated) {

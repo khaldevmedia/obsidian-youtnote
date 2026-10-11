@@ -2,7 +2,8 @@ import { TextFileView, WorkspaceLeaf, Notice, TFile, ViewState } from 'obsidian'
 import * as React from 'react';
 import * as ReactDOM from 'react-dom/client';
 import { YoutubePluginView } from './ui/YoutnoteView';
-import { AlertModal, ExportOptionsModal } from './ui/MessageBoxes';
+import { AlertModal, ExportOptionsModal, promptLegacyConversionDecision } from './ui/MessageBoxes';
+import type { LegacyConversionDecision } from './ui/MessageBoxes';
 import { Video, Note, VideoId, ExportOptions } from './types';
 import type { AIGenerationDialogOptions } from './types';
 import {
@@ -16,11 +17,14 @@ import {
     updateYoutnoteDocument,
     YoutnoteDocument,
 } from './youtnote-format';
+import type { FormatDetection } from './youtnote-format';
 import { exportToMarkdown, exportSingleVideoToMarkdown } from './youtnote-format/export';
 import { extractYouTubeId } from './utils';
-import YoutnotePlugin from './main';
+import type YoutnotePlugin from './main';
 
 export const VIEW_TYPE = 'youtnote-view';
+
+export type YoutnoteWriteMode = 'blocked' | 'legacy-preview' | 'editable-v2';
 
 function describeFormatFailure(result: ParseYoutnoteResult): { title: string; message: string } {
     if (result.ok) {
@@ -59,6 +63,34 @@ export class YoutnoteView extends TextFileView {
     notes: Note[] = [];
     activeVideoId: VideoId | null = null;
     private document: YoutnoteDocument | null = null;
+    private writeMode: YoutnoteWriteMode = 'blocked';
+    private latestSource = '';
+    private loadEpoch = 0;
+    private conversionBusy = false;
+    private loadedFile: TFile | null = null;
+    private pendingLegacyDecision: {
+        file: TFile;
+        epoch: number;
+        controller: AbortController;
+        promise: Promise<LegacyConversionDecision>;
+    } | null = null;
+
+    getWriteMode(): YoutnoteWriteMode {
+        return this.writeMode;
+    }
+
+    isWritable(): boolean {
+        return this.writeMode === 'editable-v2'
+            && this.file !== null
+            && this.loadedFile === this.file
+            && this.document !== null;
+    }
+
+    getMutationGuard(): () => boolean {
+        const file = this.file;
+        const epoch = this.loadEpoch;
+        return () => this.isWritable() && this.file === file && file !== null && epoch === this.loadEpoch;
+    }
 
     constructor(leaf: WorkspaceLeaf, plugin: YoutnotePlugin) {
         super(leaf);
@@ -74,35 +106,182 @@ export class YoutnoteView extends TextFileView {
     }
 
     async onLoadFile(file: TFile): Promise<void> {
+        const epoch = ++this.loadEpoch;
+        this.conversionBusy = false;
+        this.abortPendingLegacyRequest();
+        const wasLegacyPreview = this.writeMode === 'legacy-preview' && this.loadedFile === file;
+        this.writeMode = 'blocked';
+        this.loadedFile = null;
+
         if (!(await this.plugin.isYoutnoteFile(file))) {
             // Not a Youtnote, switch this leaf back to the regular markdown view
-            this.switchToMarkdown(file);
+            if (epoch !== this.loadEpoch) return;
+            this.switchToMarkdown(file, epoch);
             return;
         }
 
-        const source = await this.app.vault.cachedRead(file);
+        let source: string;
+        try {
+            source = await this.app.vault.cachedRead(file);
+        } catch {
+            return;
+        }
+        if (epoch !== this.loadEpoch) {
+            return;
+        }
+        this.latestSource = source;
         const detection = detectYoutnoteFormat(source);
 
-        if (detection.kind === 'unsupported-version') {
-            this.failToMarkdown(file, describeFormatFailure({
-                ok: false,
-                reason: 'unsupported-version',
-                version: detection.version,
-                maxSupported: detection.maxSupported,
-            }));
-            return;
-        }
-        if (detection.kind === 'malformed-version') {
-            this.failToMarkdown(file, describeFormatFailure({
-                ok: false,
-                reason: 'malformed-version',
-                rawValue: detection.rawValue,
-            }));
+        if (detection.kind === 'unsupported-version' || detection.kind === 'malformed-version') {
+            this.failToMarkdown(file, this.describeDetectionFailure(detection), epoch);
             return;
         }
 
         if (detection.kind === 'legacy') {
-            const migration = await this.migrateLegacyFile(file);
+            const parsed = parseYoutnoteDocument(source);
+            if (!parsed.ok) {
+                this.failToMarkdown(file, describeFormatFailure(parsed), epoch);
+                return;
+            }
+            if (wasLegacyPreview) {
+                this.enterLegacyPreview(file, parsed.document, source);
+                return;
+            }
+            const decision = await this.requestLegacyDecision(file, epoch);
+            if (epoch !== this.loadEpoch) {
+                return;
+            }
+            if (decision === 'convert') {
+                await this.convertCurrentFile(file, epoch);
+                return;
+            }
+            await this.openLegacyPreviewFromLatest(file, epoch);
+            return;
+        }
+
+        const parsed = parseYoutnoteDocument(source);
+        if (!parsed.ok) {
+            this.failToMarkdown(file, describeFormatFailure(parsed), epoch);
+            return;
+        }
+
+        this.applyLoadedSource(file, source, epoch);
+    }
+
+    private applyLoadedSource(file: TFile, source: string, epoch: number): void {
+        if (epoch !== this.loadEpoch) return;
+        this.file = file;
+        this.loadedFile = file;
+        this.latestSource = source;
+        this.data = source;
+        this.setViewData(source);
+    }
+
+    private describeDetectionFailure(
+        detection: Extract<FormatDetection, { kind: 'unsupported-version' | 'malformed-version' }>,
+    ): { title: string; message: string } {
+        if (detection.kind === 'unsupported-version') {
+            return describeFormatFailure({
+                ok: false,
+                reason: 'unsupported-version',
+                version: detection.version,
+                maxSupported: detection.maxSupported,
+            });
+        }
+        return describeFormatFailure({
+            ok: false,
+            reason: 'malformed-version',
+            rawValue: detection.rawValue,
+        });
+    }
+
+    private async openLegacyPreviewFromLatest(file: TFile, epoch: number): Promise<void> {
+        let source: string;
+        try {
+            source = await this.app.vault.cachedRead(file);
+        } catch {
+            return;
+        }
+        if (epoch !== this.loadEpoch) {
+            return;
+        }
+        this.latestSource = source;
+        const detection = detectYoutnoteFormat(source);
+        if (detection.kind === 'legacy') {
+            const parsed = parseYoutnoteDocument(source);
+            if (!parsed.ok) {
+                this.failToMarkdown(file, describeFormatFailure(parsed), epoch);
+                return;
+            }
+            this.enterLegacyPreview(file, parsed.document, source);
+            return;
+        }
+        if (detection.kind === 'supported') {
+            const parsed = parseYoutnoteDocument(source);
+            if (!parsed.ok) {
+                this.failToMarkdown(file, describeFormatFailure(parsed), epoch);
+                return;
+            }
+            this.applyLoadedSource(file, source, epoch);
+            return;
+        }
+        this.failToMarkdown(file, this.describeDetectionFailure(detection), epoch);
+    }
+
+    private enterLegacyPreview(file: TFile, document: YoutnoteDocument, source: string): void {
+        this.file = file;
+        this.loadedFile = file;
+        this.latestSource = source;
+        this.data = source;
+        this.document = null;
+        this.writeMode = 'legacy-preview';
+        this.videos = document.videos;
+        this.notes = document.notes;
+        if (this.activeVideoId && !this.videos.find(v => v.id === this.activeVideoId)) {
+            this.activeVideoId = null;
+        }
+        if (!this.activeVideoId && this.videos.length > 0) {
+            this.activeVideoId = this.videos[0].id;
+        }
+        this.render();
+    }
+
+    private requestLegacyDecision(file: TFile, epoch: number): Promise<LegacyConversionDecision> {
+        const pending = this.pendingLegacyDecision;
+        if (pending && pending.file === file && pending.epoch === epoch) {
+            return pending.promise;
+        }
+        this.abortPendingLegacyRequest();
+        const request = {
+            file,
+            epoch,
+            controller: new AbortController(),
+            promise: Promise.resolve('read-only' as LegacyConversionDecision),
+        };
+        request.promise = promptLegacyConversionDecision(this.app, file.basename, request.controller.signal)
+            .finally(() => {
+                if (this.pendingLegacyDecision === request) {
+                    this.pendingLegacyDecision = null;
+                }
+                this.render();
+            });
+        this.pendingLegacyDecision = request;
+        this.render();
+        return request.promise;
+    }
+
+    private abortPendingLegacyRequest(): void {
+        this.pendingLegacyDecision?.controller.abort();
+    }
+
+    private async convertCurrentFile(file: TFile, epoch: number): Promise<void> {
+        this.conversionBusy = true;
+        this.render();
+        try {
+            const migration = await this.migrateLegacyFile(file, epoch);
+            if (epoch !== this.loadEpoch) {
+                return;
+            }
             if (!migration.ok) {
                 return;
             }
@@ -111,21 +290,21 @@ export class YoutnoteView extends TextFileView {
             } else if (migration.migration === 'corrected-declaration') {
                 new Notice(`Corrected this file's Youtnote file-format declaration to version ${CURRENT_FORMAT_VERSION}.`, 4000);
             }
-            return super.onLoadFile(file);
+            if (migration.source !== undefined) {
+                this.applyLoadedSource(file, migration.source, epoch);
+            }
+        } finally {
+            if (epoch === this.loadEpoch) {
+                this.conversionBusy = false;
+                this.render();
+            }
         }
-
-        const parsed = parseYoutnoteDocument(source);
-        if (!parsed.ok) {
-            this.failToMarkdown(file, describeFormatFailure(parsed));
-            return;
-        }
-
-        return super.onLoadFile(file);
     }
 
-    private switchToMarkdown(file: TFile): void {
+    private switchToMarkdown(file: TFile, epoch: number): void {
         // Defer to avoid conflicts during the current file loading cycle.
         window.setTimeout(() => {
+            if (epoch !== this.loadEpoch) return;
             void this.leaf.setViewState({
                 type: 'markdown',
                 state: { file: file.path },
@@ -134,38 +313,66 @@ export class YoutnoteView extends TextFileView {
         }, 0);
     }
 
-    private failToMarkdown(file: TFile, failure: { title: string; message: string }): void {
+    private failToMarkdown(file: TFile, failure: { title: string; message: string }, epoch: number): void {
         this.plugin.youtnoteFileModes[this.leaf.id ?? file.path] = 'markdown';
         new AlertModal(this.app, failure.title, failure.message).open();
-        this.switchToMarkdown(file);
+        this.switchToMarkdown(file, epoch);
     }
 
-    private async migrateLegacyFile(file: TFile): Promise<{ ok: boolean; migration: 'legacy-to-current' | 'corrected-declaration' | 'none' }> {
+    private async migrateLegacyFile(file: TFile, epoch: number): Promise<{ ok: boolean; migration: 'legacy-to-current' | 'corrected-declaration' | 'none'; source?: string }> {
         const outcome = {
             failure: null as ParseYoutnoteResult | null,
             migration: 'none' as 'legacy-to-current' | 'corrected-declaration' | 'none',
+            processed: false,
         };
-        await this.app.vault.process(file, (data) => {
-            if (detectYoutnoteFormat(data).kind !== 'legacy') {
-                return data;
-            }
-            const result = migrateLegacyYoutnote(data);
-            if (!result.ok) {
-                outcome.failure = result;
-                return data;
-            }
-            outcome.migration = result.migration;
-            return result.markdown;
-        });
+        try {
+            await this.app.vault.process(file, (data) => {
+                if (epoch !== this.loadEpoch) {
+                    return data;
+                }
+                if (detectYoutnoteFormat(data).kind !== 'legacy') {
+                    return data;
+                }
+                const result = migrateLegacyYoutnote(data);
+                if (!result.ok) {
+                    outcome.failure = result;
+                    return data;
+                }
+                outcome.migration = result.migration;
+                return result.markdown;
+            });
+            outcome.processed = true;
+        } catch {
+            outcome.processed = false;
+        }
+        if (epoch !== this.loadEpoch) {
+            return { ok: false, migration: 'none' };
+        }
+        if (!outcome.processed) {
+            new Notice('Conversion failed: reopen the file to check its contents before retrying.', 4000);
+            return { ok: false, migration: 'none' };
+        }
         if (outcome.failure) {
-            this.failToMarkdown(file, describeFormatFailure(outcome.failure));
+            this.failToMarkdown(file, describeFormatFailure(outcome.failure), epoch);
             return { ok: false, migration: 'none' };
         }
 
-        const latest = await this.app.vault.cachedRead(file);
+        let latest: string;
+        try {
+            latest = await this.app.vault.cachedRead(file);
+        } catch {
+            if (epoch === this.loadEpoch) {
+                new Notice('Conversion failed: reopen the file to check its contents before retrying.', 4000);
+            }
+            return { ok: false, migration: 'none' };
+        }
+        if (epoch !== this.loadEpoch) {
+            return { ok: false, migration: 'none' };
+        }
+        this.latestSource = latest;
         const parsed = parseYoutnoteDocument(latest);
         if (!parsed.ok) {
-            this.failToMarkdown(file, describeFormatFailure(parsed));
+            this.failToMarkdown(file, describeFormatFailure(parsed), epoch);
             return { ok: false, migration: 'none' };
         }
         if (parsed.document.sourceFormatVersion !== CURRENT_FORMAT_VERSION) {
@@ -173,10 +380,10 @@ export class YoutnoteView extends TextFileView {
                 ok: false,
                 reason: 'invalid-document',
                 message: 'The file is still in the legacy format after migration.',
-            }));
+            }), epoch);
             return { ok: false, migration: 'none' };
         }
-        return { ok: true, migration: outcome.migration };
+        return { ok: true, migration: outcome.migration, source: latest };
     }
 
     getState(): Record<string, unknown> {
@@ -186,37 +393,66 @@ export class YoutnoteView extends TextFileView {
         };
     }
 
+    async save(clear?: boolean): Promise<void> {
+        if (!this.isWritable()) {
+            return;
+        }
+        await super.save(clear);
+    }
+
+    async onUnloadFile(file: TFile): Promise<void> {
+        const epoch = ++this.loadEpoch;
+        this.abortPendingLegacyRequest();
+        try {
+            await super.onUnloadFile(file);
+        } finally {
+            if (epoch === this.loadEpoch) {
+                this.loadedFile = null;
+                this.writeMode = 'blocked';
+                this.conversionBusy = false;
+            }
+        }
+    }
+
     getViewData(): string {
-        if (this.document) {
+        if (this.isWritable() && this.document) {
             return serializeYoutnoteDocument(updateYoutnoteDocument(this.document, this.videos, this.notes));
         }
-        return serializeYoutnoteDocument(updateYoutnoteDocument(
-            {
-                sourceFormatVersion: CURRENT_FORMAT_VERSION,
-                frontmatter: { raw: '' },
-                videos: [],
-                notes: [],
-                videoLayouts: [],
-            },
-            this.videos,
-            this.notes,
-        ));
+        return this.latestSource;
     }
 
     setViewData(data: string): void {
+        this.latestSource = data;
         const parsed = parseYoutnoteDocument(data);
         if (!parsed.ok) {
+            this.writeMode = 'blocked';
             this.document = null;
             this.videos = [];
             this.notes = [];
             this.activeVideoId = null;
             this.render();
             if (this.file) {
-                this.failToMarkdown(this.file, describeFormatFailure(parsed));
+                this.failToMarkdown(this.file, describeFormatFailure(parsed), this.loadEpoch);
+            }
+            return;
+        }
+        if (parsed.document.sourceFormatVersion !== CURRENT_FORMAT_VERSION) {
+            if (this.file) {
+                this.enterLegacyPreview(this.file, parsed.document, data);
+            } else {
+                this.writeMode = 'blocked';
+                this.document = null;
+                this.videos = parsed.document.videos;
+                this.notes = parsed.document.notes;
+                this.render();
             }
             return;
         }
         this.document = parsed.document;
+        this.writeMode = 'editable-v2';
+        if (this.file) {
+            this.loadedFile = this.file;
+        }
         this.videos = parsed.document.videos;
         this.notes = parsed.document.notes;
 
@@ -234,6 +470,11 @@ export class YoutnoteView extends TextFileView {
     }
 
     clear(): void {
+        this.loadEpoch++;
+        this.abortPendingLegacyRequest();
+        this.writeMode = 'blocked';
+        this.loadedFile = null;
+        this.conversionBusy = false;
         this.videos = [];
         this.notes = [];
         this.activeVideoId = null;
@@ -261,20 +502,32 @@ export class YoutnoteView extends TextFileView {
         return Promise.resolve();
     }
 
-    onClose(): Promise<void> {
-        this.root?.unmount();
-        this.root = null;
-        return Promise.resolve();
+    async onClose(): Promise<void> {
+        const epoch = ++this.loadEpoch;
+        this.abortPendingLegacyRequest();
+        try {
+            await this.save();
+        } finally {
+            if (epoch === this.loadEpoch) {
+                this.loadedFile = null;
+                this.writeMode = 'blocked';
+                this.conversionBusy = false;
+                this.root?.unmount();
+                this.root = null;
+            }
+        }
     }
 
     // State update handlers
     handleUpdateVideos = (newVideos: Video[]) => {
+        if (!this.isWritable()) return;
         this.videos = newVideos;
         this.render();
         this.requestSave(); // Tell TextFileView to save
     };
 
     handleUpdateNotes = (newNotes: Note[]) => {
+        if (!this.isWritable()) return;
         this.notes = newNotes;
         this.render();
         this.requestSave();
@@ -299,12 +552,32 @@ export class YoutnoteView extends TextFileView {
     };
 
     handleFetchTranscript = (videoId: VideoId) => {
+        if (!this.isWritable()) return;
         this.plugin.startTranscriptFetch(this, videoId);
     };
 
     handleGenerateAINotes = (videoId: VideoId, options: AIGenerationDialogOptions) => {
+        if (!this.isWritable()) return;
         this.plugin.startAINoteGeneration(this, videoId, options);
     };
+
+    handleRequestConversion = () => {
+        const file = this.loadedFile;
+        if (!file || this.writeMode !== 'legacy-preview') return;
+        void this.requestConversion(file);
+    };
+
+    private async requestConversion(file: TFile): Promise<void> {
+        const epoch = ++this.loadEpoch;
+        const decision = await this.requestLegacyDecision(file, epoch);
+        if (epoch !== this.loadEpoch || this.writeMode !== 'legacy-preview') {
+            return;
+        }
+        if (decision !== 'convert') {
+            return;
+        }
+        await this.convertCurrentFile(file, epoch);
+    }
 
     handleCancelVideoTasks = (videoId: VideoId, kind?: 'transcript' | 'ai') => {
         this.plugin.cancelVideoTasks(this, videoId, kind);
@@ -410,7 +683,11 @@ export class YoutnoteView extends TextFileView {
                 onFetchTranscript: this.handleFetchTranscript,
                 onGenerateAINotes: this.handleGenerateAINotes,
                 onCancelVideoTasks: this.handleCancelVideoTasks,
-                onOpenAISettings: this.plugin.openSettings
+                onOpenAISettings: this.plugin.openSettings,
+                readOnly: this.writeMode !== 'editable-v2',
+                canConvert: this.writeMode === 'legacy-preview',
+                conversionPending: this.conversionBusy || this.pendingLegacyDecision !== null,
+                onRequestConversion: this.handleRequestConversion
             })
         );
     }

@@ -52,6 +52,11 @@ const getLeafKey = (leaf: WorkspaceLeafWithId, fallback?: string): string | unde
 
 const asString = (v: unknown): string | undefined => typeof v === 'string' ? v : undefined;
 
+const READ_ONLY_FILE_MESSAGE =
+    'This file is open read-only. If it uses the legacy Youtnote format, use "Convert to v2" in the view to enable editing.';
+const READ_ONLY_URI_MESSAGE =
+    'The open Youtnote file is read-only; changes cannot be applied.';
+
 /** Persistent notice for URI scheme errors, styled with Obsidian's error text color. */
 const showUriSchemeError = (message: string): Notice => {
     const notice = new Notice(`Youtnote uri scheme error: ${message}`, 0);
@@ -355,6 +360,10 @@ export default class YoutnotePlugin extends Plugin {
     }
 
     startTranscriptFetch(view: YoutnoteView, videoId: VideoId): void {
+        if (!view.isWritable()) {
+            new Notice(READ_ONLY_FILE_MESSAGE, 5000);
+            return;
+        }
         const resolved = this.resolveTaskTarget(view, videoId);
         if (!resolved) return;
         const state = this.getVideoTaskState(resolved.target.file, resolved.target.youtubeId);
@@ -371,6 +380,10 @@ export default class YoutnotePlugin extends Plugin {
     }
 
     startAINoteGeneration(view: YoutnoteView, videoId: VideoId, dialogOptions: AIGenerationDialogOptions): void {
+        if (!view.isWritable()) {
+            new Notice(READ_ONLY_FILE_MESSAGE, 5000);
+            return;
+        }
         const setupError = getAINoteGenerationSetupError(
             this.settings.ai,
             name => this.app.secretStorage.getSecret(name) ?? null,
@@ -602,6 +615,10 @@ export default class YoutnotePlugin extends Plugin {
             if (!this.activeVideoTasks.isActive(handle.id)) return false;
             const view = this.findViewForFile(target.file);
             if (view) {
+                if (!view.isWritable()) {
+                    new Notice(`Transcript for "${target.videoTitle}" was not saved to ${target.file.basename}: the file is open read-only.`, 6000);
+                    return false;
+                }
                 const updated = setTranscriptForYoutubeVideo(view.videos, target.youtubeId, entries);
                 if (!updated) {
                     this.notifyTaskTargetMissing(handle, target);
@@ -609,7 +626,7 @@ export default class YoutnotePlugin extends Plugin {
                 }
                 view.handleUpdateVideos(updated);
                 await view.save();
-                return this.activeVideoTasks.isActive(handle.id);
+                return this.activeVideoTasks.isActive(handle.id) && view.isWritable() && view.file === target.file;
             }
             const outcome = { applied: false, missing: false, incompatible: null as string | null };
             await this.app.vault.process(target.file, (data) => {
@@ -653,6 +670,10 @@ export default class YoutnotePlugin extends Plugin {
             if (!this.activeVideoTasks.isActive(handle.id)) return false;
             const view = this.findViewForFile(target.file);
             if (view) {
+                if (!view.isWritable()) {
+                    new Notice(`Generated notes for "${target.videoTitle}" were not saved to ${target.file.basename}: the file is open read-only.`, 6000);
+                    return false;
+                }
                 const updated = applyGeneratedNotesForYoutubeVideo(view.videos, view.notes, target.youtubeId, drafts, options);
                 if (!updated) {
                     this.notifyTaskTargetMissing(handle, target);
@@ -660,7 +681,7 @@ export default class YoutnotePlugin extends Plugin {
                 }
                 view.handleUpdateNotes(updated);
                 await view.save();
-                return this.activeVideoTasks.isActive(handle.id);
+                return this.activeVideoTasks.isActive(handle.id) && view.isWritable() && view.file === target.file;
             }
             const outcome = { applied: false, missing: false, incompatible: null as string | null };
             await this.app.vault.process(target.file, (data) => {
@@ -900,7 +921,11 @@ export default class YoutnotePlugin extends Plugin {
      * Add a video to a YoutnoteView. If the video already exists (by YouTube ID),
      * select it and return the existing video.
      */
-    addVideoToView(view: YoutnoteView, normalizedUrl: string, metadata: { title: string; thumbnail: string; durationSec: number }): Video {
+    addVideoToView(view: YoutnoteView, normalizedUrl: string, metadata: { title: string; thumbnail: string; durationSec: number }): Video | null {
+        if (!view.isWritable()) {
+            new Notice(READ_ONLY_FILE_MESSAGE, 0);
+            return null;
+        }
         const ytId = extractYouTubeId(normalizedUrl);
 
         // Check for duplicate
@@ -927,7 +952,11 @@ export default class YoutnotePlugin extends Plugin {
     /**
      * Add a timestamped note to a specific video in a youtnoteView.
      */
-    addNoteToView(view: YoutnoteView, videoId: VideoId, timestampSec: number, bodyMarkdown: string): Note {
+    addNoteToView(view: YoutnoteView, videoId: VideoId, timestampSec: number, bodyMarkdown: string): Note | null {
+        if (!view.isWritable()) {
+            new Notice(READ_ONLY_FILE_MESSAGE, 0);
+            return null;
+        }
         const newNote: Note = {
             id: crypto.randomUUID() as NoteId,
             videoId,
@@ -948,6 +977,10 @@ export default class YoutnotePlugin extends Plugin {
      * Returns false if a general note already exists for that video.
      */
     addGeneralNoteToView(view: YoutnoteView, videoId: VideoId, bodyMarkdown: string): boolean {
+        if (!view.isWritable()) {
+            new Notice(READ_ONLY_FILE_MESSAGE, 0);
+            return false;
+        }
         // Check if a general note already exists
         const hasGeneral = view.notes.some(n => n.videoId === videoId && (n.isGeneral === true || n.timestampSec === -1));
         if (hasGeneral) {
@@ -1053,12 +1086,25 @@ export default class YoutnotePlugin extends Plugin {
             return;
         }
 
+        if (!view.isWritable()) {
+            showUriSchemeError(READ_ONLY_URI_MESSAGE);
+            return;
+        }
+        const guard = view.getMutationGuard();
+
         // 9. Fetch oEmbed metadata
         const metadata = await this.fetchVideoMetadata(normalizedUrl);
 
+        if (!guard()) {
+            showUriSchemeError(READ_ONLY_URI_MESSAGE);
+            return;
+        }
+
         // 10. Add video
-        this.addVideoToView(view, normalizedUrl, metadata);
-        new Notice('Video added to youtnote.', 0);
+        const addedVideo = this.addVideoToView(view, normalizedUrl, metadata);
+        if (addedVideo) {
+            new Notice('Video added to youtnote.', 0);
+        }
     }
 
     /**
@@ -1078,6 +1124,7 @@ export default class YoutnotePlugin extends Plugin {
 
         let targetView: YoutnoteView;
         let videoId: VideoId;
+        let mutationGuard: () => boolean;
 
         if (!view) {
             // No open Youtnote — fall back to mode=new
@@ -1089,10 +1136,20 @@ export default class YoutnotePlugin extends Plugin {
                 return;
             }
             targetView = newView;
+            mutationGuard = targetView.getMutationGuard();
             const video = this.addVideoToView(targetView, normalizedUrl, metadata);
+            if (!video) {
+                showUriSchemeError(READ_ONLY_URI_MESSAGE);
+                return;
+            }
             videoId = video.id;
         } else {
             targetView = view;
+            if (!targetView.isWritable()) {
+                showUriSchemeError(READ_ONLY_URI_MESSAGE);
+                return;
+            }
+            mutationGuard = targetView.getMutationGuard();
             const ytId = extractYouTubeId(normalizedUrl);
             const existingVideo = targetView.videos.find(v => extractYouTubeId(v.url) === ytId);
 
@@ -1101,7 +1158,12 @@ export default class YoutnotePlugin extends Plugin {
             } else {
                 // Auto-add the video first
                 const metadata = await this.fetchVideoMetadata(normalizedUrl);
+                if (!mutationGuard()) {
+                    showUriSchemeError(READ_ONLY_URI_MESSAGE);
+                    return;
+                }
                 const video = this.addVideoToView(targetView, normalizedUrl, metadata);
+                if (!video) return;
                 videoId = video.id;
             }
         }
@@ -1121,9 +1183,16 @@ export default class YoutnotePlugin extends Plugin {
             return;
         }
 
+        if (!mutationGuard()) {
+            showUriSchemeError(READ_ONLY_URI_MESSAGE);
+            return;
+        }
+
         // Add the note
-        this.addNoteToView(targetView, videoId, timestampSec, text);
-        new Notice('Note added to video.', 0);
+        const addedNote = this.addNoteToView(targetView, videoId, timestampSec, text);
+        if (addedNote) {
+            new Notice('Note added to video.', 0);
+        }
     }
 
     /**
@@ -1167,6 +1236,7 @@ export default class YoutnotePlugin extends Plugin {
 
         let targetView: YoutnoteView;
         let videoId: VideoId;
+        let mutationGuard: () => boolean;
 
         if (!view) {
             // No open Youtnote — fall back to mode=new
@@ -1178,10 +1248,20 @@ export default class YoutnotePlugin extends Plugin {
                 return;
             }
             targetView = newView;
+            mutationGuard = targetView.getMutationGuard();
             const video = this.addVideoToView(targetView, normalizedUrl, metadata);
+            if (!video) {
+                showUriSchemeError(READ_ONLY_URI_MESSAGE);
+                return;
+            }
             videoId = video.id;
         } else {
             targetView = view;
+            if (!targetView.isWritable()) {
+                showUriSchemeError(READ_ONLY_URI_MESSAGE);
+                return;
+            }
+            mutationGuard = targetView.getMutationGuard();
             const ytId = extractYouTubeId(normalizedUrl);
             const existingVideo = targetView.videos.find(v => extractYouTubeId(v.url) === ytId);
 
@@ -1190,13 +1270,23 @@ export default class YoutnotePlugin extends Plugin {
             } else {
                 // Auto-add the video first
                 const metadata = await this.fetchVideoMetadata(normalizedUrl);
+                if (!mutationGuard()) {
+                    showUriSchemeError(READ_ONLY_URI_MESSAGE);
+                    return;
+                }
                 const video = this.addVideoToView(targetView, normalizedUrl, metadata);
+                if (!video) return;
                 videoId = video.id;
             }
         }
 
         // Select the target video so the user sees the general note appear
         targetView.handleSetActiveVideoId(videoId);
+
+        if (!mutationGuard()) {
+            showUriSchemeError(READ_ONLY_URI_MESSAGE);
+            return;
+        }
 
         // Add the general note
         const added = this.addGeneralNoteToView(targetView, videoId, text);

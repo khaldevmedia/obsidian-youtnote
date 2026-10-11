@@ -9,6 +9,7 @@ export const VideoListItem: React.FC<VideoListItemProps> = React.memo(({
     app,
     video,
     isActive,
+    readOnly,
     onSelect,
     onDelete
 }) => {
@@ -80,17 +81,19 @@ export const VideoListItem: React.FC<VideoListItemProps> = React.memo(({
                 });
         });
         
-        menu.addSeparator();
-        
-        menu.addItem((item) => {
-            item
-                .setTitle('Delete video')
-                .setIcon('trash')
-                .setWarning(true)
-                .onClick(() => {
-                    confirmDeleteVideo();
-                });
-        });
+        if (!readOnly) {
+            menu.addSeparator();
+
+            menu.addItem((item) => {
+                item
+                    .setTitle('Delete video')
+                    .setIcon('trash')
+                    .setWarning(true)
+                    .onClick(() => {
+                        confirmDeleteVideo();
+                    });
+            });
+        }
         
         menu.showAtMouseEvent(e.nativeEvent);
     };
@@ -101,7 +104,7 @@ export const VideoListItem: React.FC<VideoListItemProps> = React.memo(({
             onClick={() => onSelect(video.id)}
             onContextMenu={handleContextMenu}
         >
-            <span ref={handleIconRef} className="youtnote-plugin__drag-handle"></span>
+            {!readOnly && <span ref={handleIconRef} className="youtnote-plugin__drag-handle"></span>}
             {video.thumbnail && <img src={video.thumbnail} alt={video.title} />}
             <span className="youtnote-plugin__video-title">{video.title || video.url}</span>
             <button
@@ -111,13 +114,15 @@ export const VideoListItem: React.FC<VideoListItemProps> = React.memo(({
                 aria-label="Copy video URL"
             >
             </button>
-            <button
-                ref={deleteIconRef}
-                className="youtnote-plugin__video-delete-btn"
-                onClick={handleDelete}
-                aria-label="Delete video"
-            >
-            </button>
+            {!readOnly && (
+                <button
+                    ref={deleteIconRef}
+                    className="youtnote-plugin__video-delete-btn"
+                    onClick={handleDelete}
+                    aria-label="Delete video"
+                >
+                </button>
+            )}
         </div>
     );
 });
