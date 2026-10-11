@@ -136,7 +136,7 @@ describe('LegacyFormatConversionModal', () => {
         expect(titleEl).toBeDefined();
         expect(messageEl).toBeDefined();
         expect(fileNameEl).toBeDefined();
-        expect(fileNameEl!.text).toBe(fileName);
+        expect(fileNameEl!.text).toContain(fileName);
         expect(fileNameEl!.children).toHaveLength(0);
     });
 

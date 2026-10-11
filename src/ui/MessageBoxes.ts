@@ -185,7 +185,7 @@ export class LegacyFormatConversionModal extends BaseModal {
     }
 
     protected renderContent(contentEl: HTMLElement): void {
-        contentEl.createDiv({ cls: 'youtnote-plugin__base-modal-filename', text: this.fileName });
+        contentEl.createDiv({ cls: 'youtnote-plugin__base-modal-filename', text: `Current file: ${this.fileName}` });
     }
 
     protected renderButtons(buttonsEl: HTMLElement): void {
