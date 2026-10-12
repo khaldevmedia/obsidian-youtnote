@@ -1200,13 +1200,14 @@ button.youtnote-plugin__add-btn {
     margin: 0 0 12px;
 }
 
-.youtnote-plugin__conversion-message > p:last-child {
-    margin-bottom: 0;
-}
-
 .youtnote-plugin__conversion-warning-heading {
     color: var(--text-warning);
-    font-weight: 700;
+    font-weight: var(--font-semibold);
+}
+
+.youtnote-plugin__base-modal-filename {
+    margin-bottom: 16px;
+    font-weight: var(--font-semibold);
 }
 
 .youtnote-plugin__base-modal-buttons {

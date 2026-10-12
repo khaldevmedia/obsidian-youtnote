@@ -151,8 +151,8 @@ export class LegacyFormatConversionModal extends BaseModal {
         super(
             app,
             'Convert this file to Youtnote format v2?',
-            'This new version of the Youtnote plugin ships with new features like downloading transcripts and generating notes with AI. Supporting these new features required creating a new version of the file format (v2). ' +
-            'The file you are trying to open still uses legacy Youtnote format. You can convert it by clicking on the "Convert to v2" button.'
+            'Youtnote files use now a new format to support new features. ' +
+            'The file you are trying to open uses the legacy format. You can convert it by clicking on the "Convert to v2" button.'
         );
         this.fileName = fileName;
         this.decision = new Promise(resolve => {
@@ -165,27 +165,26 @@ export class LegacyFormatConversionModal extends BaseModal {
         messageEl.createEl('p', { text: this.message });
         const warningEl = messageEl.createEl('p');
         warningEl.createEl('strong', {
-            text: 'Warning',
+            text: 'Important',
             cls: 'youtnote-plugin__conversion-warning-heading',
         });
         messageEl.createEl('p', {
-            text: 'Converting this file makes it incompatible with older versions of the plugin. ' +
-                'If an older version opens it, all video notes and transcripts can be erased leaving only the videos.',
+            text: 'Converting a file makes it incompatible with older versions of the plugin. ' +
+                'If an older version opens it, all video notes and transcripts can be erased.',
         });
         messageEl.createEl('p', {
-            text: 'In synced vaults, that data loss can sync to your other devices. ' +
-                'If this vault is synced across devices, update Youtnote on every device before converting. ' +
-                'If any device still uses an older version of Youtnote, choose "Open read-only" instead.',
+            text: 'If this vault is synced across devices, update the plugin on every device before converting your youtnote files.',
         });
         messageEl.createEl('p', {
-            text: 'Once all your youtnote files are converted to v2, you won\'t see this message again.',
+            text: 'Choose open read-only to view this file without editing it or changing its format.',
         });
-        messageEl.createEl('p', {
-            text: 'Choose open read-only to view this file without editing it or changing its format.' });
     }
 
     protected renderContent(contentEl: HTMLElement): void {
-        contentEl.createDiv({ cls: 'youtnote-plugin__base-modal-filename', text: `Current file: ${this.fileName}` });
+        contentEl.createDiv({
+            cls: 'youtnote-plugin__base-modal-filename',
+            text: `Current file: ${this.fileName}`,
+        });
     }
 
     protected renderButtons(buttonsEl: HTMLElement): void {
