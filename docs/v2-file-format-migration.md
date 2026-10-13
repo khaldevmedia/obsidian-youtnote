@@ -31,7 +31,7 @@ Files remain ordinary `.md` files in your vault. Format v2 does not require a ne
 1. Open an existing legacy youtnote in the updated plugin. Unversioned files and files explicitly declaring format version 1 are treated as legacy files.
 2. Read the conversion dialog, including the warning about older plugin versions and synced devices.
 3. Choose one of the following:
-   - **Convert to v2:** converts this file, checks the result, and enables editing. Videos, timestamped notes, and general notes are retained, along with unrelated frontmatter.
+   - **Convert to v2:** converts this file, checks the result, and enables editing. Videos, timestamped notes, and general notes are retained.
    - **Open read-only:** displays the existing content without converting or saving the source file. Playback, searching, copying, and export remain available, but editing is disabled.
 4. After conversion, check the file's videos and notes, then make a small edit and reopen the file to confirm it persists. Keep your backup until you are satisfied with the result.
 
