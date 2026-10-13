@@ -21,6 +21,7 @@ vi.mock('obsidian', () => {
     }
     interface FakeVault {
         cachedRead(file: FakeFileRef): Promise<string>;
+        read(file: FakeFileRef): Promise<string>;
         process(file: FakeFileRef, fn: (data: string) => string): Promise<string>;
         modify(file: FakeFileRef, data: string): Promise<void>;
     }
@@ -33,9 +34,14 @@ vi.mock('obsidian', () => {
         app: { vault: FakeVault };
         leaf: FakeLeaf;
         file: FakeFileRef | null = null;
-        data = '';
+        data: string | null = null;
+        lastSavedData: string | null = null;
+        dirty = false;
+        saving = false;
+        saveAgain = false;
         contentEl = { empty: vi.fn() };
         requestSave = () => {
+            this.dirty = true;
             void this.save();
         };
         constructor(leaf: FakeLeaf) {
@@ -44,19 +50,46 @@ vi.mock('obsidian', () => {
         }
         async onLoadFile(file: FakeFileRef): Promise<void> {
             this.file = file;
-            this.data = await this.app.vault.cachedRead(file);
-            this.setViewData(this.data, false);
+            this.data = await this.app.vault.read(file);
+            this.lastSavedData = this.data;
+            this.setViewData(this.data, true);
         }
         async onUnloadFile(_file: FakeFileRef): Promise<void> {
-            await this.save();
+            await this.save(true);
         }
-        async save(_clear?: boolean): Promise<void> {
-            if (this.file) {
-                await this.app.vault.modify(this.file, this.getViewData());
+        async save(clear?: boolean): Promise<void> {
+            this.dirty = false;
+            const file = this.file;
+            if (!file) return;
+            if (this.saving) {
+                if (!clear) this.saveAgain = true;
+                return;
+            }
+            this.saveAgain = false;
+            const source = this.getViewData();
+            if (this.lastSavedData === source || this.lastSavedData === null) return;
+            const previousBaseline = this.lastSavedData;
+            if (clear === true) {
+                this.data = null;
+                this.lastSavedData = null;
+                this.clear();
+            } else {
+                this.data = source;
+                this.lastSavedData = source;
+            }
+            this.saving = true;
+            try {
+                await this.app.vault.modify(file, source);
+            } catch (err) {
+                this.lastSavedData = previousBaseline;
+                throw err;
+            } finally {
+                this.saving = false;
+                if (this.saveAgain && !clear) void this.save();
             }
         }
         getViewData(): string {
-            return this.data;
+            return this.data ?? '';
         }
         setViewData(data: string, _clear: boolean): void {
             this.data = data;
@@ -229,6 +262,7 @@ function makeFixture() {
     const store = new Map<string, string>();
     const vault = {
         cachedRead: vi.fn(async (f: { path: string }) => store.get(f.path) ?? ''),
+        read: vi.fn(async (f: { path: string }) => store.get(f.path) ?? ''),
         process: vi.fn(async (f: { path: string }, fn: (data: string) => string) => {
             const next = fn(store.get(f.path) ?? '');
             store.set(f.path, next);
@@ -269,10 +303,29 @@ function makeFixture() {
 }
 
 const flush = async () => {
-    for (let i = 0; i < 20; i++) {
+    for (let i = 0; i < 40; i++) {
         await Promise.resolve();
     }
 };
+
+const deferred = <T,>() => {
+    let resolve!: (value: T) => void;
+    let reject!: (error: unknown) => void;
+    const promise = new Promise<T>((res, rej) => {
+        resolve = res;
+        reject = rej;
+    });
+    return { promise, resolve, reject };
+};
+
+const addedNote = (videoId: VideoId, body: string) => ({
+    id: `note-${body}` as NoteId,
+    videoId,
+    timestampSec: 42,
+    bodyMarkdown: body,
+    createdAt: '2024-01-01T00:00:00.000Z',
+    updatedAt: '2024-01-01T00:00:00.000Z',
+});
 
 function noticeCalls(): string[] {
     return unsafeCast<{ calls: string[] }>(Notice).calls;
@@ -759,6 +812,7 @@ describe('YoutnoteView write modes and legacy conversion', () => {
         const f = file('a.md');
         store.set(f.path, V2);
         await view.onLoadFile(f);
+        unsafeCast<Record<string, unknown>>(view).requestSave = () => {};
         const videoId = view.videos[0].id;
         view.handleUpdateNotes([
             ...view.notes,
@@ -771,6 +825,7 @@ describe('YoutnoteView write modes and legacy conversion', () => {
                 updatedAt: '2024-01-01T00:00:00.000Z',
             },
         ]);
+        expect(store.get(f.path)).toBe(V2);
         await view.onUnloadFile(f);
         expect(store.get(f.path)).toContain('Edited body');
     });
@@ -912,5 +967,326 @@ describe('YoutnoteView write modes and legacy conversion', () => {
         expect(store.get(f.path)).toContain('youtnote-format-version: 2');
         expect(noticeCalls().some(message => message.includes('unchanged'))).toBe(false);
         expect(view.isWritable()).toBe(false);
+    });
+
+    it('initializes the save baseline to the loaded v2 source', async () => {
+        const { store, view, file } = makeFixture();
+        const f = file('a.md');
+        store.set(f.path, V2);
+        await view.onLoadFile(f);
+        expect(view.isWritable()).toBe(true);
+        expect(unsafeCast<{ lastSavedData: string | null }>(view).lastSavedData).toBe(V2);
+    });
+
+    it('persists a note through requestSave auto-save', async () => {
+        const { store, vault, view, file } = makeFixture();
+        const f = file('a.md');
+        store.set(f.path, V2);
+        await view.onLoadFile(f);
+        const videoId = view.videos[0].id;
+        view.handleUpdateNotes([
+            ...view.notes,
+            {
+                id: 'note-added' as NoteId,
+                videoId,
+                timestampSec: 42,
+                bodyMarkdown: 'Auto-saved body',
+                createdAt: '2024-01-01T00:00:00.000Z',
+                updatedAt: '2024-01-01T00:00:00.000Z',
+            },
+        ]);
+        await flush();
+        expect(vault.modify).toHaveBeenCalledTimes(1);
+        expect(store.get(f.path)).toContain('Auto-saved body');
+    });
+
+    it('persists a video change through requestSave auto-save', async () => {
+        const { store, vault, view, file } = makeFixture();
+        const f = file('a.md');
+        store.set(f.path, V2);
+        await view.onLoadFile(f);
+        view.handleUpdateVideos(view.videos.map(v => ({ ...v, title: 'New title' })));
+        await flush();
+        expect(vault.modify).toHaveBeenCalledTimes(1);
+        const saved = store.get(f.path)!;
+        expect(saved).toContain('New title');
+        expect(saved).toContain('A note.');
+    });
+
+    it('keeps edits to A and B across load switches when auto-save is deferred to unload', async () => {
+        const { store, view, file } = makeFixture();
+        const fA = file('a.md');
+        const fB = file('b.md');
+        store.set(fA.path, V2);
+        store.set(fB.path, V2_B);
+        unsafeCast<Record<string, unknown>>(view).requestSave = () => {};
+        const editNotes = (body: string) => view.handleUpdateNotes([
+            ...view.notes,
+            {
+                id: `note-${body}` as NoteId,
+                videoId: view.videos[0].id,
+                timestampSec: 30,
+                bodyMarkdown: body,
+                createdAt: '2024-01-01T00:00:00.000Z',
+                updatedAt: '2024-01-01T00:00:00.000Z',
+            },
+        ]);
+
+        await view.onLoadFile(fA);
+        editNotes('Edit A');
+        expect(store.get(fA.path)).toBe(V2);
+        await view.onUnloadFile(fA);
+        expect(store.get(fA.path)).toContain('Edit A');
+
+        await view.onLoadFile(fB);
+        editNotes('Edit B');
+        await view.onUnloadFile(fB);
+        expect(store.get(fB.path)).toContain('Edit B');
+
+        await view.onLoadFile(fA);
+        expect(view.getViewData()).toContain('Edit A');
+        await view.onUnloadFile(fA);
+        await view.onLoadFile(fB);
+        expect(view.getViewData()).toContain('Edit B');
+    });
+
+    it('persists edits after converting a legacy file on open', async () => {
+        const { store, vault, view, file } = makeFixture();
+        const f = file('legacy.md');
+        store.set(f.path, LEGACY);
+        vi.mocked(promptLegacyConversionDecision).mockResolvedValue('convert');
+        await view.onLoadFile(f);
+        await flush();
+        expect(view.isWritable()).toBe(true);
+        const migrated = store.get(f.path)!;
+        expect(unsafeCast<{ lastSavedData: string | null }>(view).lastSavedData).toBe(migrated);
+        vi.mocked(vault.modify).mockClear();
+        const videoId = view.videos[0].id;
+        view.handleUpdateNotes([
+            ...view.notes,
+            {
+                id: 'note-added' as NoteId,
+                videoId,
+                timestampSec: 42,
+                bodyMarkdown: 'Post-conversion body',
+                createdAt: '2024-01-01T00:00:00.000Z',
+                updatedAt: '2024-01-01T00:00:00.000Z',
+            },
+        ]);
+        await flush();
+        expect(vault.modify).toHaveBeenCalledTimes(1);
+        expect(store.get(f.path)).toContain('Post-conversion body');
+    });
+
+    it('persists edits after converting from the read-only banner', async () => {
+        const { store, vault, view, file } = makeFixture();
+        const f = file('legacy.md');
+        store.set(f.path, LEGACY);
+        await view.onLoadFile(f);
+        expect(view.getWriteMode()).toBe('legacy-preview');
+        vi.mocked(promptLegacyConversionDecision).mockResolvedValue('convert');
+        view.handleRequestConversion();
+        await flush();
+        expect(view.isWritable()).toBe(true);
+        const migrated = store.get(f.path)!;
+        expect(unsafeCast<{ lastSavedData: string | null }>(view).lastSavedData).toBe(migrated);
+        vi.mocked(vault.modify).mockClear();
+        const videoId = view.videos[0].id;
+        view.handleUpdateNotes([
+            ...view.notes,
+            {
+                id: 'note-added' as NoteId,
+                videoId,
+                timestampSec: 42,
+                bodyMarkdown: 'Post-banner-conversion body',
+                createdAt: '2024-01-01T00:00:00.000Z',
+                updatedAt: '2024-01-01T00:00:00.000Z',
+            },
+        ]);
+        await flush();
+        expect(vault.modify).toHaveBeenCalledTimes(1);
+        expect(store.get(f.path)).toContain('Post-banner-conversion body');
+    });
+
+    it('skips a redundant save when the data matches the baseline', async () => {
+        const { store, vault, view, file } = makeFixture();
+        const f = file('a.md');
+        store.set(f.path, V2);
+        await view.onLoadFile(f);
+        const canonical = view.getViewData();
+        store.set(f.path, canonical);
+        await view.onLoadFile(f);
+        vi.mocked(vault.modify).mockClear();
+        await view.save();
+        expect(vault.modify).not.toHaveBeenCalled();
+        expect(store.get(f.path)).toBe(canonical);
+    });
+
+    it('loads editable v2 through the public superclass read and persists edits', async () => {
+        const { store, vault, view, file } = makeFixture();
+        const f = file('a.md');
+        store.set(f.path, V2);
+        await view.onLoadFile(f);
+        expect(vault.read).toHaveBeenCalledTimes(1);
+        expect(vault.read).toHaveBeenCalledWith(f);
+        expect(view.isWritable()).toBe(true);
+        view.handleUpdateNotes([...view.notes, addedNote(view.videos[0].id, 'Loader body')]);
+        await flush();
+        expect(vault.modify).toHaveBeenCalledTimes(1);
+        expect(store.get(f.path)).toContain('Loader body');
+    });
+
+    it('never invokes the superclass read for a read-only legacy preview', async () => {
+        const { store, vault, view, file } = makeFixture();
+        const f = file('legacy.md');
+        store.set(f.path, LEGACY);
+        await view.onLoadFile(f);
+        await flush();
+        expect(view.getWriteMode()).toBe('legacy-preview');
+        expect(vault.read).not.toHaveBeenCalled();
+        expect(vault.modify).not.toHaveBeenCalled();
+        expect(store.get(f.path)).toBe(LEGACY);
+    });
+
+    it('serializes superclass reads so only the newest file installs', async () => {
+        const { store, vault, view, file } = makeFixture();
+        const fA = file('a.md');
+        const fB = file('b.md');
+        store.set(fA.path, V2);
+        store.set(fB.path, V2_B);
+        const readsStarted: string[] = [];
+        const gateA = deferred<string>();
+        vi.mocked(vault.read).mockImplementation((f: { path: string }) => {
+            readsStarted.push(f.path);
+            if (f.path === fA.path) return gateA.promise;
+            return Promise.resolve(store.get(f.path) ?? '');
+        });
+        const loadA = view.onLoadFile(fA);
+        await flush();
+        const loadB = view.onLoadFile(fB);
+        await flush();
+        expect(readsStarted).toEqual([fA.path]);
+        expect(view.isWritable()).toBe(false);
+        gateA.resolve(store.get(fA.path)!);
+        await Promise.all([loadA, loadB]);
+        await flush();
+        expect(readsStarted).toEqual([fA.path, fB.path]);
+        expect(view.isWritable()).toBe(true);
+        expect(unsafeCast<{ lastSavedData: string | null }>(view).lastSavedData).toBe(V2_B);
+        expect(view.videos[0].title).toBe('Other Video');
+        view.handleUpdateNotes([...view.notes, addedNote(view.videos[0].id, 'B edit')]);
+        await flush();
+        expect(store.get(fB.path)).toContain('B edit');
+        expect(store.get(fA.path)).toBe(V2);
+    });
+
+    it('skips a queued superclass load superseded by a newer file', async () => {
+        const { store, vault, view, file } = makeFixture();
+        const fA = file('a.md');
+        const fB = file('b.md');
+        const fC = file('c.md');
+        const V2_C = V2.replace('Test Video', 'Third Video');
+        store.set(fA.path, V2);
+        store.set(fB.path, V2_B);
+        store.set(fC.path, V2_C);
+        const readsStarted: string[] = [];
+        const gateA = deferred<string>();
+        vi.mocked(vault.read).mockImplementation((f: { path: string }) => {
+            readsStarted.push(f.path);
+            if (f.path === fA.path) return gateA.promise;
+            return Promise.resolve(store.get(f.path) ?? '');
+        });
+        const loadA = view.onLoadFile(fA);
+        await flush();
+        const loadB = view.onLoadFile(fB);
+        await flush();
+        const loadC = view.onLoadFile(fC);
+        await flush();
+        expect(readsStarted).toEqual([fA.path]);
+        gateA.resolve(store.get(fA.path)!);
+        await Promise.all([loadA, loadB, loadC]);
+        await flush();
+        expect(readsStarted).toEqual([fA.path, fC.path]);
+        expect(view.isWritable()).toBe(true);
+        expect(view.videos[0].title).toBe('Third Video');
+        expect(unsafeCast<{ lastSavedData: string | null }>(view).lastSavedData).toBe(V2_C);
+    });
+
+    it.each(['clear', 'unload', 'close'] as const)(
+        'does not install stale content when %s happens during a pending superclass read',
+        async (action) => {
+            const { store, vault, view, file } = makeFixture();
+            const fA = file('a.md');
+            store.set(fA.path, V2);
+            const gateA = deferred<string>();
+            vi.mocked(vault.read).mockReturnValue(gateA.promise);
+            const loading = view.onLoadFile(fA);
+            await flush();
+            expect(vault.read).toHaveBeenCalledTimes(1);
+            expect(vault.read).toHaveBeenCalledWith(fA);
+            expect(view.isWritable()).toBe(false);
+            if (action === 'clear') {
+                view.clear();
+            } else if (action === 'unload') {
+                await view.onUnloadFile(fA);
+            } else {
+                await view.onClose();
+            }
+            gateA.resolve(store.get(fA.path)!);
+            await loading;
+            await flush();
+            expect(view.getWriteMode()).toBe('blocked');
+            expect(view.isWritable()).toBe(false);
+            expect(view.videos).toHaveLength(0);
+            expect(view.notes).toHaveLength(0);
+            expect(vault.modify).not.toHaveBeenCalled();
+        },
+    );
+
+    it('fails closed when the fresh superclass read returns an unsupported version', async () => {
+        const { store, vault, view, file, leaf } = makeFixture();
+        const f = file('a.md');
+        store.set(f.path, V2);
+        vi.mocked(vault.read).mockResolvedValue(V3);
+        await view.onLoadFile(f);
+        await flush();
+        expect(view.getWriteMode()).toBe('blocked');
+        expect(view.isWritable()).toBe(false);
+        expect(view.getViewData()).toBe(V3);
+        expect(vault.modify).not.toHaveBeenCalled();
+        expect(store.get(f.path)).toBe(V2);
+        expect(unsafeCast<{ setViewState: ReturnType<typeof vi.fn> }>(leaf).setViewState)
+            .toHaveBeenCalledWith(expect.objectContaining({ type: 'markdown' }));
+    });
+
+    it('recovers the superclass load queue after a rejected parent read', async () => {
+        const { store, vault, view, file } = makeFixture();
+        const fA = file('a.md');
+        const fB = file('b.md');
+        store.set(fA.path, V2);
+        store.set(fB.path, V2_B);
+        const gateA = deferred<string>();
+        const readsStarted: string[] = [];
+        vi.mocked(vault.read).mockImplementation((f: { path: string }) => {
+            readsStarted.push(f.path);
+            if (f.path === fA.path) return gateA.promise;
+            return Promise.resolve(store.get(f.path) ?? '');
+        });
+        const loadA = view.onLoadFile(fA).then(() => 'resolved', () => 'rejected');
+        await flush();
+        const loadB = view.onLoadFile(fB);
+        await flush();
+        expect(readsStarted).toEqual([fA.path]);
+        expect(view.isWritable()).toBe(false);
+        gateA.reject(new Error('read failed'));
+        await Promise.all([loadA, loadB]);
+        await flush();
+        expect(await loadA).toBe('rejected');
+        expect(vault.read).toHaveBeenCalledTimes(2);
+        expect(view.isWritable()).toBe(true);
+        expect(view.videos[0].title).toBe('Other Video');
+        view.handleUpdateNotes([...view.notes, addedNote(view.videos[0].id, 'B body')]);
+        await flush();
+        expect(store.get(fB.path)).toContain('B body');
     });
 });

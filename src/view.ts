@@ -74,6 +74,8 @@ export class YoutnoteView extends TextFileView {
         controller: AbortController;
         promise: Promise<LegacyConversionDecision>;
     } | null = null;
+    private superclassLoadQueue: Promise<void> = Promise.resolve();
+    private superclassLoad: { file: TFile; epoch: number } | null = null;
 
     getWriteMode(): YoutnoteWriteMode {
         return this.writeMode;
@@ -112,6 +114,7 @@ export class YoutnoteView extends TextFileView {
         const wasLegacyPreview = this.writeMode === 'legacy-preview' && this.loadedFile === file;
         this.writeMode = 'blocked';
         this.loadedFile = null;
+        this.file = file;
 
         if (!(await this.plugin.isYoutnoteFile(file))) {
             // Not a Youtnote, switch this leaf back to the regular markdown view
@@ -165,16 +168,26 @@ export class YoutnoteView extends TextFileView {
             return;
         }
 
-        this.applyLoadedSource(file, source, epoch);
+        await this.loadEditableFile(file, epoch);
     }
 
-    private applyLoadedSource(file: TFile, source: string, epoch: number): void {
-        if (epoch !== this.loadEpoch) return;
-        this.file = file;
-        this.loadedFile = file;
-        this.latestSource = source;
-        this.data = source;
-        this.setViewData(source);
+    private loadEditableFile(file: TFile, epoch: number): Promise<void> {
+        const loading = this.superclassLoadQueue.then(async () => {
+            if (epoch !== this.loadEpoch || this.file !== file) {
+                return;
+            }
+            const context = { file, epoch };
+            this.superclassLoad = context;
+            try {
+                await super.onLoadFile(file);
+            } finally {
+                if (this.superclassLoad === context) {
+                    this.superclassLoad = null;
+                }
+            }
+        });
+        this.superclassLoadQueue = loading.catch(() => {});
+        return loading;
     }
 
     private describeDetectionFailure(
@@ -222,7 +235,7 @@ export class YoutnoteView extends TextFileView {
                 this.failToMarkdown(file, describeFormatFailure(parsed), epoch);
                 return;
             }
-            this.applyLoadedSource(file, source, epoch);
+            await this.loadEditableFile(file, epoch);
             return;
         }
         this.failToMarkdown(file, this.describeDetectionFailure(detection), epoch);
@@ -291,7 +304,7 @@ export class YoutnoteView extends TextFileView {
                 new Notice(`Corrected this file's Youtnote file-format declaration to version ${CURRENT_FORMAT_VERSION}.`, 4000);
             }
             if (migration.source !== undefined) {
-                this.applyLoadedSource(file, migration.source, epoch);
+                await this.loadEditableFile(file, epoch);
             }
         } finally {
             if (epoch === this.loadEpoch) {
@@ -422,6 +435,10 @@ export class YoutnoteView extends TextFileView {
     }
 
     setViewData(data: string): void {
+        const pending = this.superclassLoad;
+        if (pending && (pending.epoch !== this.loadEpoch || pending.file !== this.file)) {
+            return;
+        }
         this.latestSource = data;
         const parsed = parseYoutnoteDocument(data);
         if (!parsed.ok) {
