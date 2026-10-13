@@ -5,7 +5,9 @@ import { YoutnoteView } from './view';
 import { promptLegacyConversionDecision } from './ui/MessageBoxes';
 import type { LegacyConversionDecision } from './ui/MessageBoxes';
 import type YoutnotePlugin from './main';
-import type { NoteId, VideoId } from './types';
+import type { Note, NoteId, VideoId } from './types';
+import { extractFrontmatter } from './youtnote-format/frontmatter';
+import { parseYoutnoteDocument } from './youtnote-format';
 
 vi.mock('obsidian', () => {
     class FakeNotice {
@@ -257,6 +259,113 @@ youtnote: true
 
 plain text that the legacy format cannot hold
 `;
+
+const RICH_V2_FRONTMATTER = `---
+# file-level comment preserved verbatim
+title: "Notes: Part #1" # inline comment preserved
+tags:
+  - learning
+  - video-notes
+aliases:
+  - first-alias
+  - "Quoted: Alias #2"
+youtnote: true
+youtnote-format-version: 2
+metadata:
+  author: someone
+  youtnote-format-version: 99
+  nested:
+    deep: true
+literal_block: |
+  literal line one
+  literal line two: kept
+folded_block: >
+  folded text
+  continues here
+views: 42
+draft: false
+rating: null
+# trailing comment
+---`;
+
+const RICH_MIGRATED_FRONTMATTER = RICH_V2_FRONTMATTER;
+
+const RICH_LEGACY_FRONTMATTER = RICH_V2_FRONTMATTER
+    .replace('\nyoutnote-format-version: 2\n', '\n');
+
+const RICH_V1_FRONTMATTER = RICH_V2_FRONTMATTER
+    .replace('\nyoutnote-format-version: 2\n', '\nyoutnote-format-version: 1\n');
+
+const RICH_REFRESHED_FRONTMATTER = RICH_V2_FRONTMATTER
+    .replace('title: "Notes: Part #1" # inline comment preserved', 'title: "Renamed: Part #2"')
+    .replace('views: 42\n', '')
+    .replace('# trailing comment', 'extra_prop: added-externally\n# trailing comment');
+
+const RICH_ROUNDTRIP_FRONTMATTER = RICH_V2_FRONTMATTER
+    .replace('# trailing comment', 'closed_edit: added-while-closed\n# trailing comment');
+
+const RICH_V2_BODY = `
+<!-- youtnote:video:start -->
+
+<!-- youtnote:section:source:start -->
+[Test Video](https://www.youtube.com/watch?v=dQw4w9WgXcQ)
+<!-- youtnote:section:source:end -->
+
+<!-- youtnote:section:notes:start -->
+
+<!-- youtnote:general-note:start -->
+Original general body.
+<!-- youtnote:general-note:end -->
+
+<!-- youtnote:timestamped-notes:start -->
+
+\`0:05\` <!-- youtnote:timestamp -->
+Original timestamped body.
+
+<!-- youtnote:timestamped-notes:end -->
+
+<!-- youtnote:section:notes:end -->
+
+<!-- youtnote:video:end -->
+`;
+
+const RICH_V2_SECOND_VIDEO = `
+<!-- youtnote:video:start -->
+
+<!-- youtnote:section:source:start -->
+[Other Video](https://www.youtube.com/watch?v=abcdefghijk)
+<!-- youtnote:section:source:end -->
+
+<!-- youtnote:section:notes:start -->
+
+<!-- youtnote:timestamped-notes:start -->
+
+\`0:10\` <!-- youtnote:timestamp -->
+Second video note.
+
+<!-- youtnote:timestamped-notes:end -->
+
+<!-- youtnote:section:notes:end -->
+
+<!-- youtnote:video:end -->
+`;
+
+const V2_RICH = `${RICH_V2_FRONTMATTER}\n${RICH_V2_BODY}`;
+const V2_RICH_TWO = `${RICH_V2_FRONTMATTER}\n${RICH_V2_BODY}${RICH_V2_SECOND_VIDEO}`;
+const V2_RICH_REFRESHED = `${RICH_REFRESHED_FRONTMATTER}\n${RICH_V2_BODY}`;
+const V2_RICH_ROUNDTRIP = `${RICH_ROUNDTRIP_FRONTMATTER}\n${RICH_V2_BODY}`;
+
+const RICH_LEGACY_BODY = `
+[Test Video](https://www.youtube.com/watch?v=dQw4w9WgXcQ)
+
+[0:05](timestamp)
+A note.
+`;
+
+const LEGACY_RICH = `${RICH_LEGACY_FRONTMATTER}\n${RICH_LEGACY_BODY}`;
+const LEGACY_RICH_V1 = `${RICH_V1_FRONTMATTER}\n${RICH_LEGACY_BODY}`;
+
+const rawFrontmatter = (source: string) => extractFrontmatter(source).raw;
 
 function makeFixture() {
     const store = new Map<string, string>();
@@ -1288,5 +1397,250 @@ describe('YoutnoteView write modes and legacy conversion', () => {
         view.handleUpdateNotes([...view.notes, addedNote(view.videos[0].id, 'B body')]);
         await flush();
         expect(store.get(fB.path)).toContain('B body');
+    });
+
+    describe('custom frontmatter regression', () => {
+        const generalNote = (videoId: VideoId, body: string): Note => ({
+            id: `general-${body}` as NoteId,
+            videoId,
+            timestampSec: -1,
+            bodyMarkdown: body,
+            isGeneral: true,
+            createdAt: '2024-01-01T00:00:00.000Z',
+            updatedAt: '2024-01-01T00:00:00.000Z',
+        });
+
+        it.each<[string, (view: YoutnoteView) => void, (saved: string) => void]>([
+            ['add timestamped note',
+                view => view.handleUpdateNotes([...view.notes, addedNote(view.videos[0].id, 'Added timestamped body')]),
+                saved => {
+                    expect(saved).toContain('Added timestamped body');
+                    expect(saved).toContain('Original timestamped body');
+                }],
+            ['edit timestamped note',
+                view => view.handleUpdateNotes(view.notes.map(n =>
+                    n.isGeneral ? n : { ...n, bodyMarkdown: 'Edited timestamped body' })),
+                saved => {
+                    expect(saved).toContain('Edited timestamped body');
+                    expect(saved).not.toContain('Original timestamped body');
+                }],
+            ['delete timestamped note',
+                view => view.handleUpdateNotes(view.notes.filter(n => n.isGeneral)),
+                saved => {
+                    expect(saved).not.toContain('Original timestamped body');
+                    expect(saved).toContain('Original general body');
+                }],
+            ['add general note',
+                view => view.handleUpdateNotes([...view.notes, generalNote(view.videos[0].id, 'Added general body')]),
+                saved => {
+                    expect(saved).toContain('Added general body');
+                    expect(saved).toContain('Original general body');
+                }],
+            ['edit general note',
+                view => view.handleUpdateNotes(view.notes.map(n =>
+                    n.isGeneral ? { ...n, bodyMarkdown: 'Edited general body' } : n)),
+                saved => {
+                    expect(saved).toContain('Edited general body');
+                    expect(saved).not.toContain('Original general body');
+                }],
+            ['delete general note',
+                view => view.handleUpdateNotes(view.notes.filter(n => !n.isGeneral)),
+                saved => {
+                    expect(saved).not.toContain('Original general body');
+                    expect(saved).not.toContain('youtnote:general-note:start');
+                }],
+        ])('keeps the rich frontmatter byte-identical through %s', async (_name, apply, assertSaved) => {
+            const { store, vault, view, file } = makeFixture();
+            const f = file('rich.md');
+            store.set(f.path, V2_RICH);
+            await view.onLoadFile(f);
+            expect(view.isWritable()).toBe(true);
+            apply(view);
+            await flush();
+            expect(vault.modify).toHaveBeenCalledTimes(1);
+            const saved = store.get(f.path)!;
+            expect(rawFrontmatter(saved)).toBe(RICH_V2_FRONTMATTER);
+            assertSaved(saved);
+            const reparsed = parseYoutnoteDocument(saved);
+            expect(reparsed.ok).toBe(true);
+        });
+
+        it('keeps the rich frontmatter byte-identical when adding a video', async () => {
+            const { store, vault, view, file } = makeFixture();
+            const f = file('rich.md');
+            store.set(f.path, V2_RICH);
+            await view.onLoadFile(f);
+            view.handleUpdateVideos([...view.videos, {
+                id: 'video-added' as VideoId,
+                url: 'https://www.youtube.com/watch?v=zzzzzzzzzzz',
+                title: 'Added Video',
+            }]);
+            await flush();
+            expect(vault.modify).toHaveBeenCalledTimes(1);
+            const saved = store.get(f.path)!;
+            expect(rawFrontmatter(saved)).toBe(RICH_V2_FRONTMATTER);
+            expect(saved).toContain('[Added Video](https://www.youtube.com/watch?v=zzzzzzzzzzz)');
+            const reparsed = parseYoutnoteDocument(saved);
+            expect(reparsed.ok).toBe(true);
+            if (reparsed.ok) expect(reparsed.document.videos).toHaveLength(2);
+        });
+
+        it('keeps the rich frontmatter byte-identical when updating a video title', async () => {
+            const { store, vault, view, file } = makeFixture();
+            const f = file('rich.md');
+            store.set(f.path, V2_RICH);
+            await view.onLoadFile(f);
+            view.handleUpdateVideos(view.videos.map(v => ({ ...v, title: 'Renamed Video' })));
+            await flush();
+            expect(vault.modify).toHaveBeenCalledTimes(1);
+            const saved = store.get(f.path)!;
+            expect(rawFrontmatter(saved)).toBe(RICH_V2_FRONTMATTER);
+            expect(saved).toContain('[Renamed Video](https://www.youtube.com/watch?v=dQw4w9WgXcQ)');
+            expect(saved).not.toContain('[Test Video]');
+        });
+
+        it('keeps the rich frontmatter byte-identical when deleting a non-last video', async () => {
+            const { store, vault, view, file } = makeFixture();
+            const f = file('rich-two.md');
+            store.set(f.path, V2_RICH_TWO);
+            await view.onLoadFile(f);
+            expect(view.videos).toHaveLength(2);
+            const kept = view.videos[1];
+            view.handleUpdateVideos([kept]);
+            view.handleUpdateNotes(view.notes.filter(n => n.videoId === kept.id));
+            await flush();
+            expect(vault.modify).toHaveBeenCalled();
+            const saved = store.get(f.path)!;
+            expect(rawFrontmatter(saved)).toBe(RICH_V2_FRONTMATTER);
+            expect(saved).not.toContain('dQw4w9WgXcQ');
+            expect(saved).not.toContain('Original timestamped body');
+            expect(saved).toContain('abcdefghijk');
+            expect(saved).toContain('Second video note');
+            const reparsed = parseYoutnoteDocument(saved);
+            expect(reparsed.ok).toBe(true);
+            if (reparsed.ok) {
+                expect(reparsed.document.videos).toHaveLength(1);
+                expect(reparsed.document.notes).toHaveLength(1);
+            }
+        });
+
+        it('writes only the frontmatter block and blank lines after deleting the last video', async () => {
+            const { store, vault, view, file } = makeFixture();
+            const f = file('rich.md');
+            store.set(f.path, V2_RICH);
+            await view.onLoadFile(f);
+            expect(view.notes).toHaveLength(2);
+            view.handleUpdateVideos([]);
+            await flush();
+            expect(vault.modify).toHaveBeenCalledTimes(1);
+            expect(store.get(f.path)).toBe(`${RICH_V2_FRONTMATTER}\n\n`);
+        });
+
+        it.each([
+            ['unversioned', LEGACY_RICH],
+            ['declared v1', LEGACY_RICH_V1],
+        ])('changes only the format declaration when converting a rich %s legacy file on open', async (_label, source) => {
+            const { store, vault, view, file } = makeFixture();
+            const f = file('rich-legacy.md');
+            store.set(f.path, source);
+            vi.mocked(promptLegacyConversionDecision).mockResolvedValue('convert');
+            await view.onLoadFile(f);
+            await flush();
+            expect(vault.process).toHaveBeenCalledTimes(1);
+            const migrated = store.get(f.path)!;
+            expect(rawFrontmatter(migrated)).toBe(RICH_MIGRATED_FRONTMATTER);
+            expect(migrated.startsWith(`${RICH_MIGRATED_FRONTMATTER}\n`)).toBe(true);
+            expect(migrated).toContain('<!-- youtnote:video:start -->');
+            expect(view.isWritable()).toBe(true);
+            vi.mocked(vault.modify).mockClear();
+            view.handleUpdateNotes([...view.notes, addedNote(view.videos[0].id, 'Post-conversion rich body')]);
+            await flush();
+            expect(vault.modify).toHaveBeenCalledTimes(1);
+            const saved = store.get(f.path)!;
+            expect(rawFrontmatter(saved)).toBe(RICH_MIGRATED_FRONTMATTER);
+            expect(saved).toContain('Post-conversion rich body');
+        });
+
+        it.each([
+            ['unversioned', LEGACY_RICH],
+            ['declared v1', LEGACY_RICH_V1],
+        ])('changes only the format declaration when converting a rich %s legacy file from the banner', async (_label, source) => {
+            const { store, vault, view, file } = makeFixture();
+            const f = file('rich-legacy.md');
+            store.set(f.path, source);
+            await view.onLoadFile(f);
+            expect(view.getWriteMode()).toBe('legacy-preview');
+            vi.mocked(promptLegacyConversionDecision).mockResolvedValue('convert');
+            view.handleRequestConversion();
+            await flush();
+            expect(vault.process).toHaveBeenCalledTimes(1);
+            expect(rawFrontmatter(store.get(f.path)!)).toBe(RICH_MIGRATED_FRONTMATTER);
+            expect(view.isWritable()).toBe(true);
+            vi.mocked(vault.modify).mockClear();
+            view.handleUpdateNotes([...view.notes, addedNote(view.videos[0].id, 'Post-banner rich body')]);
+            await flush();
+            expect(vault.modify).toHaveBeenCalledTimes(1);
+            const saved = store.get(f.path)!;
+            expect(rawFrontmatter(saved)).toBe(RICH_MIGRATED_FRONTMATTER);
+            expect(saved).toContain('Post-banner rich body');
+        });
+
+        it('converts the latest rich frontmatter when the file changed during the pending decision', async () => {
+            const { store, vault, view, file } = makeFixture();
+            const f = file('rich-legacy.md');
+            store.set(f.path, LEGACY);
+            let decide: ((d: LegacyConversionDecision) => void) | null = null;
+            vi.mocked(promptLegacyConversionDecision).mockReturnValue(
+                new Promise<LegacyConversionDecision>(resolve => { decide = resolve; }),
+            );
+            const loading = view.onLoadFile(f);
+            await flush();
+            store.set(f.path, LEGACY_RICH);
+            decide!('convert');
+            await loading;
+            expect(vault.process).toHaveBeenCalledTimes(1);
+            const migrated = store.get(f.path)!;
+            expect(rawFrontmatter(migrated)).toBe(RICH_MIGRATED_FRONTMATTER);
+            expect(migrated).toContain('"Quoted: Alias #2"');
+            expect(migrated).toContain('literal line two: kept');
+        });
+
+        it('persists edits on top of frontmatter delivered through an external refresh', async () => {
+            const { store, vault, view, file } = makeFixture();
+            const f = file('rich.md');
+            store.set(f.path, V2_RICH);
+            await view.onLoadFile(f);
+            expect(view.isWritable()).toBe(true);
+            store.set(f.path, V2_RICH_REFRESHED);
+            view.setViewData(V2_RICH_REFRESHED);
+            expect(view.isWritable()).toBe(true);
+            view.handleUpdateNotes([...view.notes, addedNote(view.videos[0].id, 'Post-refresh body')]);
+            await flush();
+            expect(vault.modify).toHaveBeenCalled();
+            const saved = store.get(f.path)!;
+            expect(rawFrontmatter(saved)).toBe(RICH_REFRESHED_FRONTMATTER);
+            expect(saved).toContain('extra_prop: added-externally');
+            expect(saved).not.toContain('views: 42');
+            expect(saved).toContain('Post-refresh body');
+        });
+
+        it('keeps frontmatter added while the file was closed across unload and reload', async () => {
+            const { store, vault, view, file } = makeFixture();
+            const f = file('rich.md');
+            store.set(f.path, V2_RICH);
+            await view.onLoadFile(f);
+            await view.onUnloadFile(f);
+            store.set(f.path, V2_RICH_ROUNDTRIP);
+            await view.onLoadFile(f);
+            expect(view.isWritable()).toBe(true);
+            vi.mocked(vault.modify).mockClear();
+            view.handleUpdateNotes([...view.notes, addedNote(view.videos[0].id, 'Post-reload body')]);
+            await flush();
+            expect(vault.modify).toHaveBeenCalledTimes(1);
+            const saved = store.get(f.path)!;
+            expect(rawFrontmatter(saved)).toBe(RICH_ROUNDTRIP_FRONTMATTER);
+            expect(saved).toContain('closed_edit: added-while-closed');
+            expect(saved).toContain('Post-reload body');
+        });
     });
 });

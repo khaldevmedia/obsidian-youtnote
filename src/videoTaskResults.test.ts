@@ -4,6 +4,8 @@ import {
     setTranscriptForYoutubeVideo,
     updateYoutnoteSource,
 } from './videoTaskResults';
+import { extractFrontmatter } from './youtnote-format/frontmatter';
+import { parseYoutnoteDocument } from './youtnote-format';
 import type { GeneratedNoteDraft } from './ai/notes';
 import type { Note, NoteId, TranscriptEntry, Video, VideoId } from './types';
 
@@ -254,5 +256,180 @@ file-level payload
         expect(result.markdown).toContain('file-level payload');
         expect(section).toBeLessThan(result.markdown.indexOf('youtnote:video:start'));
         expect(result.markdown).toContain('draft');
+    });
+});
+
+const RICH_V2_FRONTMATTER = `---
+# file-level comment preserved verbatim
+title: "Notes: Part #1" # inline comment preserved
+tags:
+  - learning
+  - video-notes
+aliases:
+  - first-alias
+  - "Quoted: Alias #2"
+youtnote: true
+youtnote-format-version: 2
+metadata:
+  author: someone
+  youtnote-format-version: 99
+  nested:
+    deep: true
+literal_block: |
+  literal line one
+  literal line two: kept
+folded_block: >
+  folded text
+  continues here
+views: 42
+draft: false
+rating: null
+# trailing comment
+---`;
+
+const V2_RICH_SOURCE = V2_SOURCE.replace(
+    '---\nyoutnote: true\nyoutnote-format-version: 2\n---',
+    RICH_V2_FRONTMATTER,
+);
+
+function parseOk(source: string) {
+    const result = parseYoutnoteDocument(source);
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error('expected ok parse');
+    return result.document;
+}
+
+describe('updateYoutnoteSource with rich custom frontmatter', () => {
+    it('preserves the entire raw frontmatter block when adding a transcript', () => {
+        const result = updateYoutnoteSource(V2_RICH_SOURCE, (document) => {
+            const videos = setTranscriptForYoutubeVideo(document.videos, 'aaaaaaaaaaa', ENTRIES);
+            return videos ? { videos } : null;
+        });
+        expect(result.status).toBe('updated');
+        if (result.status !== 'updated') return;
+        expect(extractFrontmatter(result.markdown).raw).toBe(RICH_V2_FRONTMATTER);
+        expect(result.markdown.startsWith(`${RICH_V2_FRONTMATTER}\n`)).toBe(true);
+        const doc = parseOk(result.markdown);
+        expect(doc.videos[0].transcript).toEqual(ENTRIES);
+    });
+
+    it('preserves the entire raw frontmatter block when replacing a transcript', () => {
+        const added = updateYoutnoteSource(V2_RICH_SOURCE, (document) => {
+            const videos = setTranscriptForYoutubeVideo(document.videos, 'aaaaaaaaaaa', ENTRIES);
+            return videos ? { videos } : null;
+        });
+        expect(added.status).toBe('updated');
+        if (added.status !== 'updated') return;
+        const replacement: TranscriptEntry[] = [
+            { startMs: 250, durationMs: 500, text: 'replacement caption' },
+        ];
+        const result = updateYoutnoteSource(added.markdown, (document) => {
+            const videos = setTranscriptForYoutubeVideo(document.videos, 'aaaaaaaaaaa', replacement);
+            return videos ? { videos } : null;
+        });
+        expect(result.status).toBe('updated');
+        if (result.status !== 'updated') return;
+        expect(extractFrontmatter(result.markdown).raw).toBe(RICH_V2_FRONTMATTER);
+        const doc = parseOk(result.markdown);
+        expect(doc.videos[0].transcript).toEqual(replacement);
+        expect(result.markdown).not.toContain('hello');
+    });
+
+    it.each(['append', 'replace'] as const)(
+        'preserves the entire raw frontmatter block when applying generated notes in %s mode',
+        (mode) => {
+            const seeded = updateYoutnoteSource(V2_RICH_SOURCE, (document) => {
+                const notes = applyGeneratedNotesForYoutubeVideo(
+                    document.videos,
+                    document.notes,
+                    'aaaaaaaaaaa',
+                    [
+                        { timestampSec: 10, bodyMarkdown: 'existing seed body' },
+                        { timestampSec: -1, bodyMarkdown: 'existing general body', isGeneral: true },
+                    ],
+                    {
+                        mode: 'append',
+                        generalNoteMode: 'append',
+                        createId: () => 'seed-1' as NoteId,
+                        now: '2025-01-01T00:00:00.000Z',
+                    },
+                );
+                return notes ? { notes } : null;
+            });
+            expect(seeded.status).toBe('updated');
+            if (seeded.status !== 'updated') return;
+            const drafts: GeneratedNoteDraft[] = [
+                { timestampSec: 30, bodyMarkdown: 'generated timestamped' },
+                { timestampSec: -1, bodyMarkdown: 'generated general', isGeneral: true },
+            ];
+            let counter = 0;
+            const result = updateYoutnoteSource(seeded.markdown, (document) => {
+                const notes = applyGeneratedNotesForYoutubeVideo(
+                    document.videos,
+                    document.notes,
+                    'aaaaaaaaaaa',
+                    drafts,
+                    {
+                        mode,
+                        generalNoteMode: 'append',
+                        createId: () => `gen-${++counter}` as NoteId,
+                        now: '2025-01-01T00:00:00.000Z',
+                    },
+                );
+                return notes ? { notes } : null;
+            });
+            expect(result.status).toBe('updated');
+            if (result.status !== 'updated') return;
+            expect(extractFrontmatter(result.markdown).raw).toBe(RICH_V2_FRONTMATTER);
+            const doc = parseOk(result.markdown);
+            const bodies = doc.notes.map(note => note.bodyMarkdown);
+            expect(bodies).toContain('generated timestamped');
+            expect(bodies.some(body => body.includes('generated general'))).toBe(true);
+            expect(bodies.some(body => body.includes('existing general body'))).toBe(true);
+            if (mode === 'append') {
+                expect(bodies).toContain('existing seed body');
+            } else {
+                expect(bodies).not.toContain('existing seed body');
+            }
+        },
+    );
+
+    it('replaces the video notes in replace mode while keeping frontmatter', () => {
+        const seeded = updateYoutnoteSource(V2_RICH_SOURCE, (document) => {
+            const notes = applyGeneratedNotesForYoutubeVideo(
+                document.videos,
+                document.notes,
+                'aaaaaaaaaaa',
+                [{ timestampSec: 10, bodyMarkdown: 'first batch' }],
+                {
+                    mode: 'append',
+                    createId: () => 'gen-1' as NoteId,
+                    now: '2025-01-01T00:00:00.000Z',
+                },
+            );
+            return notes ? { notes } : null;
+        });
+        expect(seeded.status).toBe('updated');
+        if (seeded.status !== 'updated') return;
+        let counter = 0;
+        const result = updateYoutnoteSource(seeded.markdown, (document) => {
+            const notes = applyGeneratedNotesForYoutubeVideo(
+                document.videos,
+                document.notes,
+                'aaaaaaaaaaa',
+                [{ timestampSec: 20, bodyMarkdown: 'second batch' }],
+                {
+                    mode: 'replace',
+                    createId: () => `gen-${++counter}` as NoteId,
+                    now: '2025-01-02T00:00:00.000Z',
+                },
+            );
+            return notes ? { notes } : null;
+        });
+        expect(result.status).toBe('updated');
+        if (result.status !== 'updated') return;
+        expect(extractFrontmatter(result.markdown).raw).toBe(RICH_V2_FRONTMATTER);
+        const doc = parseOk(result.markdown);
+        expect(doc.notes.map(note => note.bodyMarkdown)).toEqual(['second batch']);
     });
 });

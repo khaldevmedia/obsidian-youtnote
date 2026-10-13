@@ -6,6 +6,7 @@ import {
     serializeYoutnoteDocument,
     youtnoteDocumentsEquivalent,
 } from './index';
+import { extractFrontmatter } from './frontmatter';
 
 const LEGACY = `---
 youtnote: true
@@ -199,5 +200,70 @@ describe('corrected-declaration recovery', () => {
         const result = migrateLegacyYoutnote(source);
         expect(result.ok).toBe(false);
         if (!result.ok) expect(result.reason).toBe('invalid-document');
+    });
+});
+
+const RICH_MIGRATED_FRONTMATTER = `---
+# file-level comment preserved verbatim
+title: "Notes: Part #1" # inline comment preserved
+tags:
+  - learning
+  - video-notes
+aliases:
+  - first-alias
+  - "Quoted: Alias #2"
+youtnote: true
+youtnote-format-version: 2
+metadata:
+  author: someone
+  youtnote-format-version: 99
+  nested:
+    deep: true
+literal_block: |
+  literal line one
+  literal line two: kept
+folded_block: >
+  folded text
+  continues here
+views: 42
+draft: false
+rating: null
+# trailing comment
+---`;
+
+const RICH_LEGACY_FRONTMATTER = RICH_MIGRATED_FRONTMATTER
+    .replace('\nyoutnote-format-version: 2\n', '\n');
+
+const RICH_V1_FRONTMATTER = RICH_MIGRATED_FRONTMATTER
+    .replace('\nyoutnote-format-version: 2\n', '\nyoutnote-format-version: 1\n');
+
+const RICH_LEGACY_BODY = `
+[Test Video](https://www.youtube.com/watch?v=dQw4w9WgXcQ)
+
+[0:05](timestamp)
+A note.
+`;
+
+describe('migration with rich custom frontmatter', () => {
+    it.each([
+        ['unversioned', RICH_LEGACY_FRONTMATTER],
+        ['declared v1', RICH_V1_FRONTMATTER],
+    ])('changes only the format declaration in a %s rich header', (_label, frontmatter) => {
+        const result = migrateLegacyYoutnote(`${frontmatter}\n${RICH_LEGACY_BODY}`);
+        expect(result.ok).toBe(true);
+        if (!result.ok) return;
+        expect(result.migration).toBe('legacy-to-current');
+        expect(extractFrontmatter(result.markdown).raw).toBe(RICH_MIGRATED_FRONTMATTER);
+        expect(result.markdown.startsWith(`${RICH_MIGRATED_FRONTMATTER}\n`)).toBe(true);
+        expect(result.markdown).toContain('<!-- youtnote:video:start -->');
+        expect(result.markdown).toContain('A note.');
+
+        const reparsed = parseYoutnoteDocument(result.markdown);
+        expect(reparsed.ok).toBe(true);
+        if (!reparsed.ok) return;
+        expect(reparsed.document.sourceFormatVersion).toBe(2);
+        const reserialized = serializeYoutnoteDocument(reparsed.document);
+        expect(extractFrontmatter(reserialized).raw).toBe(RICH_MIGRATED_FRONTMATTER);
+        expect(reserialized).toBe(result.markdown);
     });
 });

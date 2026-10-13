@@ -4,6 +4,7 @@ import {
     parseYoutnoteDocument,
     serializeYoutnoteDocument,
 } from './index';
+import { extractFrontmatter } from './frontmatter';
 import type { OpaqueYoutnoteSection } from './types';
 
 const HEADER = '---\nyoutnote: true\nyoutnote-format-version: 2\n---\n';
@@ -1206,5 +1207,73 @@ x
         expect(legacy.fileSections).toEqual([]);
         const declared = parseOk('---\nyoutnote: true\nyoutnote-format-version: 1\n---\n\n[V](https://www.youtube.com/watch?v=dQw4w9WgXcQ)\n');
         expect(declared.fileSections).toEqual([]);
+    });
+});
+
+const RICH_V2_FRONTMATTER = `---
+# file-level comment preserved verbatim
+title: "Notes: Part #1" # inline comment preserved
+tags:
+  - learning
+  - video-notes
+aliases:
+  - first-alias
+  - "Quoted: Alias #2"
+youtnote: true
+youtnote-format-version: 2
+metadata:
+  author: someone
+  youtnote-format-version: 99
+  nested:
+    deep: true
+literal_block: |
+  literal line one
+  literal line two: kept
+folded_block: >
+  folded text
+  continues here
+views: 42
+draft: false
+rating: null
+# trailing comment
+---`;
+
+describe('rich custom frontmatter preservation', () => {
+    it('keeps the raw frontmatter block exactly through parse, serialize, and reparse', () => {
+        const source = `${RICH_V2_FRONTMATTER}
+<!-- youtnote:video:start -->
+
+${sourceBlock(YT, 'V')}
+
+<!-- youtnote:section:notes:start -->
+
+<!-- youtnote:timestamped-notes:start -->
+
+\`0:05\` <!-- youtnote:timestamp -->
+Note body.
+
+<!-- youtnote:timestamped-notes:end -->
+
+<!-- youtnote:section:notes:end -->
+
+<!-- youtnote:video:end -->
+`;
+        const doc = parseOk(source);
+        expect(doc.frontmatter.raw).toBe(RICH_V2_FRONTMATTER);
+        const once = serializeYoutnoteDocument(doc);
+        expect(extractFrontmatter(once).raw).toBe(RICH_V2_FRONTMATTER);
+        const twice = serializeYoutnoteDocument(parseOk(once));
+        expect(twice).toBe(once);
+        expect(extractFrontmatter(twice).raw).toBe(RICH_V2_FRONTMATTER);
+    });
+
+    it('keeps the raw frontmatter block exactly for an empty v2 document', () => {
+        const source = `${RICH_V2_FRONTMATTER}\n\n`;
+        const doc = parseOk(source);
+        expect(doc.videos).toHaveLength(0);
+        const once = serializeYoutnoteDocument(doc);
+        expect(once).toBe(source);
+        expect(extractFrontmatter(once).raw).toBe(RICH_V2_FRONTMATTER);
+        expect(serializeYoutnoteDocument(parseOk(once))).toBe(once);
     });
 });
