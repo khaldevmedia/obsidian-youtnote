@@ -11,6 +11,7 @@ vi.mock('obsidian', () => ({
 vi.mock('./main', () => ({ default: class YoutnotePlugin {} }));
 
 import { DEFAULT_SETTINGS, mergePluginSettings, refreshAIModelList, YoutnoteSettingTab } from './settings';
+import { GITHUB_DOCS_BRANCH, URI_SCHEME_GUIDE_URL } from './constants';
 import type { AISettings } from './types';
 
 describe('mergePluginSettings', () => {
@@ -317,5 +318,37 @@ describe('Model list refresh button', () => {
         expect(saveDataState).not.toHaveBeenCalled();
         expect(ai.availableModels.openai).toEqual(['cached']);
         expect(ai.models.openai).toBe('chosen');
+    });
+});
+
+describe('URI scheme guide link', () => {
+    it('points the settings guide link at the shared docs URL', () => {
+        const links: string[] = [];
+        vi.stubGlobal('createFragment', (callback: (frag: {
+            appendText(text: string): void;
+            createEl(tag: string, options?: { attr?: Record<string, string> }): unknown;
+        }) => void) => {
+            callback({
+                appendText: vi.fn(),
+                createEl: (tag: string, options?: { attr?: Record<string, string> }) => {
+                    if (tag === 'a') links.push(options?.attr?.href ?? '');
+                    return {};
+                },
+            });
+            return {};
+        });
+        try {
+            const tab = new YoutnoteSettingTab(
+                {} as never,
+                { settings: DEFAULT_SETTINGS } as never,
+            );
+            tab.getSettingDefinitions();
+            expect(links).toHaveLength(1);
+            expect(links[0]).toBe(URI_SCHEME_GUIDE_URL);
+            expect(new URL(links[0]).pathname)
+                .toBe(`/khaldevmedia/obsidian-youtnote/blob/${GITHUB_DOCS_BRANCH}/docs/uri-scheme-guide.md`);
+        } finally {
+            vi.unstubAllGlobals();
+        }
     });
 });

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { App } from 'obsidian';
 import { AlertModal, ConfirmModal, LegacyFormatConversionModal, promptLegacyConversionDecision } from './MessageBoxes';
+import { GITHUB_DOCS_BRANCH, V2_FILE_FORMAT_MIGRATION_URL } from '../constants';
 
 const { fakeEl } = vi.hoisted(() => {
     interface FakeEl {
@@ -22,6 +23,7 @@ const { fakeEl } = vi.hoisted(() => {
         click(): void;
         findByAction(action: string): FakeEl | null;
         dataset: Record<string, string>;
+        attr: Record<string, string>;
     }
     function fakeEl(): FakeEl {
         const el: FakeEl = {
@@ -30,6 +32,7 @@ const { fakeEl } = vi.hoisted(() => {
             text: '',
             children: [],
             dataset: {},
+            attr: {},
             listeners: {},
             focused: false,
             empty() {
@@ -50,6 +53,7 @@ const { fakeEl } = vi.hoisted(() => {
                 child.tag = tag;
                 child.text = options?.text ?? '';
                 child.cls = options?.cls ?? '';
+                child.attr = options?.attr ?? {};
                 el.children.push(child);
                 return child;
             },
@@ -138,6 +142,38 @@ describe('LegacyFormatConversionModal', () => {
         expect(fileNameEl).toBeDefined();
         expect(fileNameEl!.text).toContain(fileName);
         expect(fileNameEl!.children).toHaveLength(0);
+    });
+
+    it('renders a migration guide link immediately before the file name', async () => {
+        const modal = new LegacyFormatConversionModal(app, 'a.md');
+        modal.open();
+        const contentEl = unsafeCast<ReturnType<typeof fakeEl>>(modal.contentEl);
+        const guideIndex = contentEl.children.findIndex(child =>
+            child.cls.includes('youtnote-plugin__conversion-guide-link'));
+        const fileNameIndex = contentEl.children.findIndex(child =>
+            child.cls.includes('youtnote-plugin__base-modal-filename'));
+        expect(guideIndex).toBeGreaterThanOrEqual(0);
+        expect(fileNameIndex).toBeGreaterThanOrEqual(0);
+        expect(guideIndex).toBe(fileNameIndex - 1);
+        const guideEl = contentEl.children[guideIndex];
+        const anchor = guideEl.children.find(child => child.tag === 'a');
+        expect(anchor).toBeDefined();
+        expect(anchor!.cls).toContain('external-link');
+        expect(anchor!.attr.href).toBe(V2_FILE_FORMAT_MIGRATION_URL);
+        expect(new URL(anchor!.attr.href).pathname)
+            .toBe(`/khaldevmedia/obsidian-youtnote/blob/${GITHUB_DOCS_BRANCH}/docs/v2-file-format-migration.md`);
+        expect(anchor!.attr.target).toBe('_blank');
+        expect(anchor!.attr.rel).toBe('noopener noreferrer');
+        let settled = false;
+        void modal.decision.then(() => { settled = true; });
+        anchor!.click();
+        await Promise.resolve();
+        expect(unsafeCast<{ isOpen: boolean }>(modal).isOpen).toBe(true);
+        expect(settled).toBe(false);
+        const readOnlyButton = contentEl.findByAction('read-only');
+        expect(readOnlyButton!.focused).toBe(true);
+        modal.close();
+        await expect(modal.decision).resolves.toBe('read-only');
     });
 
     it('resolves read-only when the focused read-only action button is clicked', async () => {

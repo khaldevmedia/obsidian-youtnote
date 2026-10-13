@@ -1205,6 +1205,10 @@ button.youtnote-plugin__add-btn {
     font-weight: var(--font-semibold);
 }
 
+.youtnote-plugin__conversion-guide-link {
+    margin: 0 0 12px;
+}
+
 .youtnote-plugin__base-modal-filename {
     margin-bottom: 16px;
     font-weight: var(--font-semibold);

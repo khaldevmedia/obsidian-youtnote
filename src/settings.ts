@@ -3,6 +3,7 @@ import YoutnotePlugin from "./main";
 import { AISettings, PluginSettings } from "./types";
 import { AIProviderError } from "./ai/types";
 import type { AIProviderId, ConfiguredAIProviderId } from "./ai/types";
+import { URI_SCHEME_GUIDE_URL } from "./constants";
 
 export const DEFAULT_SETTINGS: PluginSettings = {
 	autoplayOnNoteSelect: false,
@@ -175,7 +176,6 @@ interface SettingGroupDef {
 	items: SettingItemDef[];
 }
 
-const URI_SCHEME_GUIDE_URL = 'https://github.com/khaldevmedia/obsidian-youtnote/blob/develop/docs/uri-scheme-guide.md';
 const CUSTOM_BASE_URL_PLACEHOLDER = 'http://localhost:11434/v1';
 const AI_SETTINGS_ANCHOR_CLASS = 'youtnote-plugin__settings-ai-anchor';
 

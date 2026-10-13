@@ -2,6 +2,7 @@ import { App, Modal } from 'obsidian';
 import { MAX_GENERATED_NOTES, parseMaxNotesInput } from '../ai/notes';
 import { ExportOptions } from '../types';
 import type { AIGenerationDialogOptions } from '../types';
+import { V2_FILE_FORMAT_MIGRATION_URL } from '../constants';
 
 type ModalAction = () => void | Promise<void>;
 type ConfirmButtonVariant = 'primary' | 'danger';
@@ -181,6 +182,16 @@ export class LegacyFormatConversionModal extends BaseModal {
     }
 
     protected renderContent(contentEl: HTMLElement): void {
+        const guideEl = contentEl.createEl('p', { cls: 'youtnote-plugin__conversion-guide-link' });
+        guideEl.createEl('a', {
+            text: 'Read the v2 migration guide',
+            cls: 'external-link',
+            attr: {
+                href: V2_FILE_FORMAT_MIGRATION_URL,
+                target: '_blank',
+                rel: 'noopener noreferrer',
+            },
+        });
         contentEl.createDiv({
             cls: 'youtnote-plugin__base-modal-filename',
             text: `Current file: ${this.fileName}`,
