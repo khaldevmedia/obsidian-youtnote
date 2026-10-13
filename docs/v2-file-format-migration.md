@@ -23,7 +23,7 @@ Files remain ordinary `.md` files in your vault. Format v2 does not require a ne
 ## Before you convert
 
 1. **Make a backup** of the files you plan to convert. The conversion dialog does not create a separate backup copy for you.
-2. **Update Youtnote on every device that uses the synced vault**, including phones, tablets, and computers you use less often. Install a plugin version that supports format v2. Youtnote 1.3.0 and older are not compatible.
+2. **Update Youtnote on every device that uses the synced vault**, including phones, tablets, and computers you use less often. Install a plugin version that supports format v2. Youtnote `1.3.0` and older are not compatible.
 3. If any device still uses an older plugin, **postpone conversion and choose Open read-only** in the updated plugin. Your legacy files can remain in the old format until every device is ready.
 
 ## How to migrate
@@ -35,7 +35,7 @@ Files remain ordinary `.md` files in your vault. Format v2 does not require a ne
    - **Open read-only:** displays the existing content without converting or saving the source file. Playback, searching, copying, and export remain available, but editing is disabled.
 4. After conversion, check the file's videos and notes, then make a small edit and reopen the file to confirm it persists. Keep your backup until you are satisfied with the result.
 
-Closing the dialog also chooses read-only. You can convert later using the **Convert to v2** action in the read-only banner. It shows the warning again before conversion.
+Closing the dialog also chooses read-only. You can convert later while the file is open as read-only by clicking the **See options** button in the read-only banner. It shows the convert popup again.
 
 Conversion is **per file**. There is no automatic-conversion preference or bulk conversion. A file already using format v2 does not need conversion and does not show the legacy conversion dialog.
 
@@ -49,7 +49,7 @@ Saving may happen automatically or while closing or switching files. **Do not as
 
 Once a file is converted:
 
-- Do not open it through Youtnote 1.3.0 or older, including on another synced device.
+- Do not open it through Youtnote `1.3.0` or older, including on another synced device.
 - Do not downgrade the plugin while continuing to use converted files.
 - If a device cannot be updated, keep it from opening converted files through the older plugin. For ordinary Markdown viewing on that device, disable the incompatible plugin first.
 
