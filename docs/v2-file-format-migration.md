@@ -9,12 +9,12 @@ The versions above refer to the **Youtnote plugin**, not the Obsidian applicatio
 
 ## Why a new format was needed
 
-The legacy format used Markdown links as internal markers for videos and timestamped notes. As Youtnote added richer content, including transcripts and AI-generated notes, it needed clearer rules for separating and preserving that content.
+The legacy format used Markdown links as internal markers for videos and timestamped notes. Youtnote `1.3.0`, the last release to use that format, does not support transcripts or AI-generated notes. The `1.4.0` release introduces those features and format v2, with clearer rules for separating and preserving the new content.
 
 Format v2 improves storage in four ways:
 
 - **Clear boundaries:** each video has its own block, with separate sections for the video source, notes, and transcripts. The plugin does not have to infer all of that structure from ordinary Markdown links.
-- **A cleaner link graph:** timestamp, general-note, and caption markers use HTML comments instead of internal Markdown links. These structural markers no longer create synthetic links in Obsidian's Graph view. Normal links you intentionally add to your notes still work.
+- **A cleaner link graph:** format v2 replaces the legacy timestamp and general-note Markdown-link markers with HTML comments, removing the synthetic links those markers created in Obsidian's Graph view. Transcript captions, introduced in Youtnote `1.4.0` alongside format v2, use HTML-comment markers from the start. Normal links you intentionally add to your notes still appear in Obsidian's Graph view.
 - **Explicit versioning:** the `youtnote-format-version` property identifies the format. The updated plugin refuses unsupported newer versions rather than partially parsing and rewriting them.
 - **Safer future additions:** unrelated frontmatter and unknown file-level or video-level sections are preserved. This allows compatible additions without throwing away content that an older v2 reader does not understand.
 
@@ -23,7 +23,7 @@ Files remain ordinary `.md` files in your vault. Format v2 does not require a ne
 ## Before you convert
 
 1. **Make a backup** of the files you plan to convert. The conversion dialog does not create a separate backup copy for you.
-2. **Update Youtnote on every device that uses the synced vault**, including phones, tablets, and computers you use less often. Install a plugin version that supports format v2; Youtnote 1.3.0 and older are not compatible.
+2. **Update Youtnote on every device that uses the synced vault**, including phones, tablets, and computers you use less often. Install a plugin version that supports format v2. Youtnote 1.3.0 and older are not compatible.
 3. If any device still uses an older plugin, **postpone conversion and choose Open read-only** in the updated plugin. Your legacy files can remain in the old format until every device is ready.
 
 ## How to migrate
@@ -31,11 +31,11 @@ Files remain ordinary `.md` files in your vault. Format v2 does not require a ne
 1. Open an existing legacy youtnote in the updated plugin. Unversioned files and files explicitly declaring format version 1 are treated as legacy files.
 2. Read the conversion dialog, including the warning about older plugin versions and synced devices.
 3. Choose one of the following:
-   - **Convert to v2:** converts this file, checks the result, and enables editing. Videos, timestamped notes, general notes, and transcript content recognized in a valid legacy file are retained, along with unrelated frontmatter.
-   - **Open read-only:** displays the existing content without converting or saving the source file. Playback, searching, copying, and export remain available; editing, transcript fetching, and AI generation are unavailable.
+   - **Convert to v2:** converts this file, checks the result, and enables editing. Videos, timestamped notes, and general notes are retained, along with unrelated frontmatter.
+   - **Open read-only:** displays the existing content without converting or saving the source file. Playback, searching, copying, and export remain available, but editing is disabled.
 4. After conversion, check the file's videos and notes, then make a small edit and reopen the file to confirm it persists. Keep your backup until you are satisfied with the result.
 
-Closing the dialog also chooses read-only. You can convert later using the **Convert to v2** action in the read-only banner; it shows the warning again before conversion.
+Closing the dialog also chooses read-only. You can convert later using the **Convert to v2** action in the read-only banner. It shows the warning again before conversion.
 
 Conversion is **per file**. There is no automatic-conversion preference or bulk conversion. A file already using format v2 does not need conversion and does not show the legacy conversion dialog.
 
@@ -61,8 +61,14 @@ A v2 file declares this property in its frontmatter:
 youtnote-format-version: 2
 ```
 
-**Adding this property to a legacy file is not a migration.** Likewise, deleting it or changing it to `1` does not convert v2 content back to the old syntax. Use the conversion dialog; the plugin does not provide a built-in v2-to-v1 downgrade.
+**Adding this property to a legacy file is not a migration.** Likewise, deleting it or changing it to `1` does not convert v2 content back to the old syntax. Use the conversion dialog. The plugin does not provide a built-in v2-to-v1 downgrade.
 
 If conversion fails, reopen the file, check its contents, and compare it with your backup before retrying. Do not assume a failed operation left the file unchanged.
 
 If an older plugin has already removed content, update or disable that plugin on all affected devices before restoring a good copy from your backup, sync version history, or Obsidian File recovery, if available. Changing the format version number cannot recover deleted notes.
+
+## Reporting migration issues
+
+If you encounter any problems related to migrating to format v2, please [open a GitHub issue](https://github.com/khaldevmedia/obsidian-youtnote/issues).
+
+Include your Youtnote and Obsidian versions, your operating system, the steps that led to the problem, and any error messages. If possible, provide a minimal example file that reproduces the issue, with private or sensitive content removed.
