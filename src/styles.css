@@ -561,6 +561,7 @@ to avoid conflicts with other plugins */
     max-height: none;
     overflow: visible;
     margin-top: 35px;
+    margin-bottom: 90px;
 }
 
 .is-mobile .youtnote-plugin__video-list {
@@ -1114,11 +1115,6 @@ to avoid conflicts with other plugins */
     width: 100%;
 }
 
-.is-mobile .youtnote-plugin__add-note-btn,
-.is-mobile .youtnote-plugin__transcript-list {
-    margin-bottom: 90px;
-}
-
 /* Add General Note button (in note list header, beside merge/export) */
 .youtnote-plugin__add-general-note-btn {
     background: transparent;
@@ -1220,10 +1216,9 @@ button.youtnote-plugin__add-btn {
     gap: 8px;
 }
 
-/* Confirm Modal */
+/* Modal */
 .youtnote-plugin__modal-button {
     padding: 8px 16px;
-    border-radius: var(--radius-s);
     font-size: var(--font-ui-small);
     cursor: pointer;
     border: none;
