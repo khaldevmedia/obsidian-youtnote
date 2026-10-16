@@ -413,9 +413,16 @@ function makeFixture() {
             store.set(f.path, data);
         }),
     };
+    const layoutCallbacks: (() => void)[] = [];
+    const workspace = {
+        layoutReady: true,
+        onLayoutReady: vi.fn((callback: () => void) => {
+            layoutCallbacks.push(callback);
+        }),
+    };
     const app = {
         vault,
-        workspace: {},
+        workspace,
         secretStorage: { getSecret: vi.fn(() => null) },
     };
     const leaf = unsafeCast<WorkspaceLeaf>({
@@ -440,7 +447,13 @@ function makeFixture() {
         path,
         basename: path.replace(/\.md$/, ''),
     });
-    return { store, vault, app, leaf, plugin, view, file };
+    const finishLayout = () => {
+        workspace.layoutReady = true;
+        for (const callback of layoutCallbacks.splice(0)) {
+            callback();
+        }
+    };
+    return { store, vault, app, leaf, plugin, view, file, workspace, layoutCallbacks, finishLayout };
 }
 
 const flush = async () => {
@@ -1731,5 +1744,245 @@ describe('YoutnoteView write modes and legacy conversion', () => {
             expect(saved).toContain('closed_edit: added-while-closed');
             expect(saved).toContain('Post-reload body');
         });
+    });
+});
+
+
+describe('YoutnoteView startup legacy loading (layout not ready)', () => {
+    beforeAll(() => {
+        vi.stubGlobal('window', {
+            setTimeout: (callback: () => void) => {
+                void Promise.resolve().then(callback);
+            },
+        });
+    });
+
+    beforeEach(() => {
+        vi.clearAllMocks();
+        noticeCalls().length = 0;
+        vi.mocked(promptLegacyConversionDecision).mockResolvedValue('read-only');
+    });
+
+    const startupFixture = () => {
+        const fixture = makeFixture();
+        fixture.workspace.layoutReady = false;
+        return fixture;
+    };
+
+    it('resolves the load into a read-only preview and prompts only after layout ready', async () => {
+        const { store, vault, view, file, finishLayout } = startupFixture();
+        const f = file('legacy.md');
+        store.set(f.path, LEGACY);
+        const decision = deferred<LegacyConversionDecision>();
+        vi.mocked(promptLegacyConversionDecision).mockReturnValue(decision.promise);
+
+        let settled = false;
+        const loading = view.onLoadFile(f).then(() => { settled = true; });
+        await flush();
+
+        expect(settled).toBe(true);
+        expect(vi.mocked(promptLegacyConversionDecision)).not.toHaveBeenCalled();
+        expect(view.getWriteMode()).toBe('legacy-preview');
+        expect(view.isWritable()).toBe(false);
+        expect(view.videos).toHaveLength(1);
+        expect(view.notes).toHaveLength(1);
+        expect(view.getViewData()).toBe(LEGACY);
+        view.requestSave();
+        await view.save();
+        expect(vault.process).not.toHaveBeenCalled();
+        expect(vault.modify).not.toHaveBeenCalled();
+
+        finishLayout();
+        await flush();
+        expect(vi.mocked(promptLegacyConversionDecision)).toHaveBeenCalledTimes(1);
+
+        decision.resolve('read-only');
+        await flush();
+        await loading;
+        expect(view.getWriteMode()).toBe('legacy-preview');
+        expect(store.get(f.path)).toBe(LEGACY);
+    });
+
+    it('defers conversion until layout ready and an explicit convert decision', async () => {
+        const { store, vault, view, file, finishLayout } = startupFixture();
+        const f = file('legacy.md');
+        store.set(f.path, LEGACY);
+        const decision = deferred<LegacyConversionDecision>();
+        vi.mocked(promptLegacyConversionDecision).mockReturnValue(decision.promise);
+
+        const loading = view.onLoadFile(f);
+        await flush();
+        expect(vi.mocked(promptLegacyConversionDecision)).not.toHaveBeenCalled();
+        expect(vault.process).not.toHaveBeenCalled();
+        expect(view.getWriteMode()).toBe('legacy-preview');
+
+        finishLayout();
+        await flush();
+        expect(vi.mocked(promptLegacyConversionDecision)).toHaveBeenCalledTimes(1);
+        expect(vault.process).not.toHaveBeenCalled();
+
+        decision.resolve('convert');
+        await flush();
+        await loading;
+        expect(vault.process).toHaveBeenCalledTimes(1);
+        expect(store.get(f.path)).toContain('youtnote-format-version: 2');
+        expect(store.get(f.path)).toContain('dQw4w9WgXcQ');
+        expect(parseYoutnoteDocument(store.get(f.path)!).ok).toBe(true);
+        expect(view.getWriteMode()).toBe('editable-v2');
+    });
+
+    it.each(['unload', 'close', 'clear', 'switch-to-v2'] as const)(
+        'cancels a queued startup prompt via %s without rewriting the file',
+        async (how) => {
+            const { store, vault, view, file, finishLayout } = startupFixture();
+            const f = file('legacy.md');
+            store.set(f.path, LEGACY);
+            const decision = deferred<LegacyConversionDecision>();
+            vi.mocked(promptLegacyConversionDecision).mockReturnValue(decision.promise);
+
+            const loading = view.onLoadFile(f);
+            await flush();
+            expect(view.getWriteMode()).toBe('legacy-preview');
+
+            if (how === 'unload') {
+                await view.onUnloadFile(f);
+            } else if (how === 'close') {
+                await view.onClose();
+            } else if (how === 'clear') {
+                view.clear();
+            } else {
+                const other = file('other.md');
+                store.set(other.path, V2);
+                await view.onLoadFile(other);
+                expect(view.getWriteMode()).toBe('editable-v2');
+            }
+
+            finishLayout();
+            await flush();
+            decision.resolve('convert');
+            await flush();
+            await loading;
+
+            expect(vi.mocked(promptLegacyConversionDecision)).not.toHaveBeenCalled();
+            expect(store.get(f.path)).toBe(LEGACY);
+            expect(vault.process).not.toHaveBeenCalled();
+            expect(vault.modify).not.toHaveBeenCalled();
+        }
+    );
+
+    it('queues a replacement decision when the same legacy file reloads during startup', async () => {
+        const { store, view, file, finishLayout } = startupFixture();
+        const f = file('legacy.md');
+        store.set(f.path, LEGACY);
+        const decision = deferred<LegacyConversionDecision>();
+        vi.mocked(promptLegacyConversionDecision).mockReturnValue(decision.promise);
+
+        const loading = view.onLoadFile(f);
+        await flush();
+        store.set(f.path, LEGACY_B);
+        await view.onLoadFile(f);
+        await flush();
+        expect(view.getViewData()).toBe(LEGACY_B);
+        expect(view.videos[0].url).toContain('abcdefghijk');
+
+        finishLayout();
+        await flush();
+        expect(vi.mocked(promptLegacyConversionDecision)).toHaveBeenCalledTimes(1);
+        decision.resolve('read-only');
+        await flush();
+        await loading;
+        expect(view.getViewData()).toBe(LEGACY_B);
+        expect(store.get(f.path)).toBe(LEGACY_B);
+    });
+
+    it('only prompts for the current file when a different legacy file loads during startup', async () => {
+        const { store, view, file, finishLayout } = startupFixture();
+        const a = file('a.md');
+        const b = file('b.md');
+        store.set(a.path, LEGACY);
+        store.set(b.path, LEGACY_B);
+        const decision = deferred<LegacyConversionDecision>();
+        vi.mocked(promptLegacyConversionDecision).mockReturnValue(decision.promise);
+
+        await view.onLoadFile(a);
+        await flush();
+        await view.onLoadFile(b);
+        await flush();
+        expect(view.getViewData()).toBe(LEGACY_B);
+
+        finishLayout();
+        await flush();
+        expect(vi.mocked(promptLegacyConversionDecision)).toHaveBeenCalledTimes(1);
+        expect(vi.mocked(promptLegacyConversionDecision).mock.calls[0][1]).toBe('b');
+        decision.resolve('read-only');
+        await flush();
+        expect(store.get(a.path)).toBe(LEGACY);
+        expect(view.getViewData()).toBe(LEGACY_B);
+    });
+
+    it('rechecks the latest source when a deferred read-only decision resolves', async () => {
+        const { store, view, file, finishLayout } = startupFixture();
+        const f = file('legacy.md');
+        store.set(f.path, LEGACY);
+        const decision = deferred<LegacyConversionDecision>();
+        vi.mocked(promptLegacyConversionDecision).mockReturnValue(decision.promise);
+
+        await view.onLoadFile(f);
+        await flush();
+        store.set(f.path, V2);
+        finishLayout();
+        await flush();
+        expect(vi.mocked(promptLegacyConversionDecision)).toHaveBeenCalledTimes(1);
+        decision.resolve('read-only');
+        await flush();
+        expect(view.getWriteMode()).toBe('editable-v2');
+    });
+
+    it('does not rewrite an externally replaced future-version file on convert', async () => {
+        const { store, vault, view, file, leaf, finishLayout } = startupFixture();
+        const f = file('legacy.md');
+        store.set(f.path, LEGACY);
+        const decision = deferred<LegacyConversionDecision>();
+        vi.mocked(promptLegacyConversionDecision).mockReturnValue(decision.promise);
+
+        await view.onLoadFile(f);
+        await flush();
+        store.set(f.path, V3);
+        finishLayout();
+        await flush();
+        decision.resolve('convert');
+        await flush();
+        expect(store.get(f.path)).toBe(V3);
+        expect(vault.modify).not.toHaveBeenCalled();
+        expect(view.getWriteMode()).not.toBe('editable-v2');
+        expect(unsafeCast<{ setViewState: ReturnType<typeof vi.fn> }>(leaf).setViewState)
+            .toHaveBeenCalledWith(expect.objectContaining({ type: 'markdown' }));
+    });
+
+    it('opens a v2 file editable at startup without prompting or queueing a layout callback', async () => {
+        const { store, view, file, layoutCallbacks } = startupFixture();
+        const f = file('a.md');
+        store.set(f.path, V2);
+        await view.onLoadFile(f);
+        expect(view.getWriteMode()).toBe('editable-v2');
+        expect(vi.mocked(promptLegacyConversionDecision)).not.toHaveBeenCalled();
+        expect(layoutCallbacks).toHaveLength(0);
+    });
+
+    it('keeps awaiting the modal decision on a normal post-startup legacy open', async () => {
+        const { store, view, file } = makeFixture();
+        const f = file('legacy.md');
+        store.set(f.path, LEGACY);
+        const decision = deferred<LegacyConversionDecision>();
+        vi.mocked(promptLegacyConversionDecision).mockReturnValue(decision.promise);
+
+        let settled = false;
+        const loading = view.onLoadFile(f).then(() => { settled = true; });
+        await flush();
+        expect(vi.mocked(promptLegacyConversionDecision)).toHaveBeenCalledTimes(1);
+        expect(settled).toBe(false);
+        decision.resolve('read-only');
+        await loading;
+        expect(view.getWriteMode()).toBe('legacy-preview');
     });
 });

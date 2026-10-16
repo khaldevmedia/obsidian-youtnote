@@ -110,8 +110,10 @@ export class YoutnoteView extends TextFileView {
     async onLoadFile(file: TFile): Promise<void> {
         const epoch = ++this.loadEpoch;
         this.conversionBusy = false;
+        const wasLegacyPreview = this.writeMode === 'legacy-preview'
+            && this.loadedFile === file
+            && this.pendingLegacyDecision === null;
         this.abortPendingLegacyRequest();
-        const wasLegacyPreview = this.writeMode === 'legacy-preview' && this.loadedFile === file;
         this.writeMode = 'blocked';
         this.loadedFile = null;
         this.file = file;
@@ -150,15 +152,16 @@ export class YoutnoteView extends TextFileView {
                 this.enterLegacyPreview(file, parsed.document, source);
                 return;
             }
-            const decision = await this.requestLegacyDecision(file, epoch);
-            if (epoch !== this.loadEpoch) {
+            if (this.app.workspace.layoutReady === false) {
+                this.enterLegacyPreview(file, parsed.document, source);
+                void this.finishLegacyLoad(file, epoch).catch(() => {
+                    if (epoch === this.loadEpoch && this.file === file) {
+                        new Notice('Could not open the legacy format conversion prompt. Reopen the file to try again.', 4000);
+                    }
+                });
                 return;
             }
-            if (decision === 'convert') {
-                await this.convertCurrentFile(file, epoch);
-                return;
-            }
-            await this.openLegacyPreviewFromLatest(file, epoch);
+            await this.finishLegacyLoad(file, epoch);
             return;
         }
 
@@ -206,6 +209,18 @@ export class YoutnoteView extends TextFileView {
             reason: 'malformed-version',
             rawValue: detection.rawValue,
         });
+    }
+
+    private async finishLegacyLoad(file: TFile, epoch: number): Promise<void> {
+        const decision = await this.requestLegacyDecision(file, epoch);
+        if (epoch !== this.loadEpoch || this.file !== file) {
+            return;
+        }
+        if (decision === 'convert') {
+            await this.convertCurrentFile(file, epoch);
+            return;
+        }
+        await this.openLegacyPreviewFromLatest(file, epoch);
     }
 
     private async openLegacyPreviewFromLatest(file: TFile, epoch: number): Promise<void> {
@@ -271,13 +286,33 @@ export class YoutnoteView extends TextFileView {
             controller: new AbortController(),
             promise: Promise.resolve('read-only' as LegacyConversionDecision),
         };
-        request.promise = promptLegacyConversionDecision(this.app, file.basename, request.controller.signal)
-            .finally(() => {
-                if (this.pendingLegacyDecision === request) {
-                    this.pendingLegacyDecision = null;
-                }
-                this.render();
+        const openPrompt = (): Promise<LegacyConversionDecision> => {
+            if (request.controller.signal.aborted || epoch !== this.loadEpoch || this.file !== file) {
+                return Promise.resolve('read-only');
+            }
+            return promptLegacyConversionDecision(this.app, file.basename, request.controller.signal);
+        };
+        if (this.app.workspace.layoutReady === false) {
+            request.promise = new Promise<LegacyConversionDecision>((resolve) => {
+                const onAbort = () => {
+                    request.controller.signal.removeEventListener('abort', onAbort);
+                    resolve('read-only');
+                };
+                request.controller.signal.addEventListener('abort', onAbort);
+                this.app.workspace.onLayoutReady(() => {
+                    request.controller.signal.removeEventListener('abort', onAbort);
+                    resolve((async () => openPrompt())());
+                });
             });
+        } else {
+            request.promise = openPrompt();
+        }
+        request.promise = request.promise.finally(() => {
+            if (this.pendingLegacyDecision === request) {
+                this.pendingLegacyDecision = null;
+            }
+            this.render();
+        });
         this.pendingLegacyDecision = request;
         this.render();
         return request.promise;
