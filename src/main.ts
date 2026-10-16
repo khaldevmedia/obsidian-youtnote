@@ -64,6 +64,13 @@ const showUriSchemeError = (message: string): Notice => {
     return notice;
 };
 
+/** Persistent notice for URI scheme duplicate warnings, styled with Obsidian's warning text color. */
+const showUriSchemeWarning = (message: string): Notice => {
+    const notice = new Notice(message, 0);
+    notice.messageEl.addClass('youtnote-plugin__notice-warning');
+    return notice;
+};
+
 export default class YoutnotePlugin extends Plugin {
     settings!: PluginSettings;
     MarkdownEditor: MarkdownEditorClass | null = null;
@@ -1082,7 +1089,7 @@ export default class YoutnotePlugin extends Plugin {
         const existingVideo = view.videos.find(v => extractYouTubeId(v.url) === ytId);
         if (existingVideo) {
             view.handleSetActiveVideoId(existingVideo.id);
-            new Notice('Video already exists in this youtnote.', 0);
+            showUriSchemeWarning('Video already exists in this youtnote.');
             return;
         }
 
@@ -1293,7 +1300,7 @@ export default class YoutnotePlugin extends Plugin {
         if (added) {
             new Notice('General note added to video.', 0);
         } else {
-            new Notice('A general note already exists for this video.', 0);
+            showUriSchemeWarning('A general note already exists for this video.');
         }
     }
 }

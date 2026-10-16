@@ -1076,9 +1076,13 @@ to avoid conflicts with other plugins */
     cursor: help;
 }
 
-/* URI scheme error notices */
+/* URI scheme notices */
 .youtnote-plugin__notice-error {
     color: var(--text-error);
+}
+
+.youtnote-plugin__notice-warning {
+    color: var(--text-warning);
 }
 
 .youtnote-plugin__settings-warning .setting-item-description {
