@@ -1,4 +1,4 @@
-import { TextFileView, WorkspaceLeaf, Notice, TFile, ViewState } from 'obsidian';
+import { TextFileView, WorkspaceLeaf, TFile, ViewState } from 'obsidian';
 import * as React from 'react';
 import * as ReactDOM from 'react-dom/client';
 import { YoutubePluginView } from './ui/YoutnoteView';
@@ -20,6 +20,7 @@ import {
 import type { FormatDetection } from './youtnote-format';
 import { exportToMarkdown, exportSingleVideoToMarkdown } from './youtnote-format/export';
 import { extractYouTubeId } from './utils';
+import { showYoutnoteNotice } from './notices';
 import type YoutnotePlugin from './main';
 
 export const VIEW_TYPE = 'youtnote-view';
@@ -155,7 +156,7 @@ export class YoutnoteView extends TextFileView {
             if (this.app.workspace.layoutReady === false) {
                 void this.finishLegacyLoad(file, epoch).catch(() => {
                     if (epoch === this.loadEpoch && this.file === file) {
-                        new Notice('Could not open the legacy format conversion prompt. Reopen the file to try again.', 4000);
+                        showYoutnoteNotice('Could not open the legacy format conversion prompt. Reopen the file to try again.', { severity: 'error' });
                     }
                 });
                 return;
@@ -336,9 +337,9 @@ export class YoutnoteView extends TextFileView {
                 return;
             }
             if (migration.migration === 'legacy-to-current') {
-                new Notice(`Updated this file from legacy Youtnote file-format version ${LEGACY_FORMAT_VERSION} to version ${CURRENT_FORMAT_VERSION}.`, 4000);
+                showYoutnoteNotice(`Updated this file from legacy Youtnote file-format version ${LEGACY_FORMAT_VERSION} to version ${CURRENT_FORMAT_VERSION}.`, { duration: 4000 });
             } else if (migration.migration === 'corrected-declaration') {
-                new Notice(`Corrected this file's Youtnote file-format declaration to version ${CURRENT_FORMAT_VERSION}.`, 4000);
+                showYoutnoteNotice(`Corrected this file's Youtnote file-format declaration to version ${CURRENT_FORMAT_VERSION}.`, { duration: 4000 });
             }
             if (migration.source !== undefined) {
                 await this.loadEditableFile(file, epoch);
@@ -401,7 +402,7 @@ export class YoutnoteView extends TextFileView {
             return { ok: false, migration: 'none' };
         }
         if (!outcome.processed) {
-            new Notice('Conversion failed: reopen the file to check its contents before retrying.', 4000);
+            showYoutnoteNotice('Conversion failed: reopen the file to check its contents before retrying.', { severity: 'error' });
             return { ok: false, migration: 'none' };
         }
         if (outcome.failure) {
@@ -414,7 +415,7 @@ export class YoutnoteView extends TextFileView {
             latest = await this.app.vault.cachedRead(file);
         } catch {
             if (epoch === this.loadEpoch) {
-                new Notice('Conversion failed: reopen the file to check its contents before retrying.', 4000);
+                showYoutnoteNotice('Conversion failed: reopen the file to check its contents before retrying.', { severity: 'error' });
             }
             return { ok: false, migration: 'none' };
         }
@@ -711,7 +712,7 @@ export class YoutnoteView extends TextFileView {
         }
         else{
             // Show a notification that the file was created
-            new Notice(`Exported file created: ${exportFileName}`, 2000);
+            showYoutnoteNotice(`Exported file created: ${exportFileName}`, { duration: 2000 });
         }
     }
 

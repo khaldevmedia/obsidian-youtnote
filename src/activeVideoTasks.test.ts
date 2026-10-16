@@ -8,15 +8,20 @@ import type { AIGenerationDialogOptions, PluginSettings, TranscriptEntry, Video,
 import type YoutnotePlugin from './main';
 import { YoutnoteView } from './view';
 import { fetchCaptionTracks } from './transcriptFetch';
+import { updateYoutnoteSource } from './videoTaskResults';
 import { AIGenerationProgressModal, showAISetupModal } from './ui/MessageBoxes';
 import type { GeneratedNotesResult } from './ai/notes';
 
 vi.mock('obsidian', () => {
     class FakeNotice {
         static calls: string[] = [];
-        messageEl = { addClass: vi.fn() };
-        constructor(message?: unknown) {
+        static records: { message: string; timeout: number | undefined; classes: string[] }[] = [];
+        messageEl: { addClass: (cls: string) => void };
+        constructor(message?: unknown, timeout?: number) {
             FakeNotice.calls.push(String(message));
+            const record = { message: String(message), timeout, classes: [] as string[] };
+            FakeNotice.records.push(record);
+            this.messageEl = { addClass: (cls: string) => record.classes.push(cls) };
         }
     }
     class FakePlugin {
@@ -496,6 +501,119 @@ describe('YoutnotePlugin AI task workflow', () => {
         expect(persistGeneratedNotesResult).not.toHaveBeenCalled();
     });
 
+    interface NoticeRecordSnapshot {
+        message: string;
+        timeout: number | undefined;
+        classes: string[];
+    }
+
+    const noticeRecords = (): NoticeRecordSnapshot[] =>
+        unsafeCast<{ records: NoticeRecordSnapshot[] }>(Notice).records;
+
+    const noticesSince = (start: number): NoticeRecordSnapshot[] => noticeRecords().slice(start);
+
+    it('shows a persistent warning notice when the provider is overloaded', async () => {
+        const fixture = makeTaskFixture();
+        const persistGeneratedNotesResult = vi.fn((..._args: unknown[]) => Promise.resolve(true));
+        fixture.internals.persistGeneratedNotesResult = persistGeneratedNotesResult;
+        fixture.plugin.generateAINotes = vi.fn(() =>
+            Promise.reject(new AIProviderError('provider', 'Service overloaded', 503, 'UNAVAILABLE')));
+        const before = noticeRecords().length;
+        await invokeRunAITask(fixture);
+        expect(persistGeneratedNotesResult).not.toHaveBeenCalled();
+        const notices = noticesSince(before);
+        expect(notices).toHaveLength(1);
+        expect(notices[0].timeout).toBe(0);
+        expect(notices[0].classes).toEqual(['youtnote-plugin__notice-warning']);
+        expect(notices[0].message).toContain('Unable to generate notes for "Video" in video: Service overloaded');
+        expect(notices[0].message).toContain('temporarily unavailable');
+    });
+
+    it('shows a persistent error notice for a provider bad request', async () => {
+        const fixture = makeTaskFixture();
+        const persistGeneratedNotesResult = vi.fn((..._args: unknown[]) => Promise.resolve(true));
+        fixture.internals.persistGeneratedNotesResult = persistGeneratedNotesResult;
+        fixture.plugin.generateAINotes = vi.fn(() =>
+            Promise.reject(new AIProviderError('provider', 'Invalid schema', 400, 'INVALID_ARGUMENT')));
+        const before = noticeRecords().length;
+        await invokeRunAITask(fixture);
+        expect(persistGeneratedNotesResult).not.toHaveBeenCalled();
+        const notices = noticesSince(before);
+        expect(notices).toHaveLength(1);
+        expect(notices[0].timeout).toBe(0);
+        expect(notices[0].classes).toEqual(['youtnote-plugin__notice-error']);
+        expect(notices[0].message).toContain('Unable to generate notes for "Video" in video: Invalid schema');
+    });
+
+    it('shows a persistent warning notice for an AI timeout with the timeout advice', async () => {
+        const fixture = makeTaskFixture();
+        const persistGeneratedNotesResult = vi.fn((..._args: unknown[]) => Promise.resolve(true));
+        fixture.internals.persistGeneratedNotesResult = persistGeneratedNotesResult;
+        fixture.plugin.generateAINotes = vi.fn(() =>
+            Promise.reject(new AIProviderError('timeout', 'The request timed out after 1 ms.')));
+        const before = noticeRecords().length;
+        await invokeRunAITask(fixture);
+        expect(persistGeneratedNotesResult).not.toHaveBeenCalled();
+        const notices = noticesSince(before);
+        expect(notices).toHaveLength(1);
+        expect(notices[0].timeout).toBe(0);
+        expect(notices[0].classes).toEqual(['youtnote-plugin__notice-warning']);
+        expect(notices[0].message).toContain('AI request timed out for "Video"');
+        expect(notices[0].message).toContain('Increase the request timeout in Youtnote settings');
+    });
+
+    it('shows a default normal notice on a structured success', async () => {
+        const fixture = makeTaskFixture();
+        fixture.internals.persistGeneratedNotesResult = vi.fn(() => Promise.resolve(true));
+        fixture.plugin.generateAINotes = vi.fn(() => Promise.resolve(generatedResult()));
+        const before = noticeRecords().length;
+        await invokeRunAITask(fixture);
+        const notices = noticesSince(before);
+        expect(notices).toHaveLength(1);
+        expect(notices[0].timeout).toBe(3000);
+        expect(notices[0].classes).toEqual([]);
+        expect(notices[0].message).toContain('Generated 1 note(s) with AI for "Video" in video.');
+    });
+
+    it('shows a persistent warning notice on an unstructured (compatibility mode) success', async () => {
+        const fixture = makeTaskFixture();
+        fixture.internals.persistGeneratedNotesResult = vi.fn(() => Promise.resolve(true));
+        fixture.plugin.generateAINotes = vi.fn(() => Promise.resolve({
+            ...generatedResult(),
+            corrected: true,
+            format: 'unstructured',
+        } as GeneratedNotesResult));
+        const before = noticeRecords().length;
+        await invokeRunAITask(fixture);
+        const notices = noticesSince(before);
+        expect(notices).toHaveLength(1);
+        expect(notices[0].timeout).toBe(0);
+        expect(notices[0].classes).toEqual(['youtnote-plugin__notice-warning']);
+        expect(notices[0].message).toContain('compatibility mode');
+    });
+
+    it('shows no notice when the task fails as cancelled', async () => {
+        const fixture = makeTaskFixture();
+        fixture.internals.persistGeneratedNotesResult = vi.fn(() => Promise.resolve(true));
+        fixture.plugin.generateAINotes = vi.fn(() =>
+            Promise.reject(new AIProviderError('cancelled', 'The request was cancelled.')));
+        const before = noticeRecords().length;
+        await invokeRunAITask(fixture);
+        expect(noticesSince(before)).toHaveLength(0);
+    });
+
+    it('opens the setup modal instead of a notice on a missing key', async () => {
+        vi.mocked(showAISetupModal).mockClear();
+        const fixture = makeTaskFixture();
+        fixture.internals.persistGeneratedNotesResult = vi.fn(() => Promise.resolve(true));
+        fixture.plugin.generateAINotes = vi.fn(() =>
+            Promise.reject(new AIProviderError('missing-key', 'OpenAI API key is not configured.')));
+        const before = noticeRecords().length;
+        await invokeRunAITask(fixture);
+        expect(vi.mocked(showAISetupModal)).toHaveBeenCalledTimes(1);
+        expect(noticesSince(before)).toHaveLength(0);
+    });
+
     it('rejects transcript fetch and AI generation on a read-only view before any task starts', () => {
         vi.mocked(showAISetupModal).mockClear();
         vi.mocked(fetchCaptionTracks).mockClear();
@@ -577,6 +695,7 @@ describe('YoutnotePlugin AI task workflow', () => {
     it('discards completed generated notes when the open view is no longer writable', async () => {
         const fixture = makeTaskFixture();
         const noticesBefore = unsafeCast<{ calls: string[] }>(Notice).calls.length;
+        const recordsBefore = noticeRecords().length;
         const { handleUpdateNotes, save } = makeOpenLeafView(fixture.plugin, fixture.target.file, false);
         const persist = unsafeCast<{
             persistGeneratedNotesResult(
@@ -597,6 +716,77 @@ describe('YoutnotePlugin AI task workflow', () => {
         expect(save).not.toHaveBeenCalled();
         const notices = unsafeCast<{ calls: string[] }>(Notice).calls.slice(noticesBefore);
         expect(notices.some(message => message.includes('read-only'))).toBe(true);
+        const records = noticesSince(recordsBefore);
+        expect(records).toHaveLength(1);
+        expect(records[0].timeout).toBe(0);
+        expect(records[0].classes).toEqual(['youtnote-plugin__notice-error']);
+    });
+
+    it('discards completed generated notes with a persistent error when the file is incompatible', async () => {
+        const fixture = makeTaskFixture();
+        unsafeCast<Record<string, unknown>>(fixture.plugin.app).workspace = {
+            getLeavesOfType: vi.fn(() => []),
+        };
+        unsafeCast<{ vault: { process: unknown } }>(fixture.plugin.app).vault.process =
+            vi.fn((_file: unknown, cb: (data: string) => string) => {
+                cb('markdown');
+                return Promise.resolve();
+            });
+        vi.mocked(updateYoutnoteSource).mockReturnValueOnce({ status: 'incompatible', message: 'bad format' });
+        const recordsBefore = noticeRecords().length;
+        const persist = unsafeCast<{
+            persistGeneratedNotesResult(
+                handle: unknown,
+                target: unknown,
+                drafts: unknown[],
+                options: unknown,
+            ): Promise<boolean>;
+        }>(fixture.plugin);
+        const result = await persist.persistGeneratedNotesResult(
+            fixture.handle,
+            fixture.target,
+            generatedResult().notes,
+            { mode: 'append', generalNoteMode: 'append' },
+        );
+        expect(result).toBe(false);
+        const records = noticesSince(recordsBefore);
+        expect(records).toHaveLength(1);
+        expect(records[0].timeout).toBe(0);
+        expect(records[0].classes).toEqual(['youtnote-plugin__notice-error']);
+        expect(records[0].message).toContain('were not saved');
+    });
+
+    it('discards completed generated notes with a persistent warning when the target is missing', async () => {
+        const fixture = makeTaskFixture();
+        unsafeCast<Record<string, unknown>>(fixture.plugin.app).workspace = {
+            getLeavesOfType: vi.fn(() => []),
+        };
+        unsafeCast<{ vault: { process: unknown } }>(fixture.plugin.app).vault.process =
+            vi.fn((_file: unknown, cb: (data: string) => string) => {
+                cb('markdown');
+                return Promise.resolve();
+            });
+        const recordsBefore = noticeRecords().length;
+        const persist = unsafeCast<{
+            persistGeneratedNotesResult(
+                handle: unknown,
+                target: unknown,
+                drafts: unknown[],
+                options: unknown,
+            ): Promise<boolean>;
+        }>(fixture.plugin);
+        const result = await persist.persistGeneratedNotesResult(
+            fixture.handle,
+            fixture.target,
+            generatedResult().notes,
+            { mode: 'append', generalNoteMode: 'append' },
+        );
+        expect(result).toBe(false);
+        const records = noticesSince(recordsBefore);
+        expect(records).toHaveLength(1);
+        expect(records[0].timeout).toBe(0);
+        expect(records[0].classes).toEqual(['youtnote-plugin__notice-warning']);
+        expect(records[0].message).toContain('no longer exists');
     });
 
     it('reports a persist as unsuccessful when the view turns read-only during the save', async () => {

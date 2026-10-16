@@ -1,17 +1,38 @@
 import { describe, expect, it, vi } from 'vitest';
 
-vi.mock('obsidian', () => ({
-    App: class App {},
-    Notice: class Notice {},
-    PluginSettingTab: class PluginSettingTab {},
-    SecretComponent: class SecretComponent {},
-    Setting: class Setting {},
-}));
+interface NoticeRecord {
+    message: string;
+    timeout: number | undefined;
+    classes: string[];
+}
+
+const noticeRecords: NoticeRecord[] = [];
+
+vi.mock('obsidian', () => {
+    class FakeNotice {
+        messageEl = {
+            addClass: (cls: string): void => {
+                noticeRecords[noticeRecords.length - 1]?.classes.push(cls);
+            },
+        };
+        constructor(message?: unknown, timeout?: number) {
+            noticeRecords.push({ message: String(message), timeout, classes: [] });
+        }
+    }
+    return {
+        App: class App {},
+        Notice: FakeNotice,
+        PluginSettingTab: class PluginSettingTab {},
+        SecretComponent: class SecretComponent {},
+        Setting: class Setting {},
+    };
+});
 
 vi.mock('./main', () => ({ default: class YoutnotePlugin {} }));
 
 import { DEFAULT_SETTINGS, mergePluginSettings, refreshAIModelList, YoutnoteSettingTab } from './settings';
 import { GITHUB_DOCS_BRANCH, URI_SCHEME_GUIDE_URL } from './constants';
+import { AIProviderError } from './ai/types';
 import type { AISettings } from './types';
 
 describe('mergePluginSettings', () => {
@@ -326,6 +347,21 @@ describe('refreshAIModelList', () => {
 });
 
 describe('Model list refresh button', () => {
+    const makeAI = (mutate?: (ai: AISettings) => void): AISettings => {
+        const ai: AISettings = {
+            enabled: true,
+            provider: 'openai',
+            secretNames: { openai: 's1', anthropic: '', google: '', custom: '' },
+            models: { openai: '', anthropic: '', google: '', custom: '' },
+            availableModels: { openai: [], anthropic: [], google: [], custom: [] },
+            customBaseUrl: '',
+            hostedTimeoutSeconds: 120,
+            customTimeoutSeconds: 300,
+        };
+        mutate?.(ai);
+        return ai;
+    };
+
     const buildRefreshClick = (ai: AISettings, listAIModels: () => Promise<string[]>) => {
         const saveDataState = vi.fn(() => Promise.resolve());
         const plugin = {
@@ -377,11 +413,16 @@ describe('Model list refresh button', () => {
         };
         const listAIModels = vi.fn(() => Promise.resolve(['m1', 'm2']));
         const { captured, saveDataState } = buildRefreshClick(ai, listAIModels);
+        noticeRecords.length = 0;
         await captured.click!();
         expect(listAIModels).toHaveBeenCalledTimes(1);
         expect(saveDataState).toHaveBeenCalledTimes(1);
         expect(ai.availableModels.openai).toEqual(['m1', 'm2']);
         expect(ai.models.openai).toBe('m1');
+        expect(noticeRecords).toHaveLength(1);
+        expect(noticeRecords[0].timeout).toBe(3000);
+        expect(noticeRecords[0].classes).toEqual([]);
+        expect(noticeRecords[0].message).toContain('Loaded 2 models.');
     });
 
     it('ignores a stale refresh result without persisting', async () => {
@@ -399,11 +440,124 @@ describe('Model list refresh button', () => {
             ai.provider = 'anthropic';
             return Promise.resolve(['m1']);
         });
-        const { captured, saveDataState } = buildRefreshClick(ai, listAIModels);
+        const { captured, saveDataState, button } = buildRefreshClick(ai, listAIModels);
+        noticeRecords.length = 0;
         await captured.click!();
         expect(saveDataState).not.toHaveBeenCalled();
         expect(ai.availableModels.openai).toEqual(['cached']);
         expect(ai.models.openai).toBe('chosen');
+        expect(noticeRecords).toHaveLength(0);
+        expect((button.setDisabled.mock.calls as unknown as boolean[][]).at(-1)?.[0]).toBe(false);
+        expect((button.setButtonText.mock.calls as unknown as string[][]).at(-1)?.[0]).toBe('Refresh models');
+    });
+
+    it('warns persistently when the selected model is missing from the refreshed list', async () => {
+        const ai = makeAI(aiSettings => { aiSettings.models.openai = 'old-model'; });
+        const { captured, saveDataState } = buildRefreshClick(ai, vi.fn(() => Promise.resolve(['m1', 'm2'])));
+        noticeRecords.length = 0;
+        await captured.click!();
+        expect(saveDataState).toHaveBeenCalledTimes(1);
+        expect(ai.models.openai).toBe('old-model');
+        expect(noticeRecords).toHaveLength(1);
+        expect(noticeRecords[0].timeout).toBe(0);
+        expect(noticeRecords[0].classes).toEqual(['youtnote-plugin__notice-warning']);
+        expect(noticeRecords[0].message).toContain('Loaded 2 models.');
+        expect(noticeRecords[0].message).toContain('not in the fetched list');
+    });
+
+    it('warns persistently with detail and advice on a provider overload', async () => {
+        const ai = makeAI(aiSettings => {
+            aiSettings.models.openai = 'chosen';
+            aiSettings.availableModels.openai = ['cached'];
+        });
+        const { captured, saveDataState } = buildRefreshClick(ai, vi.fn(() =>
+            Promise.reject(new AIProviderError('provider', 'Service overloaded', 503, 'UNAVAILABLE'))));
+        noticeRecords.length = 0;
+        await captured.click!();
+        expect(saveDataState).not.toHaveBeenCalled();
+        expect(ai.availableModels.openai).toEqual(['cached']);
+        expect(ai.models.openai).toBe('chosen');
+        expect(noticeRecords).toHaveLength(1);
+        expect(noticeRecords[0].timeout).toBe(0);
+        expect(noticeRecords[0].classes).toEqual(['youtnote-plugin__notice-warning']);
+        expect(noticeRecords[0].message).toContain('Service overloaded');
+        expect(noticeRecords[0].message).toContain('temporarily unavailable');
+    });
+
+    it('shows an error with account guidance on an insufficient-quota rate limit', async () => {
+        const ai = makeAI();
+        const { captured, saveDataState } = buildRefreshClick(ai, vi.fn(() =>
+            Promise.reject(new AIProviderError('provider', 'Quota exceeded', 429, 'insufficient_quota'))));
+        noticeRecords.length = 0;
+        await captured.click!();
+        expect(saveDataState).not.toHaveBeenCalled();
+        expect(noticeRecords).toHaveLength(1);
+        expect(noticeRecords[0].timeout).toBe(0);
+        expect(noticeRecords[0].classes).toEqual(['youtnote-plugin__notice-error']);
+        expect(noticeRecords[0].message).toContain('Quota exceeded');
+        expect(noticeRecords[0].message).toContain('billing, or quota');
+    });
+
+    it('shows a persistent error on an authentication failure', async () => {
+        const ai = makeAI();
+        const { captured } = buildRefreshClick(ai, vi.fn(() =>
+            Promise.reject(new AIProviderError('provider', 'Invalid API key', 401))));
+        noticeRecords.length = 0;
+        await captured.click!();
+        expect(noticeRecords).toHaveLength(1);
+        expect(noticeRecords[0].timeout).toBe(0);
+        expect(noticeRecords[0].classes).toEqual(['youtnote-plugin__notice-error']);
+        expect(noticeRecords[0].message).toContain('Invalid API key');
+    });
+
+    it('shows a persistent error for a generic failure', async () => {
+        const ai = makeAI();
+        const { captured } = buildRefreshClick(ai, vi.fn(() => Promise.reject(new Error('boom'))));
+        noticeRecords.length = 0;
+        await captured.click!();
+        expect(noticeRecords).toHaveLength(1);
+        expect(noticeRecords[0].timeout).toBe(0);
+        expect(noticeRecords[0].classes).toEqual(['youtnote-plugin__notice-error']);
+        expect(noticeRecords[0].message).toBe('boom');
+    });
+
+    it('shows no notice when the refresh is cancelled', async () => {
+        const ai = makeAI();
+        const { captured, saveDataState, button } = buildRefreshClick(ai, vi.fn(() =>
+            Promise.reject(new AIProviderError('cancelled', 'The request was cancelled.'))));
+        noticeRecords.length = 0;
+        await captured.click!();
+        expect(saveDataState).not.toHaveBeenCalled();
+        expect(noticeRecords).toHaveLength(0);
+        expect((button.setDisabled.mock.calls as unknown as boolean[][]).at(-1)?.[0]).toBe(false);
+        expect((button.setButtonText.mock.calls as unknown as string[][]).at(-1)?.[0]).toBe('Refresh models');
+    });
+
+    it.each([
+        { name: 'success', listAIModels: () => Promise.resolve(['m1']), label: 'Refresh models', pending: 'Refreshing…' },
+        { name: 'failure', listAIModels: () => Promise.reject(new Error('boom')), label: 'Refresh models', pending: 'Refreshing…' },
+    ])('restores the button after a $name refresh', async ({ listAIModels, label, pending }) => {
+        const ai = makeAI();
+        const { captured, button } = buildRefreshClick(ai, vi.fn(listAIModels));
+        await captured.click!();
+        const texts = (button.setButtonText.mock.calls as unknown as string[][]).map(call => call[0]);
+        expect(texts).toContain(pending);
+        expect(texts[texts.length - 1]).toBe(label);
+        expect((button.setDisabled.mock.calls as unknown as boolean[][]).at(-1)?.[0]).toBe(false);
+    });
+
+    it('restores the Test connection label for a custom provider', async () => {
+        const ai = makeAI(aiSettings => {
+            aiSettings.provider = 'custom';
+            aiSettings.models.custom = 'llama';
+            aiSettings.customBaseUrl = 'http://localhost:11434/v1';
+        });
+        const { captured, button } = buildRefreshClick(ai, vi.fn(() => Promise.resolve(['llama'])));
+        await captured.click!();
+        const texts = (button.setButtonText.mock.calls as unknown as string[][]).map(call => call[0]);
+        expect(texts).toContain('Testing…');
+        expect(texts[texts.length - 1]).toBe('Test connection');
+        expect((button.setDisabled.mock.calls as unknown as boolean[][]).at(-1)?.[0]).toBe(false);
     });
 });
 

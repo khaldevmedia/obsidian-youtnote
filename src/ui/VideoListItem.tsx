@@ -1,7 +1,8 @@
 import React, { useRef, useEffect } from 'react';
 import classNames from 'classnames';
-import { setIcon, Menu, Notice } from 'obsidian';
+import { setIcon, Menu } from 'obsidian';
 import { ConfirmModal } from './MessageBoxes';
+import { showYoutnoteNotice } from '../notices';
 import { VideoListItemProps } from '../types';
 
 
@@ -46,10 +47,10 @@ export const VideoListItem: React.FC<VideoListItemProps> = React.memo(({
     const copyVideoUrl = async () => {
         try {
             await navigator.clipboard.writeText(video.url);
-            new Notice('Video URL was copied to the clipboard!', 2000);
+            showYoutnoteNotice('Video URL was copied to the clipboard!', { duration: 2000 });
         } catch (err) {
             console.error('Failed to copy URL:', err);
-            new Notice('Failed to copy video URL!', 2000);
+            showYoutnoteNotice('Failed to copy video URL!', { severity: 'error' });
         }
     };
 

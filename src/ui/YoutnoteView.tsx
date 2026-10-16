@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import classNames from 'classnames';
-import { requestUrl, setIcon, Notice, Platform } from 'obsidian';
+import { requestUrl, setIcon, Platform } from 'obsidian';
 import Sortable, { SortableEvent } from 'sortablejs';
 import { YouTubeIframeAdapter } from '../PlayerAdapter';
 import { seekToSelection } from '../playback';
@@ -10,6 +10,7 @@ import { NoteListItem } from './NoteListItem';
 import { TranscriptListItem } from './TranscriptListItem';
 import { AlertModal, AIGenerationModal, ConfirmModal, MISSING_AI_API_KEY_MESSAGE, showAISetupModal } from './MessageBoxes';
 import { getAINoteGenerationSetupError } from '../ai/registry';
+import { showYoutnoteNotice } from '../notices';
 import { YoutubePluginViewProps } from '../types';
 import {
     findActiveCaptionIndex,
@@ -887,7 +888,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
                         return next;
                     });
                 }
-                new Notice(`Merged ${mergedTargetIds.length} group(s) of duplicates`, 2000);
+                showYoutnoteNotice(`Merged ${mergedTargetIds.length} group(s) of duplicates`, { duration: 2000 });
             },
             'Merge',
             'Cancel',
@@ -1004,10 +1005,10 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
     const handleCopyCaption = useCallback(async (entry: TranscriptEntry, displayTimestamp: string) => {
         try {
             await navigator.clipboard.writeText(`${displayTimestamp} ${entry.text}`);
-            new Notice('Caption copied to the clipboard!', 2000);
+            showYoutnoteNotice('Caption copied to the clipboard!', { duration: 2000 });
         } catch (err) {
             console.error('Failed to copy caption:', err);
-            new Notice('Failed to copy caption!', 2000);
+            showYoutnoteNotice('Failed to copy caption!', { severity: 'error' });
         }
     }, []);
 
@@ -1029,7 +1030,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
         };
 
         onUpdateNotes([...notes, newNote].sort(compareNotes));
-        new Notice(`Note created from timestamp ${displayTimestamp}`, 2000);
+        showYoutnoteNotice(`Note created from timestamp ${displayTimestamp}`, { duration: 2000 });
 
         if (settings.switchToNotesAfterTranscriptNote) {
             setShowTranscript(false);

@@ -13,9 +13,13 @@ import { validateYoutnoteUriParams } from './uri-scheme';
 vi.mock('obsidian', () => {
     class FakeNotice {
         static calls: string[] = [];
-        messageEl = { addClass: vi.fn() };
-        constructor(message?: unknown) {
+        static records: { message: string; timeout: number | undefined; classes: string[] }[] = [];
+        messageEl: { addClass: (cls: string) => void };
+        constructor(message?: unknown, timeout?: number) {
             FakeNotice.calls.push(String(message));
+            const record = { message: String(message), timeout, classes: [] as string[] };
+            FakeNotice.records.push(record);
+            this.messageEl = { addClass: (cls: string) => record.classes.push(cls) };
         }
     }
     interface FakeFileRef {
@@ -485,6 +489,16 @@ function noticeCalls(): string[] {
     return unsafeCast<{ calls: string[] }>(Notice).calls;
 }
 
+interface NoticeRecordSnapshot {
+    message: string;
+    timeout: number | undefined;
+    classes: string[];
+}
+
+function noticeRecords(): NoticeRecordSnapshot[] {
+    return unsafeCast<{ records: NoticeRecordSnapshot[] }>(Notice).records;
+}
+
 describe('YoutnoteView write modes and legacy conversion', () => {
     beforeAll(() => {
         vi.stubGlobal('window', {
@@ -497,6 +511,7 @@ describe('YoutnoteView write modes and legacy conversion', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         noticeCalls().length = 0;
+        noticeRecords().length = 0;
         vi.mocked(promptLegacyConversionDecision).mockResolvedValue('read-only');
     });
 
@@ -567,6 +582,9 @@ describe('YoutnoteView write modes and legacy conversion', () => {
         expect(store.get(f.path)).toContain('abcdefghijk');
         expect(view.getWriteMode()).toBe('editable-v2');
         expect(noticeCalls().some(m => m.includes('Updated this file'))).toBe(true);
+        const success = noticeRecords().find(record => record.message.includes('Updated this file'));
+        expect(success?.timeout).toBe(4000);
+        expect(success?.classes).toEqual([]);
     });
 
     it('loads an externally converted file without rewriting it', async () => {
@@ -1027,6 +1045,37 @@ describe('YoutnoteView write modes and legacy conversion', () => {
         expect(store.get(f.path)).toBe(LEGACY);
         expect(view.getWriteMode()).not.toBe('editable-v2');
         expect(noticeCalls().some(m => m.includes('Conversion failed'))).toBe(true);
+        const failure = noticeRecords().find(record => record.message.includes('Conversion failed'));
+        expect(failure?.timeout).toBe(0);
+        expect(failure?.classes).toEqual(['youtnote-plugin__notice-error']);
+    });
+
+    it('shows a normal timed notice for an export when opening the file is disabled', async () => {
+        const { store, view, file, plugin, app } = makeFixture();
+        const f = file('a.md');
+        store.set(f.path, V2);
+        await view.onLoadFile(f);
+        unsafeCast<Record<string, unknown>>(plugin).settings = { openExportedFile: false };
+        const create = vi.fn(async (path: string, _data: string) => ({ path }));
+        const openFile = vi.fn(async () => {});
+        unsafeCast<Record<string, unknown>>(app).vault = {
+            ...app.vault,
+            adapter: { exists: vi.fn(async () => false) },
+            create,
+        };
+        unsafeCast<Record<string, unknown>>(app).workspace = {
+            ...app.workspace,
+            getLeaf: vi.fn(() => ({ openFile })),
+        };
+        const recordsBefore = noticeRecords().length;
+        await view.createExportFile('a - Export', 'export body');
+        expect(create).toHaveBeenCalledWith('a - Export.md', 'export body');
+        expect(openFile).not.toHaveBeenCalled();
+        const records = noticeRecords().slice(recordsBefore);
+        expect(records).toHaveLength(1);
+        expect(records[0].message).toContain('Exported file created: a - Export.md');
+        expect(records[0].timeout).toBe(2000);
+        expect(records[0].classes).toEqual([]);
     });
 
     it('does not rewrite a file that became an unsupported version before conversion ran', async () => {
@@ -1760,6 +1809,7 @@ describe('YoutnoteView startup legacy loading (layout not ready)', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         noticeCalls().length = 0;
+        noticeRecords().length = 0;
         vi.mocked(promptLegacyConversionDecision).mockResolvedValue('read-only');
     });
 
@@ -2000,6 +2050,7 @@ describe('YoutnoteView same-tab legacy open while a v2 file was loaded', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         noticeCalls().length = 0;
+        noticeRecords().length = 0;
         vi.mocked(promptLegacyConversionDecision).mockResolvedValue('read-only');
     });
 
@@ -2123,6 +2174,7 @@ describe('YoutnoteView read-only preview identity after dismissing the popup', (
     beforeEach(() => {
         vi.clearAllMocks();
         noticeCalls().length = 0;
+        noticeRecords().length = 0;
         vi.mocked(promptLegacyConversionDecision).mockResolvedValue('read-only');
     });
 

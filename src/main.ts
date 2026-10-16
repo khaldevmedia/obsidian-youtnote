@@ -1,4 +1,5 @@
-import { Plugin, TFile, TFolder, ViewState, WorkspaceLeaf, addIcon, MarkdownView, Notice, requestUrl } from 'obsidian';
+import { Plugin, TFile, TFolder, ViewState, WorkspaceLeaf, addIcon, MarkdownView, requestUrl } from 'obsidian';
+import type { Notice } from 'obsidian';
 import { YoutnoteSettingTab, mergePluginSettings } from './settings';
 import { YoutnoteView, VIEW_TYPE } from './view';
 import { PluginSettings, PluginData, MarkdownEditorClass, Video, Note, VideoId, NoteId, TranscriptEntry } from './types';
@@ -27,6 +28,8 @@ import { createEmptyYoutnoteMarkdown } from './youtnote-format';
 import { hasYoutnoteFrontmatter, extractYouTubeId, formatSecondsToDisplay, compareNotes } from './utils';
 import { getMarkdownEditorClass } from './markdownEditor';
 import { validateYoutnoteUriParams, isDebounced, getUnsupportedParams, ParsedYoutnoteUriParams } from './uri-scheme';
+import { showYoutnoteNotice } from './notices';
+import { getAIErrorPresentation } from './ai/errorPresentation';
 import './styles.css';
 
 // Register custom icon
@@ -58,18 +61,12 @@ const READ_ONLY_URI_MESSAGE =
     'The open Youtnote file is read-only; changes cannot be applied.';
 
 /** Persistent notice for URI scheme errors, styled with Obsidian's error text color. */
-const showUriSchemeError = (message: string): Notice => {
-    const notice = new Notice(`Youtnote uri scheme error: ${message}`, 0);
-    notice.messageEl.addClass('youtnote-plugin__notice-error');
-    return notice;
-};
+const showUriSchemeError = (message: string): Notice =>
+    showYoutnoteNotice(`Youtnote uri scheme error: ${message}`, { severity: 'error' });
 
 /** Persistent notice for URI scheme duplicate warnings, styled with Obsidian's warning text color. */
-const showUriSchemeWarning = (message: string): Notice => {
-    const notice = new Notice(message, 0);
-    notice.messageEl.addClass('youtnote-plugin__notice-warning');
-    return notice;
-};
+const showUriSchemeWarning = (message: string): Notice =>
+    showYoutnoteNotice(message, { severity: 'warning' });
 
 export default class YoutnotePlugin extends Plugin {
     settings!: PluginSettings;
@@ -259,7 +256,7 @@ export default class YoutnotePlugin extends Plugin {
             // Security gate: the URI scheme is disabled by default.
             // When disabled, no URI parameters are parsed or processed.
             if (!this.settings.uriSchemeEnabled) {
-                new Notice('Youtnote uri scheme is disabled. Enable it in plugin settings to use this feature.', 0);
+                showYoutnoteNotice('Youtnote uri scheme is disabled. Enable it in plugin settings to use this feature.', { duration: 0 });
                 return;
             }
 
@@ -368,19 +365,19 @@ export default class YoutnotePlugin extends Plugin {
 
     startTranscriptFetch(view: YoutnoteView, videoId: VideoId): void {
         if (!view.isWritable()) {
-            new Notice(READ_ONLY_FILE_MESSAGE, 5000);
+            showYoutnoteNotice(READ_ONLY_FILE_MESSAGE, { severity: 'error' });
             return;
         }
         const resolved = this.resolveTaskTarget(view, videoId);
         if (!resolved) return;
         const state = this.getVideoTaskState(resolved.target.file, resolved.target.youtubeId);
         if (state.aiPhase === 'fetching-transcript') {
-            new Notice(`AI note generation is already fetching the transcript for "${resolved.target.videoTitle}".`, 4000);
+            showYoutnoteNotice(`AI note generation is already fetching the transcript for "${resolved.target.videoTitle}".`, { duration: 4000 });
             return;
         }
         const handle = this.activeVideoTasks.start('transcript', resolved.target, 'fetching-tracks');
         if (!handle) {
-            new Notice(`A transcript fetch is already running for "${resolved.target.videoTitle}".`, 3000);
+            showYoutnoteNotice(`A transcript fetch is already running for "${resolved.target.videoTitle}".`, { duration: 3000 });
             return;
         }
         void this.runTranscriptTask(handle, resolved);
@@ -388,7 +385,7 @@ export default class YoutnotePlugin extends Plugin {
 
     startAINoteGeneration(view: YoutnoteView, videoId: VideoId, dialogOptions: AIGenerationDialogOptions): void {
         if (!view.isWritable()) {
-            new Notice(READ_ONLY_FILE_MESSAGE, 5000);
+            showYoutnoteNotice(READ_ONLY_FILE_MESSAGE, { severity: 'error' });
             return;
         }
         const setupError = getAINoteGenerationSetupError(
@@ -407,12 +404,12 @@ export default class YoutnotePlugin extends Plugin {
         if (!resolved) return;
         const state = this.getVideoTaskState(resolved.target.file, resolved.target.youtubeId);
         if (state.aiPhase !== null) {
-            new Notice(`AI note generation is already running for "${resolved.target.videoTitle}".`, 3000);
+            showYoutnoteNotice(`AI note generation is already running for "${resolved.target.videoTitle}".`, { duration: 3000 });
             return;
         }
         const transcript = resolved.video.transcript ?? [];
         if (transcript.length === 0 && state.transcriptPhase !== null) {
-            new Notice(`A transcript fetch is already running for "${resolved.target.videoTitle}". Wait for it to finish or cancel it first.`, 5000);
+            showYoutnoteNotice(`A transcript fetch is already running for "${resolved.target.videoTitle}". Wait for it to finish or cancel it first.`, { duration: 5000 });
             return;
         }
         const initialPhase: AIGenerationProgressPhase = transcript.length === 0 ? 'fetching-transcript' : 'generating-notes';
@@ -437,7 +434,7 @@ export default class YoutnotePlugin extends Plugin {
         if (!youtubeId) return;
         const cancelled = this.activeVideoTasks.cancelTarget(file, youtubeId, kind);
         if (cancelled && kind === 'ai') {
-            new Notice('AI note generation cancelled.', 2000);
+            showYoutnoteNotice('AI note generation cancelled.', { duration: 2000 });
         }
     }
 
@@ -445,7 +442,7 @@ export default class YoutnotePlugin extends Plugin {
         this.aiProgressModals.delete(id);
         if (!this.activeVideoTasks.isActive(id)) return;
         if (this.activeVideoTasks.cancelTarget(target.file, target.youtubeId, 'ai')) {
-            new Notice('AI note generation cancelled.', 2000);
+            showYoutnoteNotice('AI note generation cancelled.', { duration: 2000 });
         }
     }
 
@@ -467,7 +464,7 @@ export default class YoutnotePlugin extends Plugin {
         if (!video) return null;
         const youtubeId = extractYouTubeId(video.url);
         if (!youtubeId) {
-            new Notice('Cannot determine the YouTube ID for this video.', 3000);
+            showYoutnoteNotice('Cannot determine the YouTube ID for this video.', { severity: 'error' });
             return null;
         }
         return {
@@ -485,7 +482,7 @@ export default class YoutnotePlugin extends Plugin {
         const tracks = await fetchCaptionTracks(target.youtubeId);
         if (!this.activeVideoTasks.isActive(handle.id) || handle.signal.aborted) return null;
         if (tracks.length === 0) {
-            new Notice(`No captions available for "${target.videoTitle}" in ${target.file.basename}.`, 5000);
+            showYoutnoteNotice(`No captions available for "${target.videoTitle}" in ${target.file.basename}.`, { severity: 'warning' });
             return null;
         }
         let track = tracks[0];
@@ -500,7 +497,7 @@ export default class YoutnotePlugin extends Plugin {
         const entries = await fetchTranscriptEntries(track);
         if (!this.activeVideoTasks.isActive(handle.id) || handle.signal.aborted) return null;
         if (entries.length === 0) {
-            new Notice(`The selected caption track for "${target.videoTitle}" in ${target.file.basename} contains no text.`, 5000);
+            showYoutnoteNotice(`The selected caption track for "${target.videoTitle}" in ${target.file.basename} contains no text.`, { severity: 'warning' });
             return null;
         }
         return entries;
@@ -518,13 +515,13 @@ export default class YoutnotePlugin extends Plugin {
             if (entries === null || !this.activeVideoTasks.isActive(handle.id)) return;
             const persisted = await this.persistTranscriptResult(handle, target, entries);
             if (!persisted || !this.activeVideoTasks.isActive(handle.id)) return;
-            new Notice(`Transcript fetched for "${target.videoTitle}" in ${target.file.basename} (${entries.length} captions).`, 3000);
+            showYoutnoteNotice(`Transcript fetched for "${target.videoTitle}" in ${target.file.basename} (${entries.length} captions).`);
         } catch (error) {
             if (!this.activeVideoTasks.isActive(handle.id)) return;
             const message = error instanceof Error && error.message
                 ? error.message
                 : 'Check your internet connection and try again.';
-            new Notice(`Unable to fetch transcript for "${target.videoTitle}" in ${target.file.basename}: ${message}`, 6000);
+            showYoutnoteNotice(`Unable to fetch transcript for "${target.videoTitle}" in ${target.file.basename}: ${message}`, { severity: 'error' });
         } finally {
             this.activeVideoTasks.complete(handle.id);
         }
@@ -571,9 +568,9 @@ export default class YoutnotePlugin extends Plugin {
             });
             if (!persisted || !this.activeVideoTasks.isActive(handle.id)) return;
             if (result.format === 'unstructured') {
-                new Notice(`Generated ${result.notes.length} note(s) with AI for "${target.videoTitle}" in ${target.file.basename} (compatibility mode). Review the notes for formatting.`, 6000);
+                showYoutnoteNotice(`Generated ${result.notes.length} note(s) with AI for "${target.videoTitle}" in ${target.file.basename} (compatibility mode). Review the notes for formatting.`, { severity: 'warning' });
             } else {
-                new Notice(`Generated ${result.notes.length} note(s) with AI for "${target.videoTitle}" in ${target.file.basename}.`, 3000);
+                showYoutnoteNotice(`Generated ${result.notes.length} note(s) with AI for "${target.videoTitle}" in ${target.file.basename}.`, { severity: 'normal' });
             }
         } catch (error) {
             if (!this.activeVideoTasks.isActive(handle.id)) return;
@@ -586,14 +583,16 @@ export default class YoutnotePlugin extends Plugin {
                 );
                 return;
             }
+            const presentation = getAIErrorPresentation(error);
             if (error instanceof AIProviderError && error.kind === 'timeout') {
-                new Notice(`AI request timed out for "${target.videoTitle}": ${error.message} Increase the request timeout in Youtnote settings and try again.`, 6000);
+                showYoutnoteNotice(`AI request timed out for "${target.videoTitle}": ${error.message} ${presentation.guidance}`, { severity: presentation.severity });
                 return;
             }
             const message = error instanceof Error && error.message
                 ? error.message
                 : 'An unexpected error occurred while generating notes.';
-            new Notice(`Unable to generate notes for "${target.videoTitle}" in ${target.file.basename}: ${message}`, 6000);
+            const guidance = presentation.guidance ? ` ${presentation.guidance}` : '';
+            showYoutnoteNotice(`Unable to generate notes for "${target.videoTitle}" in ${target.file.basename}: ${message}${guidance}`, { severity: presentation.severity });
         } finally {
             this.activeVideoTasks.complete(handle.id);
         }
@@ -610,7 +609,7 @@ export default class YoutnotePlugin extends Plugin {
 
     private notifyTaskTargetMissing(handle: VideoTaskHandle, target: VideoTaskTarget): void {
         if (!this.activeVideoTasks.isActive(handle.id)) return;
-        new Notice(`The video "${target.videoTitle}" no longer exists in ${target.file.basename}; results were discarded.`, 5000);
+        showYoutnoteNotice(`The video "${target.videoTitle}" no longer exists in ${target.file.basename}; results were discarded.`, { severity: 'warning' });
     }
 
     private async persistTranscriptResult(
@@ -623,7 +622,7 @@ export default class YoutnotePlugin extends Plugin {
             const view = this.findViewForFile(target.file);
             if (view) {
                 if (!view.isWritable()) {
-                    new Notice(`Transcript for "${target.videoTitle}" was not saved to ${target.file.basename}: the file is open read-only.`, 6000);
+                    showYoutnoteNotice(`Transcript for "${target.videoTitle}" was not saved to ${target.file.basename}: the file is open read-only.`, { severity: 'error' });
                     return false;
                 }
                 const updated = setTranscriptForYoutubeVideo(view.videos, target.youtubeId, entries);
@@ -660,7 +659,7 @@ export default class YoutnotePlugin extends Plugin {
                 return false;
             }
             if (outcome.incompatible !== null) {
-                new Notice(`Transcript for "${target.videoTitle}" was not saved to ${target.file.basename}: ${outcome.incompatible}`, 6000);
+                showYoutnoteNotice(`Transcript for "${target.videoTitle}" was not saved to ${target.file.basename}: ${outcome.incompatible}`, { severity: 'error' });
                 return false;
             }
             return outcome.applied && this.activeVideoTasks.isActive(handle.id);
@@ -678,7 +677,7 @@ export default class YoutnotePlugin extends Plugin {
             const view = this.findViewForFile(target.file);
             if (view) {
                 if (!view.isWritable()) {
-                    new Notice(`Generated notes for "${target.videoTitle}" were not saved to ${target.file.basename}: the file is open read-only.`, 6000);
+                    showYoutnoteNotice(`Generated notes for "${target.videoTitle}" were not saved to ${target.file.basename}: the file is open read-only.`, { severity: 'error' });
                     return false;
                 }
                 const updated = applyGeneratedNotesForYoutubeVideo(view.videos, view.notes, target.youtubeId, drafts, options);
@@ -715,7 +714,7 @@ export default class YoutnotePlugin extends Plugin {
                 return false;
             }
             if (outcome.incompatible !== null) {
-                new Notice(`Generated notes for "${target.videoTitle}" were not saved to ${target.file.basename}: ${outcome.incompatible}`, 6000);
+                showYoutnoteNotice(`Generated notes for "${target.videoTitle}" were not saved to ${target.file.basename}: ${outcome.incompatible}`, { severity: 'error' });
                 return false;
             }
             return outcome.applied && this.activeVideoTasks.isActive(handle.id);
@@ -930,7 +929,7 @@ export default class YoutnotePlugin extends Plugin {
      */
     addVideoToView(view: YoutnoteView, normalizedUrl: string, metadata: { title: string; thumbnail: string; durationSec: number }): Video | null {
         if (!view.isWritable()) {
-            new Notice(READ_ONLY_FILE_MESSAGE, 0);
+            showYoutnoteNotice(READ_ONLY_FILE_MESSAGE, { severity: 'error' });
             return null;
         }
         const ytId = extractYouTubeId(normalizedUrl);
@@ -961,7 +960,7 @@ export default class YoutnotePlugin extends Plugin {
      */
     addNoteToView(view: YoutnoteView, videoId: VideoId, timestampSec: number, bodyMarkdown: string): Note | null {
         if (!view.isWritable()) {
-            new Notice(READ_ONLY_FILE_MESSAGE, 0);
+            showYoutnoteNotice(READ_ONLY_FILE_MESSAGE, { severity: 'error' });
             return null;
         }
         const newNote: Note = {
@@ -985,7 +984,7 @@ export default class YoutnotePlugin extends Plugin {
      */
     addGeneralNoteToView(view: YoutnoteView, videoId: VideoId, bodyMarkdown: string): boolean {
         if (!view.isWritable()) {
-            new Notice(READ_ONLY_FILE_MESSAGE, 0);
+            showYoutnoteNotice(READ_ONLY_FILE_MESSAGE, { severity: 'error' });
             return false;
         }
         // Check if a general note already exists
@@ -1069,7 +1068,7 @@ export default class YoutnotePlugin extends Plugin {
             this.addVideoToView(view, normalizedUrl, metadata);
         }
 
-        new Notice('Youtnote created with video.', 0);
+        showYoutnoteNotice('Youtnote created with video.', { duration: 0 });
     }
 
     /**
@@ -1110,7 +1109,7 @@ export default class YoutnotePlugin extends Plugin {
         // 10. Add video
         const addedVideo = this.addVideoToView(view, normalizedUrl, metadata);
         if (addedVideo) {
-            new Notice('Video added to youtnote.', 0);
+            showYoutnoteNotice('Video added to youtnote.', { duration: 0 });
         }
     }
 
@@ -1198,7 +1197,7 @@ export default class YoutnotePlugin extends Plugin {
         // Add the note
         const addedNote = this.addNoteToView(targetView, videoId, timestampSec, text);
         if (addedNote) {
-            new Notice('Note added to video.', 0);
+            showYoutnoteNotice('Note added to video.', { duration: 0 });
         }
     }
 
@@ -1298,7 +1297,7 @@ export default class YoutnotePlugin extends Plugin {
         // Add the general note
         const added = this.addGeneralNoteToView(targetView, videoId, text);
         if (added) {
-            new Notice('General note added to video.', 0);
+            showYoutnoteNotice('General note added to video.', { duration: 0 });
         } else {
             showUriSchemeWarning('A general note already exists for this video.');
         }

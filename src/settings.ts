@@ -1,7 +1,9 @@
-import { App, Notice, PluginSettingTab, SecretComponent, Setting } from "obsidian";
+import { App, PluginSettingTab, SecretComponent, Setting } from "obsidian";
 import YoutnotePlugin from "./main";
 import { AISettings, PluginSettings } from "./types";
 import { AIProviderError } from "./ai/types";
+import { getAIErrorPresentation } from "./ai/errorPresentation";
+import { showYoutnoteNotice } from "./notices";
 import type { AIProviderId, ConfiguredAIProviderId } from "./ai/types";
 import { URI_SCHEME_GUIDE_URL } from "./constants";
 
@@ -516,12 +518,21 @@ export class YoutnoteSettingTab extends PluginSettingTab {
 									}
 									await persist();
 									const countMessage = `Loaded ${result.models.length} model${result.models.length === 1 ? '' : 's'}.`;
-									new Notice(result.selectedModelUnavailable
+									showYoutnoteNotice(result.selectedModelUnavailable
 										? `${countMessage} The selected model is not in the fetched list.`
-										: countMessage);
+										: countMessage,
+									{ severity: result.selectedModelUnavailable ? 'warning' : 'normal' });
 									rerender();
 								} catch (error) {
-									new Notice(error instanceof Error ? error.message : String(error));
+									if (error instanceof AIProviderError && error.kind === 'cancelled') {
+										return;
+									}
+									const presentation = getAIErrorPresentation(error);
+									const guidance = presentation.guidance ? ` ${presentation.guidance}` : '';
+									showYoutnoteNotice(
+										`${error instanceof Error ? error.message : String(error)}${guidance}`,
+										{ severity: presentation.severity },
+									);
 								} finally {
 									button.setDisabled(false).setButtonText(label);
 								}
