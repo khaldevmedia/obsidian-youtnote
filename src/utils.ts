@@ -147,13 +147,13 @@ export function hasYoutnoteFrontmatter(content: string): boolean {
     }
 
     for (let i = 1; i < lines.length; i++) {
-        const line = lines[i].trim();
+        const line = lines[i];
 
-        if (line === '---') {
+        if (line.trim() === '---') {
             return false;
         }
 
-        if (/^youtnote\s*:\s*true\s*$/i.test(line)) {
+        if (/^\S/.test(line) && /^youtnote\s*:\s*(true|yes)\s*$/i.test(line.trim())) {
             return true;
         }
     }

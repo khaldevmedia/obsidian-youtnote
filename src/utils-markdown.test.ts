@@ -37,6 +37,20 @@ describe('Safety/frontmatter utilities', () => {
         expect(hasYoutnoteFrontmatter(invalid)).toBe(false);
     });
 
+    it('accepts canonical true and agreed unquoted yes, and rejects no/false', () => {
+        expect(hasYoutnoteFrontmatter('---\nyoutnote: true\n---\n')).toBe(true);
+        expect(hasYoutnoteFrontmatter('---\nyoutnote: yes\n---\n')).toBe(true);
+        expect(hasYoutnoteFrontmatter('---\nyoutnote: no\n---\n')).toBe(false);
+        expect(hasYoutnoteFrontmatter('---\nyoutnote: false\n---\n')).toBe(false);
+    });
+
+    it('does not treat a nested youtnote property as the plugin marker', () => {
+        const nested = '---\nmetadata:\n  youtnote: true\n---\n';
+        const nestedList = '---\nitems:\n  - youtnote: true\n---\n';
+        expect(hasYoutnoteFrontmatter(nested)).toBe(false);
+        expect(hasYoutnoteFrontmatter(nestedList)).toBe(false);
+    });
+
     it('accepts only http(s) as safe external urls', () => {
         expect(isSafeExternalUrl('https://example.com')).toBe(true);
         expect(isSafeExternalUrl('http://example.com')).toBe(true);
@@ -115,7 +129,7 @@ First timestamped note.
 
         // General note delimiter must appear before the first timestamp delimiter
         const generalIdx = serialized.indexOf('<!-- youtnote:general-note:start -->');
-        const tsIdx = serialized.indexOf('`1:23` <!-- youtnote:timestamp -->');
+        const tsIdx = serialized.indexOf('<!-- youtnote:timestamped-note:start t=1:23 -->');
         expect(generalIdx).toBeGreaterThan(-1);
         expect(tsIdx).toBeGreaterThan(-1);
         expect(generalIdx).toBeLessThan(tsIdx);
@@ -210,14 +224,14 @@ Another note.
         const parsed = parseMarkdownToData(markdown);
         const serialized = serializeDataToMarkdown(parsed.videos, parsed.notes);
 
-        const noteIdx = serialized.indexOf('`5` <!-- youtnote:timestamp -->');
-        const transcriptIdx = serialized.indexOf('`5` <!-- d=0 --> first caption');
-        const nextVideoIdx = serialized.indexOf('[Second Video]');
+        const noteIdx = serialized.indexOf('<!-- youtnote:timestamped-note:start t=5 -->');
+        const transcriptIdx = serialized.indexOf('<!-- t=5 d=0 --> first caption');
+        const nextVideoIdx = serialized.indexOf('Second Video');
         expect(noteIdx).toBeGreaterThan(-1);
         expect(transcriptIdx).toBeGreaterThan(noteIdx);
         expect(transcriptIdx).toBeGreaterThan(-1);
         expect(nextVideoIdx).toBeGreaterThan(transcriptIdx);
-        expect(serialized).toContain('`1:55` <!-- d=0 --> second caption');
+        expect(serialized).toContain('<!-- t=1:55 d=0 --> second caption');
         expect(serialized).not.toContain('](caption');
     });
 
@@ -240,7 +254,7 @@ A note.
         const serialized = serializeDataToMarkdown(parsed.videos, parsed.notes);
         const reparsed = parseMarkdownToData(serialized);
 
-        expect(serialized).toContain('`0:00.320` <!-- d=14260 --> [Music]');
+        expect(serialized).toContain('<!-- t=0:00.320 d=14260 --> [Music]');
         expect(serialized).not.toContain('](caption');
         expect(reparsed.videos[0].transcript).toEqual(parsed.videos[0].transcript);
         expect(reparsed.notes).toHaveLength(parsed.notes.length);
@@ -284,7 +298,7 @@ A note.
         const serialized = serializeDataToMarkdown(parsed.videos, parsed.notes);
         expect(serialized).not.toContain('<!-- youtnote:caption');
         expect(serialized).not.toContain('](caption');
-        expect(serialized).toContain('<!-- youtnote:timestamped-notes:start -->\n\n`5` <!-- youtnote:timestamp -->\nA note.\n\n<!-- youtnote:timestamped-notes:end -->');
+        expect(serialized).toContain('<!-- youtnote:timestamped-note:start t=5 -->\nA note.\n<!-- youtnote:timestamped-note:end -->');
     });
 
     it('parses and serializes a video that has a transcript and zero notes', () => {
@@ -304,7 +318,7 @@ youtnote: true
         ]);
 
         const serialized = serializeDataToMarkdown(parsed.videos, parsed.notes);
-        expect(serialized).toContain('`5` <!-- d=0 --> only captions here');
+        expect(serialized).toContain('<!-- t=5 d=0 --> only captions here');
     });
 
     it('exports general notes with a "General note:" heading before timestamped notes', () => {

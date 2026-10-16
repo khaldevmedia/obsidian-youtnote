@@ -125,17 +125,26 @@ youtnote: true
 youtnote-format-version: 2
 ---
 
+<!-- youtnote:file:start -->
+
 <!-- youtnote:video:start -->
 
-<!-- youtnote:section:source:start -->
-[Video aaaaaaaaaaa](https://www.youtube.com/watch?v=aaaaaaaaaaa)
-<!-- youtnote:section:source:end -->
+<!-- youtnote:source:start -->
+<!-- youtnote:title:start -->
+Video aaaaaaaaaaa
+<!-- youtnote:title:end -->
+<!-- youtnote:url:start -->
+https://www.youtube.com/watch?v=aaaaaaaaaaa
+<!-- youtnote:url:end -->
+<!-- youtnote:source:end -->
 
-<!-- youtnote:section:notes:start -->
+<!-- youtnote:notes:start -->
 
-<!-- youtnote:section:notes:end -->
+<!-- youtnote:notes:end -->
 
 <!-- youtnote:video:end -->
+
+<!-- youtnote:file:end -->
 `;
 
 describe('updateYoutnoteSource', () => {
@@ -146,8 +155,8 @@ describe('updateYoutnoteSource', () => {
         });
         expect(result.status).toBe('updated');
         if (result.status !== 'updated') return;
-        expect(result.markdown).toContain('<!-- youtnote:section:transcript:start -->');
-        expect(result.markdown).toContain('`0` <!-- d=1000 --> hello');
+        expect(result.markdown).toContain('<!-- youtnote:transcript:start -->');
+        expect(result.markdown).toContain('<!-- t=0 d=1000 --> hello');
     });
 
     it('reports missing-target when the video is absent', () => {
@@ -188,21 +197,30 @@ youtnote: true
 youtnote-format-version: 2
 ---
 
-<!-- youtnote:section:topic-description:start id=x -->
+<!-- youtnote:file:start -->
+
+<!-- youtnote:topic-description:start id=x -->
 file-level payload
-<!-- youtnote:section:topic-description:end -->
+<!-- youtnote:topic-description:end -->
 
 <!-- youtnote:video:start -->
 
-<!-- youtnote:section:source:start -->
-[Video](https://www.youtube.com/watch?v=aaaaaaaaaaa)
-<!-- youtnote:section:source:end -->
+<!-- youtnote:source:start -->
+<!-- youtnote:title:start -->
+Video
+<!-- youtnote:title:end -->
+<!-- youtnote:url:start -->
+https://www.youtube.com/watch?v=aaaaaaaaaaa
+<!-- youtnote:url:end -->
+<!-- youtnote:source:end -->
 
-<!-- youtnote:section:notes:start -->
+<!-- youtnote:notes:start -->
 
-<!-- youtnote:section:notes:end -->
+<!-- youtnote:notes:end -->
 
 <!-- youtnote:video:end -->
+
+<!-- youtnote:file:end -->
 `;
         const result = updateYoutnoteSource(source, (document) => {
             const videos = setTranscriptForYoutubeVideo(document.videos, 'aaaaaaaaaaa', ENTRIES);
@@ -210,11 +228,11 @@ file-level payload
         });
         expect(result.status).toBe('updated');
         if (result.status !== 'updated') return;
-        const section = result.markdown.indexOf('section:topic-description:start');
+        const section = result.markdown.indexOf('youtnote:topic-description:start');
         expect(section).toBeGreaterThan(-1);
         expect(result.markdown).toContain('file-level payload');
         expect(section).toBeLessThan(result.markdown.indexOf('youtnote:video:start'));
-        expect(result.markdown).toContain('`0` <!-- d=1000 --> hello');
+        expect(result.markdown).toContain('<!-- t=0 d=1000 --> hello');
     });
 
     it('preserves file-level sections through a generated-notes source update', () => {
@@ -223,21 +241,30 @@ youtnote: true
 youtnote-format-version: 2
 ---
 
-<!-- youtnote:section:topic-description:start -->
+<!-- youtnote:file:start -->
+
+<!-- youtnote:topic-description:start -->
 file-level payload
-<!-- youtnote:section:topic-description:end -->
+<!-- youtnote:topic-description:end -->
 
 <!-- youtnote:video:start -->
 
-<!-- youtnote:section:source:start -->
-[Video](https://www.youtube.com/watch?v=aaaaaaaaaaa)
-<!-- youtnote:section:source:end -->
+<!-- youtnote:source:start -->
+<!-- youtnote:title:start -->
+Video
+<!-- youtnote:title:end -->
+<!-- youtnote:url:start -->
+https://www.youtube.com/watch?v=aaaaaaaaaaa
+<!-- youtnote:url:end -->
+<!-- youtnote:source:end -->
 
-<!-- youtnote:section:notes:start -->
+<!-- youtnote:notes:start -->
 
-<!-- youtnote:section:notes:end -->
+<!-- youtnote:notes:end -->
 
 <!-- youtnote:video:end -->
+
+<!-- youtnote:file:end -->
 `;
         const result = updateYoutnoteSource(source, (document) => {
             const notes = applyGeneratedNotesForYoutubeVideo(
@@ -251,7 +278,7 @@ file-level payload
         });
         expect(result.status).toBe('updated');
         if (result.status !== 'updated') return;
-        const section = result.markdown.indexOf('section:topic-description:start');
+        const section = result.markdown.indexOf('youtnote:topic-description:start');
         expect(section).toBeGreaterThan(-1);
         expect(result.markdown).toContain('file-level payload');
         expect(section).toBeLessThan(result.markdown.indexOf('youtnote:video:start'));

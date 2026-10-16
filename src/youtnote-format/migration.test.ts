@@ -36,18 +36,20 @@ describe('migrateLegacyYoutnote', () => {
         if (!result.ok) return;
 
         expect(result.markdown).toContain('youtnote-format-version: 2');
+        expect(result.markdown).toContain('<!-- youtnote:file:start -->');
         expect(result.markdown).toContain('<!-- youtnote:video:start -->');
-        expect(result.markdown).toContain('<!-- youtnote:section:source:start -->');
-        expect(result.markdown).toContain('<!-- youtnote:section:notes:start -->');
-        expect(result.markdown).toContain('<!-- youtnote:section:transcript:start -->');
-        expect(result.markdown).toContain('`0:00.320` <!-- d=14260 --> [Music]');
-        expect(result.markdown).toContain('`5` <!-- d=0 --> hello');
-        expect(result.markdown).toContain('<!-- youtnote:timestamped-notes:start -->\n\n`1:23` <!-- youtnote:timestamp -->\nFirst timestamped note.\n\n<!-- youtnote:timestamped-notes:end -->');
+        expect(result.markdown).toContain('<!-- youtnote:source:start -->');
+        expect(result.markdown).toContain('<!-- youtnote:notes:start -->');
+        expect(result.markdown).toContain('<!-- youtnote:transcript:start -->');
+        expect(result.markdown).toContain('<!-- t=0:00.320 d=14260 --> [Music]');
+        expect(result.markdown).toContain('<!-- t=5 d=0 --> hello');
+        expect(result.markdown).toContain('<!-- youtnote:timestamped-note:start t=1:23 -->\nFirst timestamped note.\n<!-- youtnote:timestamped-note:end -->');
         expect(result.markdown).toContain('<!-- youtnote:general-note:start -->\nOverview of the video.\n<!-- youtnote:general-note:end -->');
         expect(result.markdown).not.toContain('](timestamp)');
         expect(result.markdown).not.toContain('](caption');
         expect(result.markdown).not.toContain('youtnote:caption');
         expect(result.markdown).not.toContain('](general-note)');
+        expect(result.markdown).not.toContain('youtnote:section:');
 
         const reparsed = parseYoutnoteDocument(result.markdown);
         expect(reparsed.ok).toBe(true);
@@ -145,24 +147,30 @@ Stray paragraph before the first video.
 });
 
 const V2_BODY = `
+<!-- youtnote:file:start -->
+
 <!-- youtnote:video:start -->
 
-<!-- youtnote:section:source:start -->
-[Video](https://www.youtube.com/watch?v=dQw4w9WgXcQ)
-<!-- youtnote:section:source:end -->
+<!-- youtnote:source:start -->
+<!-- youtnote:title:start -->
+Video
+<!-- youtnote:title:end -->
+<!-- youtnote:url:start -->
+https://www.youtube.com/watch?v=dQw4w9WgXcQ
+<!-- youtnote:url:end -->
+<!-- youtnote:source:end -->
 
-<!-- youtnote:section:notes:start -->
+<!-- youtnote:notes:start -->
 
-<!-- youtnote:timestamped-notes:start -->
-
-\`0:05\` <!-- youtnote:timestamp -->
+<!-- youtnote:timestamped-note:start t=0:05 -->
 Note.
+<!-- youtnote:timestamped-note:end -->
 
-<!-- youtnote:timestamped-notes:end -->
-
-<!-- youtnote:section:notes:end -->
+<!-- youtnote:notes:end -->
 
 <!-- youtnote:video:end -->
+
+<!-- youtnote:file:end -->
 `;
 
 describe('corrected-declaration recovery', () => {

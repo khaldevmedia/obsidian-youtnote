@@ -8,6 +8,7 @@ import type YoutnotePlugin from './main';
 import type { Note, NoteId, VideoId } from './types';
 import { extractFrontmatter } from './youtnote-format/frontmatter';
 import { parseYoutnoteDocument } from './youtnote-format';
+import { validateYoutnoteUriParams } from './uri-scheme';
 
 vi.mock('obsidian', () => {
     class FakeNotice {
@@ -183,24 +184,30 @@ youtnote: true
 youtnote-format-version: 2
 ---
 
+<!-- youtnote:file:start -->
+
 <!-- youtnote:video:start -->
 
-<!-- youtnote:section:source:start -->
-[Test Video](https://www.youtube.com/watch?v=dQw4w9WgXcQ)
-<!-- youtnote:section:source:end -->
+<!-- youtnote:source:start -->
+<!-- youtnote:title:start -->
+Test Video
+<!-- youtnote:title:end -->
+<!-- youtnote:url:start -->
+https://www.youtube.com/watch?v=dQw4w9WgXcQ
+<!-- youtnote:url:end -->
+<!-- youtnote:source:end -->
 
-<!-- youtnote:section:notes:start -->
+<!-- youtnote:notes:start -->
 
-<!-- youtnote:timestamped-notes:start -->
-
-\`0:05\` <!-- youtnote:timestamp -->
+<!-- youtnote:timestamped-note:start t=0:05 -->
 A note.
+<!-- youtnote:timestamped-note:end -->
 
-<!-- youtnote:timestamped-notes:end -->
-
-<!-- youtnote:section:notes:end -->
+<!-- youtnote:notes:end -->
 
 <!-- youtnote:video:end -->
+
+<!-- youtnote:file:end -->
 `;
 
 const DECLARED_V1 = `---
@@ -216,13 +223,26 @@ youtnote: true
 youtnote-format-version: 2
 ---
 
+<!-- youtnote:file:start -->
+
 <!-- youtnote:video:start -->
 
-<!-- youtnote:section:source:start -->
-[Other Video](https://www.youtube.com/watch?v=abcdefghijk)
-<!-- youtnote:section:source:end -->
+<!-- youtnote:source:start -->
+<!-- youtnote:title:start -->
+Other Video
+<!-- youtnote:title:end -->
+<!-- youtnote:url:start -->
+https://www.youtube.com/watch?v=abcdefghijk
+<!-- youtnote:url:end -->
+<!-- youtnote:source:end -->
+
+<!-- youtnote:notes:start -->
+
+<!-- youtnote:notes:end -->
 
 <!-- youtnote:video:end -->
+
+<!-- youtnote:file:end -->
 `;
 
 const V3 = `---
@@ -236,21 +256,30 @@ youtnote: true
 youtnote-format-version: 2
 ---
 
-<!-- youtnote:section:topic-description:start -->
+<!-- youtnote:file:start -->
+
+<!-- youtnote:topic-description:start -->
 file-level payload
-<!-- youtnote:section:topic-description:end -->
+<!-- youtnote:topic-description:end -->
 
 <!-- youtnote:video:start -->
 
-<!-- youtnote:section:source:start -->
-[Test Video](https://www.youtube.com/watch?v=dQw4w9WgXcQ)
-<!-- youtnote:section:source:end -->
+<!-- youtnote:source:start -->
+<!-- youtnote:title:start -->
+Test Video
+<!-- youtnote:title:end -->
+<!-- youtnote:url:start -->
+https://www.youtube.com/watch?v=dQw4w9WgXcQ
+<!-- youtnote:url:end -->
+<!-- youtnote:source:end -->
 
-<!-- youtnote:section:notes:start -->
+<!-- youtnote:notes:start -->
 
-<!-- youtnote:section:notes:end -->
+<!-- youtnote:notes:end -->
 
 <!-- youtnote:video:end -->
+
+<!-- youtnote:file:end -->
 `;
 
 const INVALID_LEGACY = `---
@@ -304,54 +333,57 @@ const RICH_REFRESHED_FRONTMATTER = RICH_V2_FRONTMATTER
 const RICH_ROUNDTRIP_FRONTMATTER = RICH_V2_FRONTMATTER
     .replace('# trailing comment', 'closed_edit: added-while-closed\n# trailing comment');
 
-const RICH_V2_BODY = `
-<!-- youtnote:video:start -->
+const RICH_V2_FIRST_VIDEO = `<!-- youtnote:video:start -->
 
-<!-- youtnote:section:source:start -->
-[Test Video](https://www.youtube.com/watch?v=dQw4w9WgXcQ)
-<!-- youtnote:section:source:end -->
+<!-- youtnote:source:start -->
+<!-- youtnote:title:start -->
+Test Video
+<!-- youtnote:title:end -->
+<!-- youtnote:url:start -->
+https://www.youtube.com/watch?v=dQw4w9WgXcQ
+<!-- youtnote:url:end -->
+<!-- youtnote:source:end -->
 
-<!-- youtnote:section:notes:start -->
+<!-- youtnote:notes:start -->
 
 <!-- youtnote:general-note:start -->
 Original general body.
 <!-- youtnote:general-note:end -->
 
-<!-- youtnote:timestamped-notes:start -->
-
-\`0:05\` <!-- youtnote:timestamp -->
+<!-- youtnote:timestamped-note:start t=0:05 -->
 Original timestamped body.
+<!-- youtnote:timestamped-note:end -->
 
-<!-- youtnote:timestamped-notes:end -->
+<!-- youtnote:notes:end -->
 
-<!-- youtnote:section:notes:end -->
+<!-- youtnote:video:end -->`;
 
-<!-- youtnote:video:end -->
-`;
+const RICH_V2_SECOND_VIDEO = `<!-- youtnote:video:start -->
 
-const RICH_V2_SECOND_VIDEO = `
-<!-- youtnote:video:start -->
+<!-- youtnote:source:start -->
+<!-- youtnote:title:start -->
+Other Video
+<!-- youtnote:title:end -->
+<!-- youtnote:url:start -->
+https://www.youtube.com/watch?v=abcdefghijk
+<!-- youtnote:url:end -->
+<!-- youtnote:source:end -->
 
-<!-- youtnote:section:source:start -->
-[Other Video](https://www.youtube.com/watch?v=abcdefghijk)
-<!-- youtnote:section:source:end -->
+<!-- youtnote:notes:start -->
 
-<!-- youtnote:section:notes:start -->
-
-<!-- youtnote:timestamped-notes:start -->
-
-\`0:10\` <!-- youtnote:timestamp -->
+<!-- youtnote:timestamped-note:start t=0:10 -->
 Second video note.
+<!-- youtnote:timestamped-note:end -->
 
-<!-- youtnote:timestamped-notes:end -->
+<!-- youtnote:notes:end -->
 
-<!-- youtnote:section:notes:end -->
+<!-- youtnote:video:end -->`;
 
-<!-- youtnote:video:end -->
-`;
+const RICH_V2_BODY = `\n<!-- youtnote:file:start -->\n\n${RICH_V2_FIRST_VIDEO}\n\n<!-- youtnote:file:end -->\n`;
+const RICH_V2_TWO_BODY = `\n<!-- youtnote:file:start -->\n\n${RICH_V2_FIRST_VIDEO}\n\n${RICH_V2_SECOND_VIDEO}\n\n<!-- youtnote:file:end -->\n`;
 
 const V2_RICH = `${RICH_V2_FRONTMATTER}\n${RICH_V2_BODY}`;
-const V2_RICH_TWO = `${RICH_V2_FRONTMATTER}\n${RICH_V2_BODY}${RICH_V2_SECOND_VIDEO}`;
+const V2_RICH_TWO = `${RICH_V2_FRONTMATTER}\n${RICH_V2_TWO_BODY}`;
 const V2_RICH_REFRESHED = `${RICH_REFRESHED_FRONTMATTER}\n${RICH_V2_BODY}`;
 const V2_RICH_ROUNDTRIP = `${RICH_ROUNDTRIP_FRONTMATTER}\n${RICH_V2_BODY}`;
 
@@ -835,7 +867,7 @@ describe('YoutnoteView write modes and legacy conversion', () => {
         view.handleUpdateVideos([]);
         await view.save();
         const saved = store.get(f.path)!;
-        expect(saved).toContain('section:topic-description:start');
+        expect(saved).toContain('youtnote:topic-description:start');
         expect(saved).toContain('file-level payload');
         expect(saved).not.toContain('dQw4w9WgXcQ');
         expect(view.getWriteMode()).toBe('editable-v2');
@@ -1025,10 +1057,65 @@ describe('YoutnoteView write modes and legacy conversion', () => {
         ]);
         await view.save();
         const saved = store.get(f.path)!;
-        expect(saved).toContain('section:topic-description:start');
+        expect(saved).toContain('youtnote:topic-description:start');
         expect(saved).toContain('file-level payload');
         expect(saved).toContain('New note body');
-        expect(saved.indexOf('section:topic-description:start')).toBeLessThan(saved.indexOf('youtnote:video:start'));
+        expect(saved.indexOf('youtnote:topic-description:start')).toBeLessThan(saved.indexOf('youtnote:video:start'));
+    });
+
+    it('persists URI-validated timestamped and general notes through save and reopen', async () => {
+        const { store, view, file, leaf, plugin } = makeFixture();
+        const f = file('a.md');
+        store.set(f.path, V2);
+        await view.onLoadFile(f);
+        const videoId = view.videos[0].id;
+        const noteParams = validateYoutnoteUriParams(
+            { url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ', mode: 'note', timestamp: '0:07', text: 'URI note body' },
+            200,
+        );
+        expect(noteParams.valid).toBe(true);
+        const generalParams = validateYoutnoteUriParams(
+            { url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ', mode: 'general-note', text: 'URI general body' },
+            200,
+        );
+        expect(generalParams.valid).toBe(true);
+        view.handleUpdateNotes([
+            ...view.notes,
+            {
+                id: 'note-uri' as NoteId,
+                videoId,
+                timestampSec: noteParams.timestampSec!,
+                bodyMarkdown: noteParams.text!,
+                createdAt: '2024-01-01T00:00:00.000Z',
+                updatedAt: '2024-01-01T00:00:00.000Z',
+            },
+            {
+                id: 'note-uri-general' as NoteId,
+                videoId,
+                timestampSec: -1,
+                bodyMarkdown: generalParams.text!,
+                isGeneral: true,
+                createdAt: '2024-01-01T00:00:00.000Z',
+                updatedAt: '2024-01-01T00:00:00.000Z',
+            },
+        ]);
+        await view.save();
+        const saved = store.get(f.path)!;
+        expect(saved).toContain('<!-- youtnote:timestamped-note:start t=7 -->');
+        expect(saved).toContain('<!-- youtnote:general-note:start -->\nURI general body\n<!-- youtnote:general-note:end -->');
+        const reparsed = parseYoutnoteDocument(saved);
+        expect(reparsed.ok).toBe(true);
+        if (!reparsed.ok) return;
+        expect(reparsed.document.notes.some(
+            n => n.timestampSec === 7 && n.bodyMarkdown === 'URI note body' && !n.isGeneral,
+        )).toBe(true);
+        expect(reparsed.document.notes.some(
+            n => n.isGeneral === true && n.bodyMarkdown === 'URI general body',
+        )).toBe(true);
+        const reopened = new YoutnoteView(leaf, plugin);
+        await reopened.onLoadFile(file('a.md'));
+        expect(reopened.notes.some(n => n.bodyMarkdown === 'URI note body')).toBe(true);
+        expect(reopened.notes.some(n => n.bodyMarkdown === 'URI general body')).toBe(true);
     });
 
     it('invalidates pending mutations as soon as closing starts', async () => {
@@ -1479,7 +1566,8 @@ describe('YoutnoteView write modes and legacy conversion', () => {
             expect(vault.modify).toHaveBeenCalledTimes(1);
             const saved = store.get(f.path)!;
             expect(rawFrontmatter(saved)).toBe(RICH_V2_FRONTMATTER);
-            expect(saved).toContain('[Added Video](https://www.youtube.com/watch?v=zzzzzzzzzzz)');
+            expect(saved).toContain('<!-- youtnote:title:start -->\nAdded Video\n<!-- youtnote:title:end -->');
+            expect(saved).toContain('<!-- youtnote:url:start -->\nhttps://www.youtube.com/watch?v=zzzzzzzzzzz\n<!-- youtnote:url:end -->');
             const reparsed = parseYoutnoteDocument(saved);
             expect(reparsed.ok).toBe(true);
             if (reparsed.ok) expect(reparsed.document.videos).toHaveLength(2);
@@ -1495,8 +1583,8 @@ describe('YoutnoteView write modes and legacy conversion', () => {
             expect(vault.modify).toHaveBeenCalledTimes(1);
             const saved = store.get(f.path)!;
             expect(rawFrontmatter(saved)).toBe(RICH_V2_FRONTMATTER);
-            expect(saved).toContain('[Renamed Video](https://www.youtube.com/watch?v=dQw4w9WgXcQ)');
-            expect(saved).not.toContain('[Test Video]');
+            expect(saved).toContain('<!-- youtnote:title:start -->\nRenamed Video\n<!-- youtnote:title:end -->');
+            expect(saved).not.toContain('Test Video');
         });
 
         it('keeps the rich frontmatter byte-identical when deleting a non-last video', async () => {
@@ -1524,7 +1612,7 @@ describe('YoutnoteView write modes and legacy conversion', () => {
             }
         });
 
-        it('writes only the frontmatter block and blank lines after deleting the last video', async () => {
+        it('writes only the frontmatter block and an empty file wrapper after deleting the last video', async () => {
             const { store, vault, view, file } = makeFixture();
             const f = file('rich.md');
             store.set(f.path, V2_RICH);
@@ -1533,7 +1621,8 @@ describe('YoutnoteView write modes and legacy conversion', () => {
             view.handleUpdateVideos([]);
             await flush();
             expect(vault.modify).toHaveBeenCalledTimes(1);
-            expect(store.get(f.path)).toBe(`${RICH_V2_FRONTMATTER}\n\n`);
+            expect(store.get(f.path)).toBe(
+                `${RICH_V2_FRONTMATTER}\n\n<!-- youtnote:file:start -->\n\n<!-- youtnote:file:end -->\n`);
         });
 
         it.each([

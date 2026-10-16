@@ -12,6 +12,30 @@ import {
 
 const VALID_YT_URL = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ';
 
+const V2_BOUNDARY_MARKERS = [
+    '<!-- youtnote:file:start -->',
+    '<!-- youtnote:file:end -->',
+    '<!-- youtnote:video:start -->',
+    '<!-- youtnote:video:end -->',
+    '<!-- youtnote:source:start -->',
+    '<!-- youtnote:source:end -->',
+    '<!-- youtnote:title:start -->',
+    '<!-- youtnote:title:end -->',
+    '<!-- youtnote:url:start -->',
+    '<!-- youtnote:url:end -->',
+    '<!-- youtnote:notes:start -->',
+    '<!-- youtnote:notes:end -->',
+    '<!-- youtnote:transcript:start -->',
+    '<!-- youtnote:transcript:end -->',
+    '<!-- youtnote:general-note:start -->',
+    '<!-- youtnote:general-note:end -->',
+    '<!-- youtnote:timestamped-note:start -->',
+    '<!-- youtnote:timestamped-note:start t=4:30 -->',
+    '<!-- youtnote:timestamped-note:end -->',
+    '<!-- youtnote:future-thing:start version=9 -->',
+    '<!-- youtnote:future-thing:end -->',
+];
+
 // ─── getUnsupportedParams ───────────────────────────────────────────────────
 
 describe('getUnsupportedParams', () => {
@@ -294,31 +318,45 @@ describe('hasStructuralDelimiter', () => {
         expect(hasStructuralDelimiter('')).toBe(false);
     });
 
-    it.each([
-        '<!-- youtnote:video:start -->',
-        '<!-- youtnote:video:end -->',
-        '<!-- youtnote:section:source:start -->',
-        '<!-- youtnote:section:source:end -->',
-        '<!-- youtnote:section:notes:start -->',
-        '<!-- youtnote:section:notes:end -->',
-        '<!-- youtnote:section:transcript:start -->',
-        '<!-- youtnote:section:future-thing:start version=9 -->',
-        '<!-- youtnote:general-note:start -->',
-        '<!-- youtnote:general-note:end -->',
-        '<!-- youtnote:timestamped-notes:start -->',
-        '<!-- youtnote:timestamped-notes:end -->',
-    ])('returns true for v2 boundary marker %s', (line) => {
+    it.each(V2_BOUNDARY_MARKERS)('returns true for v2 boundary marker %s', (line) => {
         expect(hasStructuralDelimiter(line)).toBe(true);
         expect(hasStructuralDelimiter(`Some text\n${line}`)).toBe(true);
     });
 
-    it('returns true for a v2 timestamp note marker', () => {
+    it('returns true for an earlier-development timestamp note marker', () => {
         expect(hasStructuralDelimiter('`01:23` <!-- youtnote:timestamp -->')).toBe(true);
         expect(hasStructuralDelimiter('Some text\n`5` <!-- youtnote:timestamp -->')).toBe(true);
     });
 
-    it('returns false when a v2 timestamp marker has trailing text', () => {
+    it('returns false when an earlier-development timestamp marker has trailing text', () => {
         expect(hasStructuralDelimiter('`01:23` <!-- youtnote:timestamp --> trailing')).toBe(false);
+    });
+
+    it('returns true for a reserved marker line with extra spacing', () => {
+        expect(hasStructuralDelimiter('<!--  youtnote:file:end -->')).toBe(true);
+        expect(hasStructuralDelimiter('<!--\tyoutnote:video:start -->')).toBe(true);
+    });
+
+    it('returns true for a reserved marker with no whitespace after the comment opener', () => {
+        expect(hasStructuralDelimiter('<!--youtnote:file:end -->')).toBe(true);
+    });
+
+    it('returns true for a marker on a later CRLF line with indentation', () => {
+        expect(hasStructuralDelimiter('line one\r\n   <!-- youtnote:video:end -->')).toBe(true);
+    });
+
+    it('returns true for a marker inside a fenced code block', () => {
+        expect(hasStructuralDelimiter('```\n<!-- youtnote:video:end -->\n```')).toBe(true);
+    });
+
+    it('returns false for a caption metadata comment, which is literal text inside notes', () => {
+        expect(hasStructuralDelimiter('<!-- t=0:11.720 d=6040 --> caption')).toBe(false);
+        expect(hasStructuralDelimiter('Some text\n<!-- t=5 d=0 -->')).toBe(false);
+    });
+
+    it('returns true for a v2 marker line with leading whitespace', () => {
+        expect(hasStructuralDelimiter('   <!-- youtnote:video:end -->')).toBe(true);
+        expect(hasStructuralDelimiter('\t<!-- youtnote:file:start -->')).toBe(true);
     });
 
     it('returns false for an unrelated HTML comment', () => {
@@ -332,6 +370,35 @@ describe('hasStructuralDelimiter', () => {
         expect(result.error).toContain('section marker');
     });
 });
+
+// ─── URI-level structural text checks ───────────────────────────────────────
+
+describe.each(['note', 'general-note'] as const)(
+    'validateYoutnoteUriParams structural text checks (mode=%s)',
+    (mode) => {
+        const buildParams = (text: string) =>
+            mode === 'note'
+                ? { url: VALID_YT_URL, mode, timestamp: '10', text }
+                : { url: VALID_YT_URL, mode, text };
+
+        it.each(V2_BOUNDARY_MARKERS)('rejects text containing %s', (line) => {
+            const result = validateYoutnoteUriParams(buildParams(`body\n${line}`), 400);
+            expect(result.valid).toBe(false);
+        });
+
+        it.each([
+            '<!-- t=0:11.720 d=6040 --> caption-like note text',
+            '<!-- an ordinary comment -->\nnote body',
+            'see <!-- youtnote:video:end --> inline',
+            '```ts\nconst x = 1;\nunfinished note',
+            '\\<!-- youtnote:video:start -->',
+        ])('accepts text %j', (text) => {
+            const result = validateYoutnoteUriParams(buildParams(text), 400);
+            expect(result.valid).toBe(true);
+            expect(result.valid && result.text).toBe(text);
+        });
+    }
+);
 
 // ─── isDebounced ────────────────────────────────────────────────────────────
 

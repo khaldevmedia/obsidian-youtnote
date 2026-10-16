@@ -1,11 +1,5 @@
 import { extractYouTubeId, normalizeYouTubeUrl, parseTimestampInput } from './utils';
-import {
-    GENERAL_NOTE_END_MARKER,
-    GENERAL_NOTE_START_MARKER,
-    NOTE_TIMESTAMP_PATTERN,
-    TIMESTAMPED_NOTES_END_MARKER,
-    TIMESTAMPED_NOTES_START_MARKER,
-} from './youtnote-format/v2';
+import { NOTE_TIMESTAMP_PATTERN, isReservedMarkerLine } from './youtnote-format/v2';
 
 /** Maximum total URL length accepted by the handler. */
 export const MAX_URL_LENGTH = 2000;
@@ -59,19 +53,23 @@ export function hasLeadingFrontmatter(text: string): boolean {
 }
 
 /**
- * Checks if any line of the text would be parsed as a youtnote section marker
- * (video link, timestamp marker, or general-note marker). Such text is rejected
- * because it would corrupt the file structure on the next load.
+ * Checks if any line of the text would be parsed as a youtnote section marker.
+ * Covers the legacy v1 delimiters (general-note link, timestamp link, YouTube
+ * video link), the earlier-development timestamp marker, and every line in the
+ * reserved `<!-- youtnote:` marker namespace — canonical v2 boundary markers
+ * (file, video, source, title, url, notes, general-note, timestamped-note,
+ * transcript) as well as unknown or malformed `youtnote:` comment markers,
+ * including with leading whitespace or extra whitespace after `<!--`.
+ * Such text is rejected because it would corrupt the file structure on the
+ * next load.
  */
 export function hasStructuralDelimiter(text: string): boolean {
     return text.split('\n').some(rawLine => {
         const line = rawLine.trim();
         if (line === '[general-note](general-note)') return true;
-        if (line === GENERAL_NOTE_START_MARKER || line === GENERAL_NOTE_END_MARKER) return true;
-        if (line === TIMESTAMPED_NOTES_START_MARKER || line === TIMESTAMPED_NOTES_END_MARKER) return true;
         if (/^\[[\d:]+\]\(timestamp\)/.test(line)) return true;
         if (NOTE_TIMESTAMP_PATTERN.test(line)) return true;
-        if (/^<!--\s*youtnote:(?:video|section:[A-Za-z0-9_-]+):(?:start|end)[\s\S]*?-->$/.test(line)) return true;
+        if (isReservedMarkerLine(line)) return true;
         const videoMatch = line.match(/^\[(.*?)\]\((.+)\)$/);
         return videoMatch !== null && extractYouTubeId(videoMatch[2]) !== null;
     });

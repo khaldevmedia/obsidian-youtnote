@@ -5,11 +5,11 @@ description: "Youtnote is an Obsidian plugin that lets you take timestamped Mark
 
 # Create Youtnote
 
-Take an already-fetched, timestamped YouTube transcript and write it as a Youtnote markdown file that the Obsidian Youtnote plugin can open and render. This skill does not fetch transcripts — it consumes one that already exists.
+Take an already-fetched, timestamped YouTube transcript and write it as a Youtnote markdown file that the Obsidian Youtnote plugin can open and render. This skill does not fetch transcripts. It consumes one that already exists.
 
 ## What a Youtnote file is
 
-A plain Markdown file with `youtnote: true` frontmatter and a `youtnote-format-version: 2` version declaration. The Youtnote plugin parses it into an interactive video + notes view. The file format is strict — deviating from it breaks parsing. Follow the syntax below exactly.
+A plain Markdown file with `youtnote: true` frontmatter and a `youtnote-format-version: 2` version declaration. The Youtnote plugin parses it into an interactive video + notes view. The body is plugin-managed storage, not an ordinary editable Markdown document. The two Youtnote frontmatter properties belong to the plugin. Preserve any user-defined frontmatter when updating a file. The file format is strict. Follow the syntax below exactly.
 
 ## File format (must match exactly)
 
@@ -19,100 +19,119 @@ youtnote: true
 youtnote-format-version: 2
 ---
 
+<!-- youtnote:file:start -->
+
 <!-- youtnote:video:start -->
 
-<!-- youtnote:section:source:start -->
-[Video Title](https://www.youtube.com/watch?v=VIDEO_ID)
-<!-- youtnote:section:source:end -->
+<!-- youtnote:source:start -->
 
-<!-- youtnote:section:notes:start -->
+<!-- youtnote:title:start -->
+Video Title
+<!-- youtnote:title:end -->
+
+<!-- youtnote:url:start -->
+https://www.youtube.com/watch?v=VIDEO_ID
+<!-- youtnote:url:end -->
+
+<!-- youtnote:source:end -->
+
+<!-- youtnote:notes:start -->
 
 <!-- youtnote:general-note:start -->
 Optional general note body. One per video at most. Sits at the top of the video's notes.
 <!-- youtnote:general-note:end -->
 
-<!-- youtnote:timestamped-notes:start -->
-
-`01:23` <!-- youtnote:timestamp -->
+<!-- youtnote:timestamped-note:start t=1:23 -->
 First timestamped note body.
+<!-- youtnote:timestamped-note:end -->
 
-`02:45` <!-- youtnote:timestamp -->
+<!-- youtnote:timestamped-note:start t=2:45 -->
 Second timestamped note body.
+<!-- youtnote:timestamped-note:end -->
 
-<!-- youtnote:timestamped-notes:end -->
-
-<!-- youtnote:section:notes:end -->
+<!-- youtnote:notes:end -->
 
 <!-- youtnote:video:end -->
 
 <!-- youtnote:video:start -->
 
-<!-- youtnote:section:source:start -->
-[Next Video Title](https://www.youtube.com/watch?v=NEXT_VIDEO_ID)
-<!-- youtnote:section:source:end -->
+<!-- youtnote:source:start -->
 
-<!-- youtnote:section:notes:start -->
+<!-- youtnote:title:start -->
+Next Video Title
+<!-- youtnote:title:end -->
 
-<!-- youtnote:timestamped-notes:start -->
+<!-- youtnote:url:start -->
+https://www.youtube.com/watch?v=NEXT_VIDEO_ID
+<!-- youtnote:url:end -->
 
-`00:10` <!-- youtnote:timestamp -->
+<!-- youtnote:source:end -->
+
+<!-- youtnote:notes:start -->
+
+<!-- youtnote:timestamped-note:start t=10 -->
 Note body for the next video.
+<!-- youtnote:timestamped-note:end -->
 
-<!-- youtnote:timestamped-notes:end -->
-
-<!-- youtnote:section:notes:end -->
+<!-- youtnote:notes:end -->
 
 <!-- youtnote:video:end -->
+
+<!-- youtnote:file:end -->
 ```
 
 ### Structural rules
 
-1. **Frontmatter** — first four lines, exactly:
+1. **Frontmatter:** for a new file, use canonical YAML boolean `true`:
    ```
    ---
    youtnote: true
    youtnote-format-version: 2
    ---
    ```
-   Followed by one blank line.
-2. **Video block** — every video is wrapped in the exact markers `<!-- youtnote:video:start -->` and `<!-- youtnote:video:end -->`. Inside the block, only section markers and blank lines are allowed — a bare video link or any other content directly inside the block breaks parsing.
-3. **Source section** — the first section of every video block, exactly one per video, wrapped in `<!-- youtnote:section:source:start -->` and `<!-- youtnote:section:source:end -->`. It contains exactly one video link line: `[Title](URL)`. The URL MUST be a valid YouTube URL (`https://www.youtube.com/watch?v=ID`, `https://youtu.be/ID`, or a bare 11-character video ID). Prefer the canonical form `https://www.youtube.com/watch?v=ID`. Never add attributes to these markers.
-4. **Notes section** — follows the source section; each video has exactly one notes section, wrapped in the exact markers `<!-- youtnote:section:notes:start -->` and `<!-- youtnote:section:notes:end -->`. Emit the markers even when the video has no notes yet (an empty section is valid). Never add attributes to these markers.
-5. **General note** (optional, max one per video) — `<!-- youtnote:general-note:start -->` on its own line, then the note body, then `<!-- youtnote:general-note:end -->` on its own line. Always placed before any timestamped notes for that video. Every start marker MUST be closed by an end marker inside the same notes section — a missing end marker makes the file unreadable.
-6. **Timestamped notes** — ALL timestamped notes for a video live inside ONE `<!-- youtnote:timestamped-notes:start -->` / `<!-- youtnote:timestamped-notes:end -->` collection block in that video's notes section; emit it exactly once per notes section, even when empty. Inside the block, each note is a `` `TIMESTAMP` <!-- youtnote:timestamp --> `` marker line (a backtick-wrapped timestamp, one space, then the exact comment marker — nothing else may appear on that line) followed by the note body; each marker implicitly ends the previous note and starts the next, and the collection's end marker closes the last one. A timestamp marker may never appear outside this block, and the collection's start/end markers must balance inside the same notes section — a missing end marker makes the file unreadable.
-7. **Blank lines** — one blank line after `video:start`, one after `section:source:end`, one after `section:notes:start`, one after `general-note:end`, one after `timestamped-notes:start`, one after every timestamped note's body inside the collection, one after `timestamped-notes:end`, and one before `section:notes:end`. One blank line separates video blocks.
-8. **Ordering** — within each video block: source section first, then the notes section. Within each notes section: general note first (if any), then timestamped notes sorted ascending by timestamp.
-9. **No stray content** — outside a section, only section markers, video markers, and blank lines are allowed. Everything else makes the file unreadable for the plugin.
-10. **Transcript sections** — this skill produces notes, not stored captions, so do NOT emit `<!-- youtnote:section:transcript:... -->` sections. The plugin adds them itself when a transcript is fetched inside Obsidian.
-11. **Structural markers are comments, not links** — the timestamp and general-note record markers are HTML comments, so they do not create entries in Obsidian's link graph. Do not use link-style record markers; the only Markdown links in the file are the source-section video links and any links inside note bodies.
+   Follow with one blank line. The plugin also accepts `youtnote: yes`. When updating an existing file, retain its unrelated properties and comments instead of replacing its YAML.
+2. **File wrapper:** exactly one `<!-- youtnote:file:start -->` / `<!-- youtnote:file:end -->` pair encloses the entire body. Frontmatter remains outside. An empty document still has this pair.
+3. **Video block:** every video is wrapped in `<!-- youtnote:video:start -->` and `<!-- youtnote:video:end -->`. Only child containers and blank lines are allowed directly inside it.
+4. **Source:** exactly one `source` container is first in each video. It contains exactly one `title` container and one `url` container. Write title first, then URL. These are plain-text fields, not a Markdown link. The URL is one nonempty line containing a supported YouTube URL or an 11-character video ID. Prefer `https://www.youtube.com/watch?v=ID`. Titles may be empty or multiline, and their whitespace is meaningful.
+5. **Notes:** exactly one `<!-- youtnote:notes:start -->` / `<!-- youtnote:notes:end -->` container follows the source. Emit it even when empty.
+6. **General note:** optionally emit one `general-note` container when requested, before the timestamped notes.
+7. **Timestamped note:** wrap each note separately in `<!-- youtnote:timestamped-note:start t=TIMESTAMP -->` and `<!-- youtnote:timestamped-note:end -->`. The unquoted `t` attribute is mandatory. There is no collection wrapper and no backtick timestamp header.
+8. **Content boundaries:** note bodies and titles start immediately on the line after their opening marker and end immediately before their closing marker. Blank lines inside these boundaries are content. Put decorative spacing outside them.
+9. **Ordering:** preserve video order. Place the general note first, then timestamped notes in ascending timestamp order.
+10. **Transcript:** when creating a file, this skill writes notes, not stored captions. Do not generate a transcript container. When updating an existing file, preserve any transcript. Its records use `<!-- t=0:11.720 d=6040 --> Caption text.` inside a `transcript` container. Both unquoted attributes are mandatory. Duration is integer milliseconds, with `d=0` meaning unavailable. Exactly one separator space follows `-->`. Caption payload escapes are `\\` for a backslash, `\n` for LF, and `\r` for CR.
+11. **Markers:** use `youtnote:<name>:start` and matching `end` markers. Do not use a `section` prefix, old link-style delimiters, IDs, or generated block anchors. Known wrappers accept no attributes except `t` on `timestamped-note:start`.
+12. **Extensions:** preserve unknown file-level and video-level containers, including their attributes and opaque content. Do not invent extension containers when creating a file. Do not put unknown fields inside source or notes.
+13. **No stray content:** outside payloads and preserved extension containers, only the permitted container markers and blank lines are allowed. Only whitespace may appear outside the file wrapper after frontmatter. Finish with a trailing newline.
 
 ### Timestamp format
 
-Format each timestamp based on the video's total duration so the plugin displays it correctly:
+Use whole-second timestamps. Convert transcript start times to seconds, rounding down fractional seconds for notes. Canonical output depends on the timestamp value, not the total video duration:
 
-- Video under 1 minute → `SS` (e.g. `45`)
-- Video 1 minute to under 1 hour → `M:SS` (e.g. `1:23`, `12:05`)
-- Video 1 hour or longer → `H:MM:SS` (e.g. `1:23:45`, `2:05:09`)
+- Below one minute: `SS`, such as `45`.
+- Below one hour: `M:SS`, such as `1:23`.
+- One hour or more: `H:MM:SS`, such as `1:23:45`.
 
-Use the video's real duration to pick the format. If the duration is not provided alongside the transcript, ask the user for it (or the video URL, from which the duration can be derived). Zero-pad minutes and seconds to two digits only in the `H:MM:SS` and `M:SS`/`MM:SS` forms as shown above.
+Seconds after a colon and minutes in the hour form must be two digits in the range `00` to `59`. The first component may have more digits. Do not use negative, fractional, or non-finite note timestamps. Caption timestamps, unlike note timestamps, support up to three decimal places for milliseconds.
 
 ### Note body
 
-- Plain Markdown. Obsidian Live Preview renders it, so headings, lists, links, bold/italic, and code blocks all work.
-- Regular Markdown links inside a note body (e.g. `[Google](https://google.com)`) are preserved as body text — they are NOT treated as video delimiters because their URL is not a YouTube URL.
-- Fenced code blocks are safe: exact `<!-- youtnote:... -->` markers inside a fenced block are treated as note text, not structure.
-- A note body must never contain a line that exactly matches `<!-- youtnote:general-note:start -->`, `<!-- youtnote:general-note:end -->`, `<!-- youtnote:timestamped-notes:start -->`, or `<!-- youtnote:timestamped-notes:end -->` — an exact boundary line is structural, not body text. Inside the timestamped-notes collection, an exact `` `TIMESTAMP` <!-- youtnote:timestamp --> `` line is structural too — it ends the current note and starts a new one — so never emit it mid-body unless you intend a new note.
+- Plain Markdown. The plugin renders headings, lists, links, bold/italic, and code blocks.
+- Markdown links inside note bodies, including YouTube links, are content, not video delimiters.
+- Raw balanced fenced code blocks may contain literal Youtnote markers. A closing fence must match the opening backtick or tilde character, be at least as long, and have no trailing text.
+- For canonical storage of note bodies and titles, prefix one backslash at the very start of every payload line beginning with a backslash, every fence-delimiter-looking line, and every line whose trimmed form starts with `<!--` followed by optional whitespace and `youtnote:`. This reserves noncanonical comment spacing too. This makes even unfinished code fences safe. Decode the prefix as literal payload without activating structural fence handling. These rules apply only to payload, never to actual container markers. They are reversible storage escaping, not changes to the note's decoded text.
+- Example: a literal `<!-- youtnote:video:end -->` line outside fenced code is stored as `\<!-- youtnote:video:end -->`. A payload line beginning with one literal backslash is stored with two.
+- Preserve meaningful whitespace. Do not add blank lines inside a note merely to separate it from its wrapper.
 - Keep bodies concise. One logical thought per note.
 
 ## How to build the file
 
 ### 1. Locate the transcript and the video URL(s)
 
-The transcript already exists — it was fetched by the user or by another skill. Find it before doing anything else:
+The transcript already exists. It was fetched by the user or by another skill. Find it before doing anything else:
 
 - Check the user's message for pasted transcript text, attached file contents, or a path to a transcript file.
 - If the user references a file, read it.
-- If no transcript is present, stop and ask the user to provide one (or to run the transcript-fetching skill first). Do NOT attempt to fetch a transcript yourself — that is out of scope for this skill.
+- If no transcript is present, stop and ask the user to provide one (or to run the transcript-fetching skill first). Do NOT attempt to fetch a transcript yourself.
 
 Each video needs a YouTube URL. Get it from the user, from the transcript file's name/metadata, or by asking. Normalize each URL to `https://www.youtube.com/watch?v=ID`. Reject non-YouTube URLs and tell the user.
 
@@ -120,34 +139,34 @@ Each video needs a YouTube URL. Get it from the user, from the transcript file's
 
 Transcripts come in many shapes. Identify the format and extract a list of `(start_seconds, text)` segments per video:
 
-- **VTT / SRT subtitle files** — parse the cue blocks. Each cue has a start timestamp (`HH:MM:SS.mmm` or `MM:SS.mmm`) and one or more text lines. Convert the start time to total seconds; use the cue text as the segment text.
-- **JSON from `youtube-transcript-api`** — a list of `{"text": "...", "start": 12.34, "duration": 3.5}` objects. `start` is already in seconds.
-- **Plain text with inline timestamps** — lines like `[01:23] some text` or `01:23 some text`. Parse the leading timestamp and treat the rest of the line as the segment text.
-- **Other structured formats** — extract `(timestamp, text)` pairs by whatever pattern the format uses.
+- **VTT / SRT subtitle files:** parse the cue blocks. Each cue has a start timestamp (`HH:MM:SS.mmm` or `MM:SS.mmm`) and one or more text lines. Convert the start time to total seconds and use the cue text as the segment text.
+- **JSON from `youtube-transcript-api`:** a list of `{"text": "...", "start": 12.34, "duration": 3.5}` objects. `start` is already in seconds.
+- **Plain text with inline timestamps:** lines like `[01:23] some text` or `01:23 some text`. Parse the leading timestamp and treat the rest of the line as the segment text.
+- **Other structured formats:** extract `(timestamp, text)` pairs by whatever pattern the format uses.
 
-If a transcript has no timestamps at all, it cannot be turned into timestamped notes. Stop and tell the user — this skill requires a timestamped transcript.
+If a transcript has no timestamps at all, it cannot be turned into timestamped notes. Stop and tell the user that this skill requires a timestamped transcript.
 
 ### 3. Decide note granularity
 
-Default: **consolidate** consecutive transcript segments into coherent, paragraph-style notes at meaningful timestamps. Aim for one note per topic or roughly every 30–60 seconds, whichever produces a more readable result. Use the start time of the first segment in each consolidated group as the note's timestamp. Rewrite the segment text into clear prose; do not just concatenate raw captions.
+Default: **consolidate** consecutive transcript segments into coherent, paragraph-style notes at meaningful timestamps. Aim for one note per topic or roughly every 30 to 60 seconds, whichever produces a more readable result. Use the start time of the first segment in each consolidated group as the note's timestamp. Rewrite the segment text into clear prose rather than concatenating raw captions.
 
-If the user explicitly asks for a **verbatim** or **raw** transcript, switch to **one note per transcript segment**: each segment becomes its own timestamped note inside the collection block, with the segment's text as-is (lightly cleaned of caption artifacts like `[Music]`, `>>`, repeated words).
+If the user explicitly asks for a **verbatim** or **raw** transcript, switch to **one note per transcript segment**. Each segment becomes its own timestamped-note container with the segment's text, lightly cleaned of caption artifacts such as `[Music]`, `>>`, and repeated words.
 
 ### 4. General note (only on explicit request)
 
-Include a general-note block for a video only when the user asks for a summary, overview, or "general note". Write a concise summary derived from the transcript content, wrapped in `<!-- youtnote:general-note:start -->` and `<!-- youtnote:general-note:end -->` marker lines. Place it before the timestamped notes for that video. Omit it entirely otherwise — do not emit an empty general note.
+Include a general-note block for a video only when the user asks for a summary, overview, or "general note". Write a concise summary derived from the transcript content, wrapped in `<!-- youtnote:general-note:start -->` and `<!-- youtnote:general-note:end -->` marker lines. Place it before the timestamped notes for that video. Omit it entirely otherwise.
 
 ### 5. Assemble the file
 
-- Start with the frontmatter (`youtnote: true` and `youtnote-format-version: 2`).
+- Start with the frontmatter (`youtnote: true` and `youtnote-format-version: 2`), then a blank line and `<!-- youtnote:file:start -->`.
 - For each video, in the order the user provided the URLs:
   1. `<!-- youtnote:video:start -->`, then a blank line.
-  2. `<!-- youtnote:section:source:start -->`, the video link line `[Title](https://www.youtube.com/watch?v=ID)`, then `<!-- youtnote:section:source:end -->`. Use the video's real title if available (from the transcript metadata or the user); fall back to the video ID if the title is unknown.
-  3. Blank line, then `<!-- youtnote:section:notes:start -->`, then a blank line.
+  2. A `source` container containing a `title` container and a `url` container. Use the video's real title if available from transcript metadata or the user. Fall back to the video ID if unknown. Store the canonical URL as plain text in `url`.
+  3. Blank line, then `<!-- youtnote:notes:start -->`, then a blank line.
   4. General note (if requested): `<!-- youtnote:general-note:start -->`, the body, `<!-- youtnote:general-note:end -->`, then a blank line.
-  5. `<!-- youtnote:timestamped-notes:start -->`, a blank line, then the timestamped notes in ascending order — each a `` `TIMESTAMP` <!-- youtnote:timestamp --> `` marker line followed by its body — each followed by a blank line — then `<!-- youtnote:timestamped-notes:end -->` and a blank line.
-  6. `<!-- youtnote:section:notes:end -->`, blank line, `<!-- youtnote:video:end -->`.
-- Separate consecutive video blocks with one blank line. All videos go into a single file.
+  5. Each timestamped note in ascending order: `<!-- youtnote:timestamped-note:start t=TIMESTAMP -->`, the escaped body, then `<!-- youtnote:timestamped-note:end -->`. Separate records with a blank line outside their boundaries.
+  6. `<!-- youtnote:notes:end -->`, blank line, `<!-- youtnote:video:end -->`.
+- Separate consecutive video blocks with one blank line. All videos go into a single file. Close with `<!-- youtnote:file:end -->` and a trailing newline.
 
 ### 6. Confirm the path with the user before writing
 
@@ -161,24 +180,22 @@ Before creating the file:
 
 After writing the file, re-read it and check:
 
-- First four lines are `---`, `youtnote: true`, `youtnote-format-version: 2`, `---`.
-- Every `<!-- youtnote:video:start -->` is matched by exactly one `<!-- youtnote:video:end -->`, and the markers balance (equal counts).
-- Every `<!-- youtnote:section:source:start -->` is matched by exactly one `<!-- youtnote:section:source:end -->`, it is the first section of its video block, and it contains exactly one video link line with a canonical `https://www.youtube.com/watch?v=ID` URL.
-- Every `<!-- youtnote:section:notes:start -->` is matched by exactly one `<!-- youtnote:section:notes:end -->` inside the same video block, after the source section.
-- No `youtnote:section:transcript` markers — this skill writes notes only.
-- No bare video link or other non-blank content directly inside a `video:start`/`video:end` block — only section markers and blank lines.
-- Every notes section contains exactly one `<!-- youtnote:timestamped-notes:start -->` / `<!-- youtnote:timestamped-notes:end -->` collection block with balanced markers, holding all of that video's timestamped notes.
-- Every `` `TIMESTAMP` <!-- youtnote:timestamp --> `` line appears only inside a timestamped-notes collection — backtick-wrapped timestamp, one space, the comment marker, and nothing else on the line; each marker starts a new note.
-- General notes (if any) are wrapped in the exact marker lines `<!-- youtnote:general-note:start -->` and `<!-- youtnote:general-note:end -->`, with balanced start/end pairs inside the same notes section.
-- No link-style record markers anywhere — the only Markdown links in the file are the source-section video links and links inside note bodies.
-- Within each notes section, the general note (if present) comes before all timestamped notes.
+- Frontmatter declares `youtnote: true` and `youtnote-format-version: 2`, and unrelated existing properties have been preserved.
+- Exactly one file wrapper encloses the body after frontmatter.
+- Every video, source, title, URL, notes, general-note, and timestamped-note opening marker has its matching closing marker under the correct parent. Equal counts alone are not sufficient. Check actual nesting.
+- Each video has source first, containing title then a single-line canonical YouTube URL, followed by exactly one notes container.
+- No transcript container is generated for a new file. Existing transcripts are preserved when updating a file.
+- Each timestamped note has its own wrapper with exactly one valid, unquoted `t` attribute.
+- No `section` prefixes, timestamped-notes collection wrappers, backtick timestamp headers, Markdown-link source records, or link-style structural markers.
+- General notes precede timestamped notes.
 - Timestamped notes are sorted ascending.
-- Timestamp formats match each video's duration per the rules above.
-- No empty note bodies — every delimiter is followed by non-empty body text.
-- No non-blank content outside video blocks or outside the notes sections.
+- Timestamps follow the whole-second grammar above.
+- Every generated note has meaningful content. Empty records are valid storage but should not be generated as placeholders.
+- Payload marker lines and leading backslashes use the reversible escaping rules above.
+- No stray non-blank content outside permitted payloads and containers.
 - The file ends with a trailing newline.
 
-If any check fails, fix the file before reporting success.
+If the repository is available, also validate the file using its current `parseYoutnoteDocument` implementation. Do not rely on an older installed plugin to validate unreleased format revisions. If any check fails, fix the file before reporting success.
 
 ## Example output
 
@@ -190,57 +207,75 @@ youtnote: true
 youtnote-format-version: 2
 ---
 
+<!-- youtnote:file:start -->
+
 <!-- youtnote:video:start -->
 
-<!-- youtnote:section:source:start -->
-[How Transformers Work](https://www.youtube.com/watch?v=SZorAJ4I7xg)
-<!-- youtnote:section:source:end -->
+<!-- youtnote:source:start -->
 
-<!-- youtnote:section:notes:start -->
+<!-- youtnote:title:start -->
+How Transformers Work
+<!-- youtnote:title:end -->
+
+<!-- youtnote:url:start -->
+https://www.youtube.com/watch?v=SZorAJ4I7xg
+<!-- youtnote:url:end -->
+
+<!-- youtnote:source:end -->
+
+<!-- youtnote:notes:start -->
 
 <!-- youtnote:general-note:start -->
 A 20-minute walkthrough of the Transformer architecture: self-attention, positional encoding, multi-head attention, and the encoder-decoder structure. Useful as a primer before reading "Attention Is All You Need".
 <!-- youtnote:general-note:end -->
 
-<!-- youtnote:timestamped-notes:start -->
-
-`00:15` <!-- youtnote:timestamp -->
+<!-- youtnote:timestamped-note:start t=15 -->
 Transformers replaced RNNs by processing all tokens in parallel instead of sequentially.
+<!-- youtnote:timestamped-note:end -->
 
-`01:42` <!-- youtnote:timestamp -->
+<!-- youtnote:timestamped-note:start t=1:42 -->
 Self-attention lets each token weigh every other token, producing context-aware representations.
+<!-- youtnote:timestamped-note:end -->
 
-`03:05` <!-- youtnote:timestamp -->
+<!-- youtnote:timestamped-note:start t=3:05 -->
 Positional encodings inject order information since attention itself is permutation-invariant.
+<!-- youtnote:timestamped-note:end -->
 
-`10:20` <!-- youtnote:timestamp -->
+<!-- youtnote:timestamped-note:start t=10:20 -->
 Multi-head attention runs several attention layers in parallel, each learning different relations.
+<!-- youtnote:timestamped-note:end -->
 
-<!-- youtnote:timestamped-notes:end -->
-
-<!-- youtnote:section:notes:end -->
+<!-- youtnote:notes:end -->
 
 <!-- youtnote:video:end -->
 
 <!-- youtnote:video:start -->
 
-<!-- youtnote:section:source:start -->
-[Attention Is All You Need - Paper Walkthrough](https://www.youtube.com/watch?v=rBC6OTgDd2k)
-<!-- youtnote:section:source:end -->
+<!-- youtnote:source:start -->
 
-<!-- youtnote:section:notes:start -->
+<!-- youtnote:title:start -->
+Attention Is All You Need - Paper Walkthrough
+<!-- youtnote:title:end -->
 
-<!-- youtnote:timestamped-notes:start -->
+<!-- youtnote:url:start -->
+https://www.youtube.com/watch?v=rBC6OTgDd2k
+<!-- youtnote:url:end -->
 
-`00:30` <!-- youtnote:timestamp -->
+<!-- youtnote:source:end -->
+
+<!-- youtnote:notes:start -->
+
+<!-- youtnote:timestamped-note:start t=30 -->
 The paper introduces scaled dot-product attention: Query and Key dot products, scaled by sqrt(d_k), then softmax.
+<!-- youtnote:timestamped-note:end -->
 
-`02:10` <!-- youtnote:timestamp -->
+<!-- youtnote:timestamped-note:start t=2:10 -->
 The encoder is a stack of identical layers, each with self-attention and a feed-forward sub-layer.
+<!-- youtnote:timestamped-note:end -->
 
-<!-- youtnote:timestamped-notes:end -->
-
-<!-- youtnote:section:notes:end -->
+<!-- youtnote:notes:end -->
 
 <!-- youtnote:video:end -->
+
+<!-- youtnote:file:end -->
 ```

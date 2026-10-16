@@ -69,7 +69,7 @@ For more details on this issue, please **[read here](docs/error-153-ios.md)**.
 - **General notes**: Add one timestamp-less note per video for summaries, overviews, or context that doesn't belong to a specific moment. General notes sit at the top of the note list and are visually distinct.
 - **Search notes**: Filter notes for the active video by text content or timestamp. The search bar lives in the notes pane header and clears automatically when switching videos or adding new notes.
 - **URI scheme**: Let external tools (scripts, browser bookmarks, automation) add videos and notes to youtnotes in your vault via `obsidian://youtnote` URIs. Disabled by default. See the [URI Scheme Guide](docs/uri-scheme-guide.md).
-- **Video transcripts**: Fetch a video's YouTube captions into the youtnote (pick the caption track when several exist), browse them alongside the player, click a timestamp to seek, copy captions, edit caption text, and create notes directly from any caption. Each caption is stored on a plain, greppable line containing an inline-code timestamp, a hidden duration marker (`<!-- d=N -->`), and the caption text.
+- **Video transcripts**: Fetch a video's YouTube captions into the youtnote (pick the caption track when several exist), browse them alongside the player, click a timestamp to seek, copy captions, edit caption text, and create notes directly from any caption. Each caption is stored on a plain, greppable line containing an HTML-comment timestamp and duration marker (`<!-- t=M:SS.mmm d=N -->`) followed by the caption text.
 - **AI-generated notes**: Optionally generate timestamped notes from a video's transcript using OpenAI, Anthropic, Google (Gemini), or a custom OpenAI-compatible endpoint. Configured API keys are stored in Obsidian Keychain (SecretStorage), not plugin data so they won't sync with your vault for security.
 
 
@@ -100,22 +100,66 @@ For more details on this issue, please **[read here](docs/error-153-ios.md)**.
 
 ## Storage format
 
-Youtnote files are plain Markdown with a versioned storage format declared by the `youtnote-format-version` frontmatter property (the Youtnote file-format version). The current version is **2**, which wraps each video in explicit `<!-- youtnote:video:start -->` / `<!-- youtnote:video:end -->` boundaries and stores the video source link, notes, and transcripts inside explicitly bounded `<!-- youtnote:section:source:... -->`, `<!-- youtnote:section:notes:... -->`, and `<!-- youtnote:section:transcript:... -->` sections. Unrelated frontmatter and unknown sections are preserved untouched.
+Youtnote files are plain Markdown identified by a top-level `youtnote: true` frontmatter property (`youtnote: yes` is also recognized) plus a versioned storage format declared by the `youtnote-format-version` frontmatter property (the Youtnote file-format version). The current version is **2**, which wraps the entire plugin-managed body in `<!-- youtnote:file:start -->` / `<!-- youtnote:file:end -->` markers. Inside the file wrapper, each video lives in a `<!-- youtnote:video:start -->` / `<!-- youtnote:video:end -->` block containing a `<!-- youtnote:source:... -->` section (title and raw YouTube URL in their own `<!-- youtnote:title:... -->` and `<!-- youtnote:url:... -->` fields), exactly one `<!-- youtnote:notes:... -->` section, and at most one `<!-- youtnote:transcript:... -->` section. Unrelated frontmatter and unknown sections are preserved untouched.
+
+A complete file looks like this:
+
+```markdown
+---
+youtnote: true
+youtnote-format-version: 2
+---
+
+<!-- youtnote:file:start -->
+
+<!-- youtnote:video:start -->
+
+<!-- youtnote:source:start -->
+<!-- youtnote:title:start -->
+Test Video
+<!-- youtnote:title:end -->
+<!-- youtnote:url:start -->
+https://www.youtube.com/watch?v=dQw4w9WgXcQ
+<!-- youtnote:url:end -->
+<!-- youtnote:source:end -->
+
+<!-- youtnote:notes:start -->
+
+<!-- youtnote:general-note:start -->
+Overview of the video.
+<!-- youtnote:general-note:end -->
+
+<!-- youtnote:timestamped-note:start t=1:23 -->
+First timestamped note.
+<!-- youtnote:timestamped-note:end -->
+
+<!-- youtnote:notes:end -->
+
+<!-- youtnote:transcript:start -->
+<!-- t=0:00.320 d=14260 --> [Music]
+<!-- t=5 d=0 --> hello
+<!-- youtnote:transcript:end -->
+
+<!-- youtnote:video:end -->
+
+<!-- youtnote:file:end -->
+```
 
 Inside a notes section, each record uses an HTML-comment structural marker rather than a Markdown link, so these generated markers do not create synthetic entries in Obsidian's link graph:
 
-- **Timestamped notes**: one `<!-- youtnote:timestamped-notes:start -->` … `<!-- youtnote:timestamped-notes:end -->` collection per notes section holds all timestamped notes for that video; each `` `M:SS` <!-- youtnote:timestamp --> `` marker line starts a note whose body runs until the next marker or the collection end. The collection block is always emitted, even when empty.
+- **Timestamped notes**: each note is individually wrapped in `<!-- youtnote:timestamped-note:start t=M:SS -->` and `<!-- youtnote:timestamped-note:end -->`, where `t` is a whole-second timestamp in `S`, `M:SS`, or `H:MM:SS` form, with seconds after a colon and minutes in the hour form in `00` to `59`. The note body is arbitrary Markdown between the markers, with leading and trailing whitespace preserved.
 - **General note**: a body wrapped in `<!-- youtnote:general-note:start -->` and `<!-- youtnote:general-note:end -->`.
-- **Caption** (transcript section): one line containing an inline-code `M:SS.mmm` timestamp, a hidden `<!-- d=N -->` marker, and the caption text. Every caption carries a mandatory duration in milliseconds; `d=0` means YouTube did not provide a usable positive duration for that caption.
-
-- **Unmanaged sections**: `<!-- youtnote:section:<type>:... -->` blocks with types Youtnote does not manage are preserved verbatim — marker attributes and body content included — and marker-looking text inside fenced code blocks stays opaque content. Unknown sections inside a video block stay attached to that video's layout. Unknown sections outside video blocks are file-level sections; they are preserved (including in files with no videos) and are canonically written immediately after the frontmatter, before all videos. This release preserves file-level sections but provides no editing UI for them.
+- **Title**: the exact fetched or authored title text between the title markers, which may be empty or span multiple lines.
+- **Caption** (transcript section): one line per caption, `<!-- t=M:SS.mmm d=N --> caption text`, with exactly one space between the closing comment and the caption text. `d` is a mandatory nonnegative duration in milliseconds, and `d=0` means YouTube did not provide a usable positive duration. Caption text is a single physical line, so `\`, carriage return, and line feed are stored as the escape sequences `\\`, `\r`, and `\n`.
+- **Literal content codec**: inside note bodies and titles, a line that would collide with the format is stored with one leading backslash. This covers lines starting with a backslash, lines whose trimmed form starts with `<!--` followed by optional whitespace and `youtnote:`, and Markdown fence delimiter lines (backtick or tilde runs of three or more, with Markdown indentation allowed). Escaped lines are decoded back to their exact text, so the stored file never changes what a note contains: an unfinished code fence cannot swallow the surrounding markers, and marker-looking text stays literal.
+- **Unmanaged sections**: `<!-- youtnote:<type>:start -->` … `<!-- youtnote:<type>:end -->` blocks with types Youtnote does not manage are preserved verbatim, marker attributes and body content included, and marker-looking text inside fenced code blocks stays opaque content. The reserved names `file`, `video`, `source`, `title`, `url`, `notes`, `general-note`, `timestamped-note`, and `transcript` are managed by Youtnote and cannot appear as unmanaged containers. Unknown sections inside a video block stay attached to that video's layout. Unknown sections at file level are preserved (including in files with no videos) and are canonically written inside the file wrapper before all videos. This release preserves file-level sections but provides no editing UI for them.
 - **Per-file conversion**: older files (unversioned or `youtnote-format-version: 1`) are never rewritten automatically. Opening one in the Youtnote view shows a per-file dialog — **Open read-only** or **Convert to v2** — and dismissing it keeps the file read-only. A read-only file cannot be modified from inside Youtnote and is never written back until you choose to convert it; other plugins, the Markdown editor, or other devices can still change the file — read-only is a Youtnote-side protection, not a file lock. There is no automatic-conversion preference and no bulk conversion; every file asks individually. Conversion rewrites the file into version-2 markers that older plugin versions cannot read, so update Youtnote on every device that syncs the vault before converting. If the file was already converted to version 2 elsewhere, it simply opens without rewriting its data.
 - **Newer formats**: a file declaring a higher `youtnote-format-version` (e.g. written by a newer plugin version) is never parsed or rewritten — it fails closed and opens in the regular Markdown view with an explanatory message.
 - **Downgrading**: an older plugin version does not understand version-2 markers. If you convert a file and then downgrade the plugin, the old plugin will not be able to read the file correctly.
 
 ### Format evolution
 
-New, independent data that older readers can safely ignore may be added inside new opaque `youtnote:section` types or frontmatter without bumping the file-format version. Changes to existing syntax or semantics that older readers cannot preserve or ignore require bumping `youtnote-format-version`; files declaring a version above the supported one are always rejected rather than partially read.
+New, independent data that older readers can safely ignore may be added inside new opaque `youtnote:<type>` containers or frontmatter without bumping the file-format version. Changes to existing syntax or semantics that older readers cannot preserve or ignore require bumping `youtnote-format-version`; files declaring a version above the supported one are always rejected rather than partially read.
 
 ## Settings Overview
 All options live under `Settings → Plugin Options → Youtnote`:

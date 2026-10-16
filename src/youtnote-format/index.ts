@@ -156,7 +156,14 @@ export function migrateLegacyYoutnote(source: string): MigrationResult {
 
 export function createEmptyYoutnoteMarkdown(): string {
     const { raw } = extractFrontmatter('');
-    return `${withFormatVersion({ raw }, CURRENT_FORMAT_VERSION)}\n\n`;
+    return serializeV2Youtnote({
+        sourceFormatVersion: CURRENT_FORMAT_VERSION,
+        frontmatter: { raw },
+        videos: [],
+        notes: [],
+        videoLayouts: [],
+        fileSections: [],
+    });
 }
 
 export function parseYoutnoteArrays(source: string): { videos: Video[]; notes: Note[] } {
