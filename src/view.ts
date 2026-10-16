@@ -148,12 +148,11 @@ export class YoutnoteView extends TextFileView {
                 this.failToMarkdown(file, describeFormatFailure(parsed), epoch);
                 return;
             }
+            this.enterLegacyPreview(file, parsed.document, source);
             if (wasLegacyPreview) {
-                this.enterLegacyPreview(file, parsed.document, source);
                 return;
             }
             if (this.app.workspace.layoutReady === false) {
-                this.enterLegacyPreview(file, parsed.document, source);
                 void this.finishLegacyLoad(file, epoch).catch(() => {
                     if (epoch === this.loadEpoch && this.file === file) {
                         new Notice('Could not open the legacy format conversion prompt. Reopen the file to try again.', 4000);
@@ -362,6 +361,8 @@ export class YoutnoteView extends TextFileView {
     }
 
     private failToMarkdown(file: TFile, failure: { title: string; message: string }, epoch: number): void {
+        this.writeMode = 'blocked';
+        this.document = null;
         this.plugin.youtnoteFileModes[this.leaf.id ?? file.path] = 'markdown';
         new AlertModal(this.app, failure.title, failure.message).open();
         this.switchToMarkdown(file, epoch);

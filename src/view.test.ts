@@ -1954,7 +1954,7 @@ describe('YoutnoteView startup legacy loading (layout not ready)', () => {
         await flush();
         expect(store.get(f.path)).toBe(V3);
         expect(vault.modify).not.toHaveBeenCalled();
-        expect(view.getWriteMode()).not.toBe('editable-v2');
+        expect(view.getWriteMode()).toBe('blocked');
         expect(unsafeCast<{ setViewState: ReturnType<typeof vi.fn> }>(leaf).setViewState)
             .toHaveBeenCalledWith(expect.objectContaining({ type: 'markdown' }));
     });
@@ -1985,4 +1985,112 @@ describe('YoutnoteView startup legacy loading (layout not ready)', () => {
         await loading;
         expect(view.getWriteMode()).toBe('legacy-preview');
     });
+});
+
+
+describe('YoutnoteView same-tab legacy open while a v2 file was loaded', () => {
+    beforeAll(() => {
+        vi.stubGlobal('window', {
+            setTimeout: (callback: () => void) => {
+                void Promise.resolve().then(callback);
+            },
+        });
+    });
+
+    beforeEach(() => {
+        vi.clearAllMocks();
+        noticeCalls().length = 0;
+        vi.mocked(promptLegacyConversionDecision).mockResolvedValue('read-only');
+    });
+
+    it.each(['read-only', 'convert'] as const)(
+        'never renders the old v2 video under the new file while the modal is pending (%s)',
+        async (decisionKind) => {
+            const { store, vault, view, file, layoutCallbacks } = makeFixture();
+            const oldFile = file('old.md');
+            const newFile = file('legacy.md');
+            store.set(oldFile.path, V2_B);
+            store.set(newFile.path, LEGACY);
+
+            await view.onLoadFile(oldFile);
+            expect(view.getWriteMode()).toBe('editable-v2');
+            await view.onUnloadFile(oldFile);
+
+            interface Snapshot {
+                file: string | undefined;
+                videos: string[];
+                notes: (string | undefined)[];
+                writeMode: string;
+                writable: boolean;
+            }
+            const snapshot = (): Snapshot => ({
+                file: view.file?.path,
+                videos: view.videos.map(v => v.url),
+                notes: view.notes.map(n => n.bodyMarkdown),
+                writeMode: view.getWriteMode(),
+                writable: view.isWritable(),
+            });
+            const snapshots: Snapshot[] = [];
+            const viewForSpy = unsafeCast<{ render(): void }>(view);
+            const originalRender = viewForSpy.render.bind(view);
+            vi.spyOn(viewForSpy, 'render').mockImplementation(() => {
+                originalRender();
+                snapshots.push(snapshot());
+            });
+
+            const decision = deferred<LegacyConversionDecision>();
+            let promptSnapshot: Snapshot | null = null;
+            vi.mocked(promptLegacyConversionDecision).mockImplementation(() => {
+                promptSnapshot = snapshot();
+                return decision.promise;
+            });
+
+            let settled = false;
+            const loading = view.onLoadFile(newFile).then(() => { settled = true; });
+            await flush();
+
+            const expected = {
+                file: newFile.path,
+                videos: ['https://www.youtube.com/watch?v=dQw4w9WgXcQ'],
+                notes: ['A note.'],
+                writeMode: 'legacy-preview',
+                writable: false,
+            };
+            expect(settled).toBe(false);
+            expect(vi.mocked(promptLegacyConversionDecision)).toHaveBeenCalledTimes(1);
+            expect(layoutCallbacks).toHaveLength(0);
+            expect(promptSnapshot).toEqual(expected);
+            expect(snapshots.length).toBeGreaterThan(0);
+            for (const snap of snapshots) {
+                expect(snap).toEqual(expected);
+            }
+            expect(view.getViewData()).toBe(LEGACY);
+            expect(view.activeVideoId).toBe(view.videos[0].id);
+
+            view.handleUpdateVideos([]);
+            view.handleUpdateNotes([]);
+            await flush();
+            expect(vault.process).not.toHaveBeenCalled();
+            expect(vault.modify).not.toHaveBeenCalled();
+
+            decision.resolve(decisionKind);
+            await loading;
+            await flush();
+
+            if (decisionKind === 'read-only') {
+                expect(view.getWriteMode()).toBe('legacy-preview');
+                expect(view.getViewData()).toBe(LEGACY);
+                expect(vault.process).not.toHaveBeenCalled();
+                expect(vault.modify).not.toHaveBeenCalled();
+            } else {
+                expect(vault.process).toHaveBeenCalledTimes(1);
+                expect(view.getWriteMode()).toBe('editable-v2');
+                const saved = store.get(newFile.path)!;
+                expect(saved).toContain('youtnote-format-version: 2');
+                expect(saved).toContain('A note.');
+                expect(parseYoutnoteDocument(saved).ok).toBe(true);
+            }
+            expect(store.get(oldFile.path)).toBe(V2_B);
+        }
+    );
 });
