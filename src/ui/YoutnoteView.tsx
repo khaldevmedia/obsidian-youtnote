@@ -3,6 +3,7 @@ import classNames from 'classnames';
 import { requestUrl, setIcon, Notice, Platform } from 'obsidian';
 import Sortable, { SortableEvent } from 'sortablejs';
 import { YouTubeIframeAdapter } from '../PlayerAdapter';
+import { seekToSelection } from '../playback';
 import { VideoId, NoteId, Video, Note, TranscriptEntry } from '../types';
 import { VideoListItem } from './VideoListItem';
 import { NoteListItem } from './NoteListItem';
@@ -499,17 +500,9 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
         };
     }, [showTranscript, hasTranscript, activeTranscript, activeVideoId, isPlayerReady]);
 
-    const seekToTimestamp = useCallback(async (timestampSec: number) => {
-        const playerAdapter = playerAdapterRef.current;
-        if (!playerAdapter) return;
-
-        if (settings.autoplayOnNoteSelect) {
-            await playerAdapter.seek(timestampSec);
-            await playerAdapter.play();
-        } else {
-            await playerAdapter.seekAndPause(timestampSec);
-        }
-    }, [settings.autoplayOnNoteSelect]);
+    const seekToTimestamp = useCallback(async (timestampSec: number, selection: 'note' | 'caption') => {
+        await seekToSelection(playerAdapterRef.current, timestampSec, selection, settings);
+    }, [settings.autoplayOnNoteSelect, settings.autoplayOnCaptionSelect]);
 
     const handleNoteClick = async (e: React.MouseEvent, noteId: NoteId, timestampSec: number) => {
         // Prevent clicking if we're clicking an action button inside the note
@@ -536,7 +529,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
         if (timestampSec === -1) return;
 
         // Handle video playback - PlayerAdapter.seek() has internal waiting logic
-        await seekToTimestamp(timestampSec);
+        await seekToTimestamp(timestampSec, 'note');
     };
 
     const handleNoteSelect = async (noteId: NoteId, timestampSec: number) => {
@@ -547,7 +540,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
         if (timestampSec === -1) return;
 
         // Handle video playback - PlayerAdapter.seek() has internal waiting logic
-        await seekToTimestamp(timestampSec);
+        await seekToTimestamp(timestampSec, 'note');
     };
 
     const handleAddNote = async () => {
@@ -790,15 +783,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
         setActiveNoteId(noteId);
 
         // Seek to the new timestamp in the player
-        const playerAdapter = playerAdapterRef.current;
-        if (playerAdapter) {
-            if (settings.autoplayOnNoteSelect) {
-                await playerAdapter.seek(result.seconds);
-                await playerAdapter.play();
-            } else {
-                await playerAdapter.seekAndPause(result.seconds);
-            }
-        }
+        await seekToTimestamp(result.seconds, 'note');
     };
 
     const cancelTimestampEdit = () => {
@@ -1013,7 +998,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
 
     const handleTranscriptSeek = useCallback((index: number, startMs: number) => {
         setActiveTranscriptIndex(index);
-        void seekToTimestamp(startMs / 1000);
+        void seekToTimestamp(startMs / 1000, 'caption');
     }, [seekToTimestamp]);
 
     const handleCopyCaption = useCallback(async (entry: TranscriptEntry, displayTimestamp: string) => {

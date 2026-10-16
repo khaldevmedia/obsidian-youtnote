@@ -105,6 +105,92 @@ describe('mergePluginSettings', () => {
     });
 });
 
+describe('autoplayOnCaptionSelect', () => {
+    it('defaults to false for fresh installs', () => {
+        expect(DEFAULT_SETTINGS.autoplayOnCaptionSelect).toBe(false);
+        expect(mergePluginSettings({}).autoplayOnCaptionSelect).toBe(false);
+        expect(mergePluginSettings(undefined).autoplayOnCaptionSelect).toBe(false);
+    });
+
+    it('seeds the caption flag from a saved note preference', () => {
+        expect(mergePluginSettings({ autoplayOnNoteSelect: true }).autoplayOnCaptionSelect).toBe(true);
+        expect(mergePluginSettings({ autoplayOnNoteSelect: false }).autoplayOnCaptionSelect).toBe(false);
+    });
+
+    it('keeps saved opposite flag values independent', () => {
+        const merged = mergePluginSettings({ autoplayOnNoteSelect: false, autoplayOnCaptionSelect: true });
+        expect(merged.autoplayOnCaptionSelect).toBe(true);
+        expect(merged.autoplayOnNoteSelect).toBe(false);
+    });
+
+    it('falls back to the saved note preference when the caption value is invalid', () => {
+        expect(mergePluginSettings({ autoplayOnNoteSelect: true, autoplayOnCaptionSelect: 'yes' }).autoplayOnCaptionSelect).toBe(true);
+        expect(mergePluginSettings({ autoplayOnNoteSelect: false, autoplayOnCaptionSelect: 1 }).autoplayOnCaptionSelect).toBe(false);
+        expect(mergePluginSettings({ autoplayOnCaptionSelect: true }).autoplayOnCaptionSelect).toBe(true);
+    });
+
+    it('keeps an explicit saved caption false through a JSON round-trip when the note flag is true', () => {
+        const saved = JSON.stringify({ autoplayOnNoteSelect: true, autoplayOnCaptionSelect: false });
+        const merged = mergePluginSettings(JSON.parse(saved));
+        expect(merged.autoplayOnCaptionSelect).toBe(false);
+        expect(merged.autoplayOnNoteSelect).toBe(true);
+    });
+});
+
+describe('caption autoplay settings controls', () => {
+    const stubFragment = () => {
+        vi.stubGlobal('createFragment', (callback: (frag: {
+            appendText(text: string): void;
+            createEl(tag: string): unknown;
+        }) => void) => {
+            callback({ appendText: vi.fn(), createEl: () => ({}) });
+            return {};
+        });
+    };
+
+    it('exposes distinct toggle keys for note and caption autoplay', () => {
+        stubFragment();
+        try {
+            const tab = new YoutnoteSettingTab({} as never, { settings: DEFAULT_SETTINGS } as never);
+            const controls = tab.getSettingDefinitions()
+                .flatMap(group => group.items)
+                .flatMap(item => ('control' in item && item.control.type === 'toggle'
+                    ? [{ key: item.control.key, name: item.name }]
+                    : []));
+            const noteToggle = controls.find(c => c.key === 'autoplayOnNoteSelect');
+            const captionToggle = controls.find(c => c.key === 'autoplayOnCaptionSelect');
+            expect(noteToggle).toBeDefined();
+            expect(captionToggle).toBeDefined();
+            expect(captionToggle!.name).not.toBe(noteToggle!.name);
+        } finally {
+            vi.unstubAllGlobals();
+        }
+    });
+
+    it('setControlValue updates only the caption flag and persists once', async () => {
+        const saveDataState = vi.fn(() => Promise.resolve());
+        const refreshAllViews = vi.fn();
+        const plugin = {
+            settings: mergePluginSettings({ autoplayOnNoteSelect: true }),
+            saveDataState,
+            refreshAllViews,
+        };
+        const tab = new YoutnoteSettingTab({} as never, plugin as never);
+
+        await tab.setControlValue('autoplayOnCaptionSelect', false);
+        expect(plugin.settings.autoplayOnCaptionSelect).toBe(false);
+        expect(plugin.settings.autoplayOnNoteSelect).toBe(true);
+        expect(saveDataState).toHaveBeenCalledTimes(1);
+        expect(refreshAllViews).toHaveBeenCalledTimes(1);
+
+        await tab.setControlValue('autoplayOnNoteSelect', false);
+        expect(plugin.settings.autoplayOnNoteSelect).toBe(false);
+        expect(plugin.settings.autoplayOnCaptionSelect).toBe(false);
+        expect(saveDataState).toHaveBeenCalledTimes(2);
+        expect(refreshAllViews).toHaveBeenCalledTimes(2);
+    });
+});
+
 describe('refreshAIModelList', () => {
     const makeAI = (mutate?: (ai: AISettings) => void): AISettings => {
         const ai: AISettings = {

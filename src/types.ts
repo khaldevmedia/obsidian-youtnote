@@ -93,6 +93,7 @@ export interface AISettings {
 export interface PluginSettings {
 	pinOnPhone: boolean;
 	autoplayOnNoteSelect: boolean;
+	autoplayOnCaptionSelect: boolean;
 	singleExpandMode: boolean;
 	persistExpandedState: boolean;
 	newLineTrigger: 'shift+enter' | 'enter';

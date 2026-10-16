@@ -162,9 +162,10 @@ Inside a notes section, each record uses an HTML-comment structural marker rathe
 New, independent data that older readers can safely ignore may be added inside new opaque `youtnote:<type>` containers or frontmatter without bumping the file-format version. Changes to existing syntax or semantics that older readers cannot preserve or ignore require bumping `youtnote-format-version`; files declaring a version above the supported one are always rejected rather than partially read.
 
 ## Settings Overview
-All options live under `Settings → Plugin Options → Youtnote`:
+All options live under `Settings → Youtnote`; the autoplay toggles below sit in the **Behavior** section:
 - **Pin video on phone**: Keep the iframe sticky while scrolling on mobile.
-- **Autoplay on note select**: Choose whether seeking should immediately play.
+- **Autoplay on note select**: Choose whether seeking to a note timestamp should immediately play.
+- **Autoplay on caption select**: Choose whether clicking a transcript caption timestamp should immediately play. This is independent of the note setting; both are off by default on new installs, and an existing saved note autoplay preference is used to initialize the caption toggle once.
 - **Single expand mode**: Only one note stays expanded at a time.
 - **Persist expanded state**: Remember which notes were expanded when coming back to the video.
 - **New line trigger**: Decide whether `Enter` or `Shift+Enter` inserts a newline vs. saves.

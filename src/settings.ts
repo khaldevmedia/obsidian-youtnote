@@ -7,6 +7,7 @@ import { URI_SCHEME_GUIDE_URL } from "./constants";
 
 export const DEFAULT_SETTINGS: PluginSettings = {
 	autoplayOnNoteSelect: false,
+	autoplayOnCaptionSelect: false,
 	singleExpandMode: true,
 	newLineTrigger: 'shift+enter',
 	persistExpandedState: false,
@@ -83,6 +84,9 @@ function mergeAISettings(raw: unknown): AISettings {
 export function mergePluginSettings(raw: unknown): PluginSettings {
 	const source = isRecord(raw) ? raw : {};
 	const merged = Object.assign({}, DEFAULT_SETTINGS, source);
+	merged.autoplayOnCaptionSelect = typeof source.autoplayOnCaptionSelect === 'boolean'
+		? source.autoplayOnCaptionSelect
+		: source.autoplayOnNoteSelect === true;
 	merged.ai = mergeAISettings(source.ai);
 	return merged;
 }
@@ -140,7 +144,7 @@ export async function refreshAIModelList(
 
 type ToggleKey = keyof Pick<
 	PluginSettings,
-	'pinOnPhone' | 'autoplayOnNoteSelect' | 'singleExpandMode' | 'persistExpandedState' | 'openExportedFile' | 'showNoteStats' | 'autoScrollTranscript' | 'switchToNotesAfterTranscriptNote' | 'uriSchemeEnabled'
+	'pinOnPhone' | 'autoplayOnNoteSelect' | 'autoplayOnCaptionSelect' | 'singleExpandMode' | 'persistExpandedState' | 'openExportedFile' | 'showNoteStats' | 'autoScrollTranscript' | 'switchToNotesAfterTranscriptNote' | 'uriSchemeEnabled'
 >;
 
 type Desc = string | (() => string | DocumentFragment);
@@ -201,6 +205,12 @@ const SETTING_DEFINITIONS: SettingGroupDef[] = [
 				name: 'Autoplay on note select',
 				desc: 'Automatically play the video when clicking on a note timestamp.',
 				key: 'autoplayOnNoteSelect',
+			},
+			{
+				kind: 'toggle',
+				name: 'Autoplay on caption select',
+				desc: 'Automatically play the video when clicking on a transcript caption timestamp.',
+				key: 'autoplayOnCaptionSelect',
 			},
 			{
 				kind: 'toggle',
