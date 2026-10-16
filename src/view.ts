@@ -229,7 +229,10 @@ export class YoutnoteView extends TextFileView {
         } catch {
             return;
         }
-        if (epoch !== this.loadEpoch) {
+        if (epoch !== this.loadEpoch || this.file !== file) {
+            return;
+        }
+        if (this.writeMode === 'legacy-preview' && this.loadedFile === file && source === this.latestSource) {
             return;
         }
         this.latestSource = source;
