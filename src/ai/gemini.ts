@@ -66,12 +66,8 @@ export class GeminiProvider implements AIProvider {
 
         const generationConfig: Record<string, unknown> = { maxOutputTokens: GEMINI_MAX_OUTPUT_TOKENS };
         if (request.responseSchema) {
-            generationConfig.responseFormat = {
-                text: {
-                    mimeType: 'application/json',
-                    schema: createCompatibleResponseSchema(request.responseSchema.schema),
-                },
-            };
+            generationConfig.responseMimeType = 'application/json';
+            generationConfig.responseJsonSchema = createCompatibleResponseSchema(request.responseSchema.schema);
         }
 
         const requestOptions: AIRequestOptions = {

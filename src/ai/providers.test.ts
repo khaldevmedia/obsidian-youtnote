@@ -549,6 +549,11 @@ describe('GeminiProvider', () => {
         const body = lastRequestBody();
         expect(body.systemInstruction).toEqual({ parts: [{ text: 'Be helpful' }] });
         expect(body.generationConfig).toEqual({ maxOutputTokens: 8192 });
+        const generationConfig = body.generationConfig as Record<string, unknown>;
+        expect(generationConfig).not.toHaveProperty('responseFormat');
+        expect(generationConfig).not.toHaveProperty('responseSchema');
+        expect(generationConfig).not.toHaveProperty('responseMimeType');
+        expect(generationConfig).not.toHaveProperty('responseJsonSchema');
         expect(body.contents).toEqual([
             { role: 'user', parts: [{ text: 'Hello' }] },
             { role: 'model', parts: [{ text: 'Hi there' }] },
@@ -571,7 +576,7 @@ describe('GeminiProvider', () => {
         ]);
     });
 
-    it('adds generationConfig.responseFormat for structured requests', async () => {
+    it('adds generationConfig.responseMimeType and responseJsonSchema for structured requests', async () => {
         respond(jsonResponse(200, {
             candidates: [{ content: { parts: [{ text: '{"segments":[]}' }] }, finishReason: 'STOP' }],
         }));
@@ -579,15 +584,11 @@ describe('GeminiProvider', () => {
         const generationConfig = lastRequestBody().generationConfig as Record<string, unknown>;
         expect(generationConfig).toEqual({
             maxOutputTokens: 8192,
-            responseFormat: {
-                text: {
-                    mimeType: 'application/json',
-                    schema: createCompatibleResponseSchema(TEST_RESPONSE_SCHEMA.schema),
-                },
-            },
+            responseMimeType: 'application/json',
+            responseJsonSchema: createCompatibleResponseSchema(TEST_RESPONSE_SCHEMA.schema),
         });
+        expect(generationConfig).not.toHaveProperty('responseFormat');
         expect(generationConfig).not.toHaveProperty('responseSchema');
-        expect(generationConfig).not.toHaveProperty('responseMimeType');
     });
 
     it('rejects promptFeedback.blockReason as blocked even without candidates', async () => {
@@ -814,6 +815,12 @@ describe('createAIProviderError', () => {
         ['unsupported_parameter code', { error: { code: 'unsupported_parameter', param: 'response_format', message: 'Unsupported parameter' } }, 400, true, 'unsupported-structured-output'],
         ['unsupported_value code', { error: { code: 'unsupported_value', param: 'output_config.format', message: 'Unsupported value' } }, 422, true, 'unsupported-structured-output'],
         ['unsupported gemini responseFormat', { error: { code: 'unsupported_parameter', param: 'generationConfig.responseFormat', message: 'unsupported' } }, 400, true, 'unsupported-structured-output'],
+        ['unsupported gemini responseJsonSchema', { error: { code: 'unsupported_parameter', param: 'generationConfig.responseJsonSchema', message: 'unsupported' } }, 400, true, 'unsupported-structured-output'],
+        ['unsupported gemini responseMimeType', { error: { code: 'unsupported_parameter', param: 'generationConfig.responseMimeType', message: 'unsupported' } }, 400, true, 'unsupported-structured-output'],
+        ['unsupported snake_case response_json_schema', { error: { code: 'unsupported_parameter', param: 'generation_config.response_json_schema', message: 'unsupported' } }, 400, true, 'unsupported-structured-output'],
+        ['unsupported snake_case response_mime_type', { error: { code: 'unsupported_parameter', param: 'generation_config.response_mime_type', message: 'unsupported' } }, 400, true, 'unsupported-structured-output'],
+        ['gemini unknown responseJsonSchema field', { error: { message: 'Unknown name "responseJsonSchema": Cannot find field.', status: 'INVALID_ARGUMENT' } }, 400, true, 'unsupported-structured-output'],
+        ['gemini unknown response_json_schema field', { error: { message: 'Unknown name "response_json_schema": Cannot find field.', status: 'INVALID_ARGUMENT' } }, 400, true, 'unsupported-structured-output'],
         ['stale tool_choice param', { error: { code: 'unsupported_parameter', param: 'tool_choice', message: 'tool_choice is not supported' } }, 400, true, 'provider'],
         ['stale responseSchema param', { error: { code: 'unsupported_parameter', param: 'responseSchema', message: 'responseSchema is not supported' } }, 400, true, 'provider'],
         ['invalid schema for response_format', { error: { message: 'Invalid schema for response_format: additionalProperties is not allowed' } }, 400, true, 'provider'],
@@ -830,6 +837,10 @@ describe('createAIProviderError', () => {
         ['schema constraint rejection', { error: { message: "json_schema is invalid: 'minimum' is not supported" } }, 400, true, 'provider'],
         ['invalid_json_schema code', { error: { code: 'invalid_json_schema', param: 'response_format.json_schema.schema', message: 'Invalid schema' } }, 400, true, 'provider'],
         ['param path into schema', { error: { code: 'unsupported_parameter', param: 'response_format.json_schema.schema.properties.markdown', message: 'x' } }, 400, true, 'provider'],
+        ['param path into responseJsonSchema', { error: { code: 'unsupported_parameter', param: 'generationConfig.responseJsonSchema.properties.markdown', message: 'unsupported parameter' } }, 400, true, 'provider'],
+        ['param path into response_json_schema', { error: { code: 'unsupported_parameter', param: 'generation_config.response_json_schema.properties.markdown', message: 'unsupported parameter' } }, 400, true, 'provider'],
+        ['invalid schema for responseJsonSchema', { error: { code: 'invalid_json_schema', param: 'generation_config.response_json_schema', message: 'Invalid schema' } }, 400, true, 'provider'],
+        ['invalid mime enum value', { error: { status: 'INVALID_ARGUMENT', message: 'Invalid value at \'generation_config.response_format.text.mime_type\' (TYPE_STRING), "application/json"' } }, 400, true, 'provider'],
         ['classification disabled', { error: { message: 'response_format is not supported' } }, 400, false, 'provider'],
         ['wrong status 401', { error: { message: 'response_format is not supported' } }, 401, true, 'provider'],
         ['wrong status 429', { error: { message: 'response_format is not supported' } }, 429, true, 'provider'],
@@ -1187,13 +1198,11 @@ describe('production schema on the wire', () => {
         const provider = new GeminiProvider({ apiKey: 'g-key', model: 'gemini-2.0-flash', timeoutMs: 5000 });
         await provider.sendConversation(productionRequest(general, maxNotes));
         const generationConfig = lastRequestBody().generationConfig as Record<string, unknown>;
+        expect(generationConfig).not.toHaveProperty('responseFormat');
         expect(generationConfig).not.toHaveProperty('responseSchema');
-        expect(generationConfig).not.toHaveProperty('responseMimeType');
-        const responseFormat = generationConfig.responseFormat as Record<string, unknown>;
-        const text = responseFormat.text as Record<string, unknown>;
-        expect(text.mimeType).toBe('application/json');
-        expect(text.schema).toEqual(expected);
-        expect(collectForbiddenKeywords(text.schema).size).toBe(0);
+        expect(generationConfig.responseMimeType).toBe('application/json');
+        expect(generationConfig.responseJsonSchema).toEqual(expected);
+        expect(collectForbiddenKeywords(generationConfig.responseJsonSchema).size).toBe(0);
     });
 });
 
@@ -1306,11 +1315,42 @@ describe('generateNotesFromTranscript provider integration', () => {
         expect(messages[0].content).toContain('[0] Welcome');
     });
 
+    it('returns structured notes from a successful Gemini response', async () => {
+        respond(jsonResponse(200, {
+            candidates: [{
+                content: { parts: [{ text: JSON.stringify({
+                    general_note: 'Video summary.',
+                    segments: [{ timestamp_seconds: 10, markdown: 'First note.' }],
+                }) }] },
+                finishReason: 'STOP',
+            }],
+        }));
+        const result = await generateNotesFromTranscript(
+            new GeminiProvider({ apiKey: 'g-key', model: 'gemini-2.0-flash', timeoutMs: 5000 }),
+            TRANSCRIPT,
+            OPTIONS,
+        );
+        expect(result.format).toBe('structured');
+        expect(result.corrected).toBe(false);
+        expect(result.notes).toEqual([
+            { timestampSec: -1, bodyMarkdown: 'Video summary.', isGeneral: true },
+            { timestampSec: 10, bodyMarkdown: 'First note.' },
+        ]);
+        expect(mockRequestUrl).toHaveBeenCalledTimes(1);
+        const generationConfig = bodyAt(0).generationConfig as Record<string, unknown>;
+        expect(generationConfig.responseMimeType).toBe('application/json');
+        expect(generationConfig.responseJsonSchema).toEqual(
+            createCompatibleResponseSchema(createYoutnoteNotesJsonSchema(true, 5)),
+        );
+        expect(generationConfig).not.toHaveProperty('responseFormat');
+        expect(generationConfig).not.toHaveProperty('responseSchema');
+    });
+
     it('falls back to Markdown when Gemini rejects structured output', async () => {
         const controller = new AbortController();
         respondByCapability(
-            body => (body.generationConfig as Record<string, unknown> | undefined)?.responseFormat !== undefined,
-            { error: { code: 400, status: 'INVALID_ARGUMENT', message: 'Unknown name "responseFormat": Cannot find field.' } },
+            body => (body.generationConfig as Record<string, unknown> | undefined)?.responseJsonSchema !== undefined,
+            { error: { code: 400, status: 'INVALID_ARGUMENT', message: 'Unknown name "responseJsonSchema": Cannot find field.' } },
             { candidates: [{ content: { parts: [{ text: LEGACY_MARKDOWN }] }, finishReason: 'STOP' }] },
         );
         const result = await generateNotesFromTranscript(
@@ -1325,6 +1365,8 @@ describe('generateNotesFromTranscript provider integration', () => {
         const generationConfig = second.generationConfig as Record<string, unknown>;
         expect(generationConfig).not.toHaveProperty('responseFormat');
         expect(generationConfig).not.toHaveProperty('responseSchema');
+        expect(generationConfig).not.toHaveProperty('responseMimeType');
+        expect(generationConfig).not.toHaveProperty('responseJsonSchema');
         const systemInstruction = second.systemInstruction as { parts: { text: string }[] };
         expect(systemInstruction.parts[0].text).toBe(YOUTNOTE_AI_LEGACY_SYSTEM_PROMPT);
         const contents = second.contents as { parts: { text: string }[] }[];

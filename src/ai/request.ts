@@ -178,6 +178,14 @@ const UNSUPPORTED_FEATURE_PARAMS = new Set([
     'output_config.format',
     'responseFormat',
     'generationConfig.responseFormat',
+    'responseMimeType',
+    'responseJsonSchema',
+    'generationConfig.responseMimeType',
+    'generationConfig.responseJsonSchema',
+    'response_mime_type',
+    'response_json_schema',
+    'generation_config.response_mime_type',
+    'generation_config.response_json_schema',
 ]);
 
 const INVALID_SCHEMA_CODES = /invalid[_-]?json[_-]?schema|invalid[_-]?schema|schema[_-]?validation/i;
@@ -188,14 +196,15 @@ const SCHEMA_ERROR_EVIDENCE = /invalid schema|schema validation|schema is invali
 
 const SCHEMA_CONSTRAINT_EVIDENCE = /\b(minimum|maximum|exclusiveMinimum|exclusiveMaximum|multipleOf|minLength|maxLength|minItems|maxItems|pattern)\b/i;
 
-const OUTPUT_FEATURE_EVIDENCE = /structured[ _-]?output|response_format|json[_ -]?schema|output_config|responseformat/i;
+const OUTPUT_FEATURE_EVIDENCE = /structured[ _-]?output|response_format|json[_ -]?schema|output_config|responseformat|response_mime_type|response_json_schema|responsemimetype|responsejsonschema/i;
 
 const UNSUPPORTED_FEATURE_EVIDENCE = /not supported|unsupported|not available|unavailable|not allowed|not permitted|does not support|cannot be used|unrecognized|unknown (name|field|parameter|property|argument)/i;
 
 const ACCOUNT_OR_CONTEXT_EVIDENCE = /\bbilling\b|\bquota\b|insufficient_quota|credit (balance|limit)|context (length|window)|maximum (context|token)|token limit/i;
 
 function paramTargetsSchemaContent(param: string): boolean {
-    return /(^|\.)(schema|properties|items|required|anyOf|oneOf|allOf|\$defs)(\.|$)/i.test(param);
+    return /(^|\.)(schema|properties|items|required|anyOf|oneOf|allOf|\$defs)(\.|$)/i.test(param)
+        || /(^|\.)(responseJsonSchema|response_json_schema)\./.test(param);
 }
 
 function isUnsupportedStructuredOutputEvidence(message: string, code: string | undefined, param: string | undefined): boolean {
