@@ -46,11 +46,11 @@ Obsidian versions before `1.13.4` cut a parameter value off at its second `=`. A
 
 #### Raw: works on Obsidian 1.13.4 and later only
 ```
-obsidian://youtnote?url=https://www.youtube.com/watch?v=dQw4w9WgXcQ&mode=new
+obsidian://youtnote?url=https://www.youtube.com/watch?v=aircAruvnKk&mode=new
 ```
 #### Encoded: works on every supported Obsidian version
 ```
-obsidian://youtnote?url=https%3A%2F%2Fwww.youtube.com%2Fwatch%3Fv%3DdQw4w9WgXcQ&mode=new
+obsidian://youtnote?url=https%3A%2F%2Fwww.youtube.com%2Fwatch%3Fv%3DaircAruvnKk&mode=new
 ```
 > [!IMPORTANT]
 > **On every version of Obsidian**
@@ -84,7 +84,7 @@ Read-only files are never written: a legacy file that has not been converted blo
 Creates a new Youtnote file, adds the video, and opens it. This mode ignores any open views and always creates a new file.
 
 ```
-obsidian://youtnote?url=https%3A%2F%2Fwww.youtube.com%2Fwatch%3Fv%3DdQw4w9WgXcQ&mode=new
+obsidian://youtnote?url=https%3A%2F%2Fwww.youtube.com%2Fwatch%3Fv%3DaircAruvnKk&mode=new
 ```
 
 ### `mode=append`: Add a video to the open Youtnote
@@ -92,7 +92,7 @@ obsidian://youtnote?url=https%3A%2F%2Fwww.youtube.com%2Fwatch%3Fv%3DdQw4w9WgXcQ&
 Adds the video to the first open Youtnote view (see [Choosing the target Youtnote](#choosing-the-target-youtnote)). If no Youtnote view is open, falls back to creating a new file. If the video already exists in that file, it is selected and a warning notice is shown without writing.
 
 ```
-obsidian://youtnote?url=https%3A%2F%2Fwww.youtube.com%2Fwatch%3Fv%3DdQw4w9WgXcQ&mode=append
+obsidian://youtnote?url=https%3A%2F%2Fwww.youtube.com%2Fwatch%3Fv%3DaircAruvnKk&mode=append
 ```
 
 ### `mode=note`: Add a timestamped note to a video
@@ -100,7 +100,7 @@ obsidian://youtnote?url=https%3A%2F%2Fwww.youtube.com%2Fwatch%3Fv%3DdQw4w9WgXcQ&
 Adds a timestamped note to the specified video in the first open Youtnote view (see [Choosing the target Youtnote](#choosing-the-target-youtnote)). If the video doesn't exist in that file, it's added first. If no Youtnote view is open, a new file is created. The timestamp is validated against the video's actual duration (obtained from the YouTube player); if it exceeds the duration, the note is rejected.
 
 ```
-obsidian://youtnote?url=https%3A%2F%2Fwww.youtube.com%2Fwatch%3Fv%3DdQw4w9WgXcQ&mode=note&timestamp=1:23&text=This%20moment%20is%20great
+obsidian://youtnote?url=https%3A%2F%2Fwww.youtube.com%2Fwatch%3Fv%3DaircAruvnKk&mode=note&timestamp=1:23&text=This%20moment%20is%20great
 ```
 
 ### `mode=general-note`: Add a general note to a video
@@ -108,7 +108,7 @@ obsidian://youtnote?url=https%3A%2F%2Fwww.youtube.com%2Fwatch%3Fv%3DdQw4w9WgXcQ&
 Adds a timestamp-less general note to the specified video in the first open Youtnote view (see [Choosing the target Youtnote](#choosing-the-target-youtnote)). If the video doesn't exist in that file, it's added first; if no Youtnote view is open, a new file is created and the video and general note are added there. Only one general note is allowed per video; if one already exists, a warning notice is shown and nothing is written.
 
 ```
-obsidian://youtnote?url=https%3A%2F%2Fwww.youtube.com%2Fwatch%3Fv%3DdQw4w9WgXcQ&mode=general-note&text=Summary%3A%20This%20video%20covers%20...
+obsidian://youtnote?url=https%3A%2F%2Fwww.youtube.com%2Fwatch%3Fv%3DaircAruvnKk&mode=general-note&text=Summary%3A%20This%20video%20covers%20...
 ```
 
 ## Examples
@@ -116,33 +116,33 @@ obsidian://youtnote?url=https%3A%2F%2Fwww.youtube.com%2Fwatch%3Fv%3DdQw4w9WgXcQ&
 ### Shell (Linux)
 
 ```bash
-xdg-open "obsidian://youtnote?url=https%3A%2F%2Fwww.youtube.com%2Fwatch%3Fv%3DdQw4w9WgXcQ&mode=new"
+xdg-open "obsidian://youtnote?url=https%3A%2F%2Fwww.youtube.com%2Fwatch%3Fv%3DaircAruvnKk&mode=new"
 ```
 
 ### Shell (macOS)
 
 ```bash
-open "obsidian://youtnote?url=https%3A%2F%2Fwww.youtube.com%2Fwatch%3Fv%3DdQw4w9WgXcQ&mode=new"
+open "obsidian://youtnote?url=https%3A%2F%2Fwww.youtube.com%2Fwatch%3Fv%3DaircAruvnKk&mode=new"
 ```
 
 ### Python
 
 ```python
 import webbrowser
-webbrowser.open("obsidian://youtnote?url=https%3A%2F%2Fwww.youtube.com%2Fwatch%3Fv%3DdQw4w9WgXcQ&mode=note&timestamp=90&text=Interesting%20point")
+webbrowser.open("obsidian://youtnote?url=https%3A%2F%2Fwww.youtube.com%2Fwatch%3Fv%3DaircAruvnKk&mode=note&timestamp=90&text=Interesting%20point")
 ```
 
 ### DataviewJS (inside Obsidian)
 
 ```js
-const url = "obsidian://youtnote?url=https%3A%2F%2Fwww.youtube.com%2Fwatch%3Fv%3DdQw4w9WgXcQ&mode=append";
+const url = "obsidian://youtnote?url=https%3A%2F%2Fwww.youtube.com%2Fwatch%3Fv%3DaircAruvnKk&mode=append";
 window.open(url);
 ```
 
 ### Markdown link
 
 ```markdown
-[Add video to Youtnote](obsidian://youtnote?url=https%3A%2F%2Fwww.youtube.com%2Fwatch%3Fv%3DdQw4w9WgXcQ&mode=append)
+[Add video to Youtnote](obsidian://youtnote?url=https%3A%2F%2Fwww.youtube.com%2Fwatch%3Fv%3DaircAruvnKk&mode=append)
 ```
 
 ## How timestamps are validated

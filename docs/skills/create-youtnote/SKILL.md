@@ -199,7 +199,7 @@ If the repository is available, also validate the file using its current `parseY
 
 ## Example output
 
-A two-video file with a requested summary on the first video only:
+A two-video example showing Markdown formatting in general and timestamped notes:
 
 ```markdown
 ---
@@ -226,23 +226,32 @@ https://www.youtube.com/watch?v=SZorAJ4I7xg
 <!-- youtnote:notes:start -->
 
 <!-- youtnote:general-note:start -->
-A 20-minute walkthrough of the Transformer architecture: self-attention, positional encoding, multi-head attention, and the encoder-decoder structure. Useful as a primer before reading "Attention Is All You Need".
+## Overview
+
+A 20-minute walkthrough of the **Transformer architecture**.
+
+- **Core mechanisms:** self-attention, positional encoding, and multi-head attention.
+- **Structure:** encoder and decoder stacks.
+- **Follow-up reading:** [Attention Is All You Need](https://arxiv.org/abs/1706.03762).
 <!-- youtnote:general-note:end -->
 
 <!-- youtnote:timestamped-note:start t=15 -->
-Transformers replaced RNNs by processing all tokens in parallel instead of sequentially.
+**Key shift:** Transformers replaced RNNs by processing all tokens *in parallel* instead of sequentially.
 <!-- youtnote:timestamped-note:end -->
 
 <!-- youtnote:timestamped-note:start t=1:42 -->
-Self-attention lets each token weigh every other token, producing context-aware representations.
+### Self-attention
+
+- Each token weighs every other token.
+- The result is a **context-aware representation** of that token.
 <!-- youtnote:timestamped-note:end -->
 
 <!-- youtnote:timestamped-note:start t=3:05 -->
-Positional encodings inject order information since attention itself is permutation-invariant.
+**Positional encodings** inject order information since attention itself is *permutation-invariant*.
 <!-- youtnote:timestamped-note:end -->
 
 <!-- youtnote:timestamped-note:start t=10:20 -->
-Multi-head attention runs several attention layers in parallel, each learning different relations.
+**Multi-head attention** runs several attention layers in parallel, each learning different relations.
 <!-- youtnote:timestamped-note:end -->
 
 <!-- youtnote:notes:end -->
@@ -266,11 +275,18 @@ https://www.youtube.com/watch?v=rBC6OTgDd2k
 <!-- youtnote:notes:start -->
 
 <!-- youtnote:timestamped-note:start t=30 -->
-The paper introduces scaled dot-product attention: Query and Key dot products, scaled by sqrt(d_k), then softmax.
+### Scaled dot-product attention
+
+1. Compute dot products between **queries** and **keys**.
+2. Scale by `sqrt(d_k)`.
+3. Apply **softmax** to obtain attention weights.
 <!-- youtnote:timestamped-note:end -->
 
 <!-- youtnote:timestamped-note:start t=2:10 -->
-The encoder is a stack of identical layers, each with self-attention and a feed-forward sub-layer.
+The **encoder** is a stack of identical layers, each containing:
+
+- A self-attention sub-layer.
+- A feed-forward sub-layer.
 <!-- youtnote:timestamped-note:end -->
 
 <!-- youtnote:notes:end -->
