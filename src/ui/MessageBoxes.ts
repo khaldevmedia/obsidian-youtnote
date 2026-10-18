@@ -153,7 +153,7 @@ export class LegacyFormatConversionModal extends BaseModal {
             app,
             'Convert this file to Youtnote format v2?',
             'Youtnote files use now a new format to support new features. ' +
-            'The file you are trying to open uses the legacy format. You can convert it by clicking on the "Convert to v2" button.'
+            'The current file you are trying to open uses the legacy format. You can convert it by clicking on the "Convert to v2" button.'
         );
         this.fileName = fileName;
         this.decision = new Promise(resolve => {

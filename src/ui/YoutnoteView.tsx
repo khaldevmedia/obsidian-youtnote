@@ -983,7 +983,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
             new ConfirmModal(
                 app,
                 'Fetch transcript first?',
-                'AI note generation needs a transcript. The transcript will be fetched and notes generated in the background.',
+                'AI note generation needs a transcript. The transcript will be fetched in the background before notes are generated.',
                 () => {
                     if (!guard() || readOnly) return;
                     openAIGenerationDialog(video.id);
