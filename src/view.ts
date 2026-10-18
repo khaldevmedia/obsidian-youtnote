@@ -21,6 +21,7 @@ import type { FormatDetection } from './youtnote-format';
 import { exportToMarkdown, exportSingleVideoToMarkdown } from './youtnote-format/export';
 import { extractYouTubeId } from './utils';
 import { showYoutnoteNotice } from './notices';
+import { getLegacyBackupPath } from './conversionBackup';
 import type YoutnotePlugin from './main';
 
 export const VIEW_TYPE = 'youtnote-view';
@@ -216,17 +217,17 @@ export class YoutnoteView extends TextFileView {
         if (epoch !== this.loadEpoch || this.file !== file) {
             return;
         }
-        if (decision === 'convert') {
-            await this.convertCurrentFile(file, epoch);
+        if (decision !== 'read-only') {
+            await this.convertCurrentFile(file, epoch, decision.createBackup);
             return;
         }
         await this.openLegacyPreviewFromLatest(file, epoch);
     }
 
-    private async openLegacyPreviewFromLatest(file: TFile, epoch: number): Promise<void> {
+    private async openLegacyPreviewFromLatest(file: TFile, epoch: number, fresh = false): Promise<void> {
         let source: string;
         try {
-            source = await this.app.vault.cachedRead(file);
+            source = fresh ? await this.app.vault.read(file) : await this.app.vault.cachedRead(file);
         } catch {
             return;
         }
@@ -293,7 +294,7 @@ export class YoutnoteView extends TextFileView {
             if (request.controller.signal.aborted || epoch !== this.loadEpoch || this.file !== file) {
                 return Promise.resolve('read-only');
             }
-            return promptLegacyConversionDecision(this.app, file.basename, request.controller.signal);
+            return promptLegacyConversionDecision(this.app, file.path.split('/').pop() ?? file.basename, request.controller.signal);
         };
         if (this.app.workspace.layoutReady === false) {
             request.promise = new Promise<LegacyConversionDecision>((resolve) => {
@@ -325,11 +326,11 @@ export class YoutnoteView extends TextFileView {
         this.pendingLegacyDecision?.controller.abort();
     }
 
-    private async convertCurrentFile(file: TFile, epoch: number): Promise<void> {
+    private async convertCurrentFile(file: TFile, epoch: number, createBackup: boolean): Promise<void> {
         this.conversionBusy = true;
         this.render();
         try {
-            const migration = await this.migrateLegacyFile(file, epoch);
+            const migration = await this.migrateLegacyFile(file, epoch, createBackup);
             if (epoch !== this.loadEpoch) {
                 return;
             }
@@ -372,54 +373,122 @@ export class YoutnoteView extends TextFileView {
         this.switchToMarkdown(file, epoch);
     }
 
-    private async migrateLegacyFile(file: TFile, epoch: number): Promise<{ ok: boolean; migration: 'legacy-to-current' | 'corrected-declaration' | 'none'; source?: string }> {
-        const outcome = {
-            failure: null as ParseYoutnoteResult | null,
-            migration: 'none' as 'legacy-to-current' | 'corrected-declaration' | 'none',
-            processed: false,
-        };
-        try {
-            await this.app.vault.process(file, (data) => {
-                if (epoch !== this.loadEpoch) {
-                    return data;
-                }
-                if (detectYoutnoteFormat(data).kind !== 'legacy') {
-                    return data;
-                }
-                const result = migrateLegacyYoutnote(data);
-                if (!result.ok) {
-                    outcome.failure = result;
-                    return data;
-                }
-                outcome.migration = result.migration;
-                return result.markdown;
-            });
-            outcome.processed = true;
-        } catch {
-            outcome.processed = false;
-        }
-        if (epoch !== this.loadEpoch) {
-            return { ok: false, migration: 'none' };
-        }
-        if (!outcome.processed) {
-            showYoutnoteNotice('Conversion failed: reopen the file to check its contents before retrying.', { severity: 'error' });
-            return { ok: false, migration: 'none' };
-        }
-        if (outcome.failure) {
-            this.failToMarkdown(file, describeFormatFailure(outcome.failure), epoch);
-            return { ok: false, migration: 'none' };
-        }
+    private async migrateLegacyFile(file: TFile, epoch: number, createBackup: boolean): Promise<{ ok: boolean; migration: 'legacy-to-current' | 'corrected-declaration' | 'none'; source?: string }> {
+        const originalPath = file.path;
+        const isCurrent = () => epoch === this.loadEpoch && this.file === file && file.path === originalPath;
 
-        let latest: string;
+        let snapshot: string;
         try {
-            latest = await this.app.vault.cachedRead(file);
+            snapshot = await this.app.vault.read(file);
         } catch {
-            if (epoch === this.loadEpoch) {
+            if (isCurrent()) {
                 showYoutnoteNotice('Conversion failed: reopen the file to check its contents before retrying.', { severity: 'error' });
             }
             return { ok: false, migration: 'none' };
         }
-        if (epoch !== this.loadEpoch) {
+        if (!isCurrent()) {
+            return { ok: false, migration: 'none' };
+        }
+
+        let migration: 'legacy-to-current' | 'corrected-declaration' | 'none' = 'none';
+        if (detectYoutnoteFormat(snapshot).kind === 'legacy') {
+            const preflight = migrateLegacyYoutnote(snapshot);
+            if (!preflight.ok) {
+                this.failToMarkdown(file, describeFormatFailure(preflight), epoch);
+                return { ok: false, migration: 'none' };
+            }
+
+            if (createBackup) {
+                const backupFailure = (error: unknown): { ok: false; migration: 'none' } => {
+                    if (isCurrent()) {
+                        const detail = error instanceof Error && error.message ? ` ${error.message}` : '';
+                        showYoutnoteNotice(`Conversion stopped: the backup could not be created. The original file was not changed.${detail}`, { severity: 'error' });
+                    }
+                    return { ok: false, migration: 'none' };
+                };
+                for (let index = 1; ; index++) {
+                    if (!isCurrent()) {
+                        return { ok: false, migration: 'none' };
+                    }
+                    const backupPath = getLegacyBackupPath(originalPath, index);
+                    let exists: boolean;
+                    try {
+                        exists = await this.app.vault.adapter.exists(backupPath);
+                    } catch (error) {
+                        return backupFailure(error);
+                    }
+                    if (!isCurrent()) {
+                        return { ok: false, migration: 'none' };
+                    }
+                    if (exists) {
+                        continue;
+                    }
+                    try {
+                        await this.app.vault.create(backupPath, snapshot);
+                    } catch (error) {
+                        let nowExists: boolean;
+                        try {
+                            nowExists = await this.app.vault.adapter.exists(backupPath);
+                        } catch (existsError) {
+                            return backupFailure(existsError);
+                        }
+                        if (!isCurrent()) {
+                            return { ok: false, migration: 'none' };
+                        }
+                        if (nowExists) {
+                            continue;
+                        }
+                        return backupFailure(error);
+                    }
+                    if (!isCurrent()) {
+                        return { ok: false, migration: 'none' };
+                    }
+                    showYoutnoteNotice(`Backup created: ${backupPath}`, { duration: 6000 });
+                    break;
+                }
+            }
+
+            const outcome = { conflict: false, processed: false };
+            try {
+                await this.app.vault.process(file, (data) => {
+                    if (!isCurrent()) {
+                        return data;
+                    }
+                    if (data !== snapshot) {
+                        outcome.conflict = true;
+                        return data;
+                    }
+                    return preflight.markdown;
+                });
+                outcome.processed = true;
+            } catch {
+                outcome.processed = false;
+            }
+            if (!isCurrent()) {
+                return { ok: false, migration: 'none' };
+            }
+            if (!outcome.processed) {
+                showYoutnoteNotice('Conversion failed: reopen the file to check its contents before retrying.', { severity: 'error' });
+                return { ok: false, migration: 'none' };
+            }
+            if (outcome.conflict) {
+                showYoutnoteNotice('The file changed while preparing conversion. It was not converted. Reopen the conversion options and try again.', { severity: 'warning' });
+                await this.openLegacyPreviewFromLatest(file, epoch, true);
+                return { ok: false, migration: 'none' };
+            }
+            migration = preflight.migration;
+        }
+
+        let latest: string;
+        try {
+            latest = await this.app.vault.read(file);
+        } catch {
+            if (isCurrent()) {
+                showYoutnoteNotice('Conversion failed: reopen the file to check its contents before retrying.', { severity: 'error' });
+            }
+            return { ok: false, migration: 'none' };
+        }
+        if (!isCurrent()) {
             return { ok: false, migration: 'none' };
         }
         this.latestSource = latest;
@@ -436,7 +505,7 @@ export class YoutnoteView extends TextFileView {
             }), epoch);
             return { ok: false, migration: 'none' };
         }
-        return { ok: true, migration: outcome.migration, source: latest };
+        return { ok: true, migration, source: latest };
     }
 
     getState(): Record<string, unknown> {
@@ -620,7 +689,7 @@ export class YoutnoteView extends TextFileView {
 
     handleRequestConversion = () => {
         const file = this.loadedFile;
-        if (!file || this.writeMode !== 'legacy-preview') return;
+        if (!file || this.writeMode !== 'legacy-preview' || this.conversionBusy) return;
         void this.requestConversion(file);
     };
 
@@ -630,10 +699,10 @@ export class YoutnoteView extends TextFileView {
         if (epoch !== this.loadEpoch || this.writeMode !== 'legacy-preview') {
             return;
         }
-        if (decision !== 'convert') {
+        if (decision === 'read-only') {
             return;
         }
-        await this.convertCurrentFile(file, epoch);
+        await this.convertCurrentFile(file, epoch, decision.createBackup);
     }
 
     handleCancelVideoTasks = (videoId: VideoId, kind?: 'transcript' | 'ai') => {

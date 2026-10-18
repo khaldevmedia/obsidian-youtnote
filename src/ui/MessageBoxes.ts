@@ -3,6 +3,7 @@ import { MAX_GENERATED_NOTES, parseMaxNotesInput } from '../ai/notes';
 import { ExportOptions } from '../types';
 import type { AIGenerationDialogOptions } from '../types';
 import { V2_FILE_FORMAT_MIGRATION_URL } from '../constants';
+import { getLegacyBackupPath } from '../conversionBackup';
 
 type ModalAction = () => void | Promise<void>;
 type ConfirmButtonVariant = 'primary' | 'danger';
@@ -140,10 +141,11 @@ export class ConfirmModal extends BaseModal {
     }
 }
 
-export type LegacyConversionDecision = 'convert' | 'read-only';
+export type LegacyConversionDecision = 'read-only' | { action: 'convert'; createBackup: boolean };
 
 export class LegacyFormatConversionModal extends BaseModal {
     private fileName: string;
+    private backupInput: HTMLInputElement | null = null;
     private resolveDecision: ((decision: LegacyConversionDecision) => void) | null = null;
     private convertRequested = false;
     readonly decision: Promise<LegacyConversionDecision>;
@@ -182,6 +184,18 @@ export class LegacyFormatConversionModal extends BaseModal {
     }
 
     protected renderContent(contentEl: HTMLElement): void {
+        const backupEl = contentEl.createDiv({ cls: 'youtnote-plugin__conversion-backup' });
+        const backupLabel = backupEl.createEl('label', { cls: 'youtnote-plugin__conversion-backup-option' });
+        this.backupInput = backupLabel.createEl('input', { attr: { type: 'checkbox' } });
+        this.backupInput.checked = true;
+        backupLabel.createSpan({ text: 'Create a backup before converting' });
+        const backupDesc = backupEl.createDiv({ cls: 'youtnote-plugin__conversion-backup-desc' });
+        backupDesc.appendText('Keeps an unmodified copy of this file in the same folder as ');
+        backupDesc.createSpan({
+            cls: 'youtnote-plugin__conversion-backup-filename',
+            text: getLegacyBackupPath(this.fileName),
+        });
+        backupDesc.appendText('.');
         const guideEl = contentEl.createEl('p', { cls: 'youtnote-plugin__conversion-guide-link' });
         guideEl.createEl('a', {
             text: 'Read the v2 migration guide',
@@ -220,7 +234,9 @@ export class LegacyFormatConversionModal extends BaseModal {
         super.onClose();
         const resolve = this.resolveDecision;
         this.resolveDecision = null;
-        resolve?.(this.convertRequested ? 'convert' : 'read-only');
+        resolve?.(this.convertRequested
+            ? { action: 'convert', createBackup: this.backupInput?.checked ?? true }
+            : 'read-only');
     }
 }
 

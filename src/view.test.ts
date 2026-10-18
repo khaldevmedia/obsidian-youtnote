@@ -152,9 +152,9 @@ vi.mock('./ui/MessageBoxes', () => {
         AlertModal: FakeAlertModal,
         ExportOptionsModal: FakeExportOptionsModal,
         promptLegacyConversionDecision: vi.fn((_app: unknown, _fileName: string, signal?: AbortSignal):
-            Promise<'read-only' | 'convert'> => {
+            Promise<LegacyConversionDecision> => {
             if (signal?.aborted) return Promise.resolve('read-only');
-            return new Promise<'read-only' | 'convert'>(resolve => {
+            return new Promise<LegacyConversionDecision>(resolve => {
                 signal?.addEventListener('abort', () => resolve('read-only'), { once: true });
                 resolve('read-only');
             });
@@ -165,6 +165,14 @@ vi.mock('./ui/MessageBoxes', () => {
 function unsafeCast<T>(value: unknown): T {
     return value as T;
 }
+
+const CONVERT: LegacyConversionDecision = { action: 'convert', createBackup: false };
+const CONVERT_WITH_BACKUP: LegacyConversionDecision = { action: 'convert', createBackup: true };
+
+const plainNotice = (timeout: number) =>
+    (record: { timeout: number | undefined; classes: string[] }) => record.timeout === timeout && record.classes.length === 0;
+const themedNotice = (cls: string) =>
+    (record: { timeout: number | undefined; classes: string[] }) => record.timeout === 0 && record.classes.includes(cls);
 
 const LEGACY = `---
 youtnote: true
@@ -416,6 +424,16 @@ function makeFixture() {
         modify: vi.fn(async (f: { path: string }, data: string) => {
             store.set(f.path, data);
         }),
+        create: vi.fn(async (path: string, data: string) => {
+            if (store.has(path)) {
+                throw new Error('File already exists.');
+            }
+            store.set(path, data);
+            return unsafeCast<TFile>({ path, basename: path.replace(/\.md$/i, '') });
+        }),
+        adapter: {
+            exists: vi.fn(async (path: string) => store.has(path)),
+        },
     };
     const layoutCallbacks: (() => void)[] = [];
     const workspace = {
@@ -533,7 +551,7 @@ describe('YoutnoteView write modes and legacy conversion', () => {
         store.set(f.path, LEGACY);
         await view.onLoadFile(f);
         expect(vi.mocked(promptLegacyConversionDecision)).toHaveBeenCalledTimes(1);
-        expect(vi.mocked(promptLegacyConversionDecision).mock.calls[0][1]).toBe('legacy');
+        expect(vi.mocked(promptLegacyConversionDecision).mock.calls[0][1]).toBe('legacy.md');
         expect(view.getWriteMode()).toBe('legacy-preview');
         expect(view.isWritable()).toBe(false);
         expect(view.videos).toHaveLength(1);
@@ -575,14 +593,14 @@ describe('YoutnoteView write modes and legacy conversion', () => {
         const loading = view.onLoadFile(f);
         await flush();
         store.set(f.path, LEGACY_B);
-        decide!('convert');
+        decide!(CONVERT);
         await loading;
         expect(vault.process).toHaveBeenCalledTimes(1);
         expect(store.get(f.path)).toContain('youtnote-format-version: 2');
         expect(store.get(f.path)).toContain('abcdefghijk');
         expect(view.getWriteMode()).toBe('editable-v2');
-        expect(noticeCalls().some(m => m.includes('Updated this file'))).toBe(true);
-        const success = noticeRecords().find(record => record.message.includes('Updated this file'));
+        const success = noticeRecords().find(plainNotice(4000));
+        expect(success).toBeDefined();
         expect(success?.timeout).toBe(4000);
         expect(success?.classes).toEqual([]);
     });
@@ -598,11 +616,11 @@ describe('YoutnoteView write modes and legacy conversion', () => {
         const loading = view.onLoadFile(f);
         await flush();
         store.set(f.path, V2);
-        decide!('convert');
+        decide!(CONVERT);
         await loading;
         expect(store.get(f.path)).toBe(V2);
         expect(view.getWriteMode()).toBe('editable-v2');
-        expect(noticeCalls().some(m => m.includes('Updated this file'))).toBe(false);
+        expect(noticeRecords().some(plainNotice(4000))).toBe(false);
     });
 
     it('prompts even for an empty legacy file', async () => {
@@ -675,7 +693,7 @@ describe('YoutnoteView write modes and legacy conversion', () => {
         const loading = view.onLoadFile(f);
         await flush();
         await view.onUnloadFile(f);
-        decide!('convert');
+        decide!(CONVERT);
         await loading;
         expect(vault.process).not.toHaveBeenCalled();
         expect(vault.modify).not.toHaveBeenCalled();
@@ -688,11 +706,28 @@ describe('YoutnoteView write modes and legacy conversion', () => {
         store.set(f.path, LEGACY);
         await view.onLoadFile(f);
         expect(view.getWriteMode()).toBe('legacy-preview');
-        vi.mocked(promptLegacyConversionDecision).mockResolvedValue('convert');
+        vi.mocked(promptLegacyConversionDecision).mockResolvedValue(CONVERT);
         view.handleRequestConversion();
         await flush();
         await flush();
         expect(vault.process).toHaveBeenCalledTimes(1);
+        expect(view.getWriteMode()).toBe('editable-v2');
+    });
+
+    it('converts through the read-only banner request with a backup when checked', async () => {
+        const { store, vault, view, file } = makeFixture();
+        const f = file('legacy.md');
+        store.set(f.path, LEGACY);
+        await view.onLoadFile(f);
+        expect(view.getWriteMode()).toBe('legacy-preview');
+        vi.mocked(promptLegacyConversionDecision).mockResolvedValue(CONVERT_WITH_BACKUP);
+        view.handleRequestConversion();
+        await flush();
+        await flush();
+        expect(vault.create).toHaveBeenCalledTimes(1);
+        expect(store.get('legacy - legacy backup.md')).toBe(LEGACY);
+        expect(vault.process).toHaveBeenCalledTimes(1);
+        expect(store.get(f.path)).toContain('youtnote-format-version: 2');
         expect(view.getWriteMode()).toBe('editable-v2');
     });
 
@@ -751,7 +786,7 @@ describe('YoutnoteView write modes and legacy conversion', () => {
         unsafeCast<{ file: unknown }>(view).file = fB;
         await view.onLoadFile(fB);
         expect(vi.mocked(promptLegacyConversionDecision)).toHaveBeenCalledTimes(2);
-        expect(vi.mocked(promptLegacyConversionDecision).mock.calls[1][1]).toBe('b');
+        expect(vi.mocked(promptLegacyConversionDecision).mock.calls[1][1]).toBe('b.md');
         expect(view.getWriteMode()).toBe('legacy-preview');
         expect(view.videos[0].url).toContain('abcdefghijk');
     });
@@ -774,9 +809,9 @@ describe('YoutnoteView write modes and legacy conversion', () => {
         const loadB = view.onLoadFile(fB);
         await flush();
         expect(vi.mocked(promptLegacyConversionDecision)).toHaveBeenCalledTimes(2);
-        expect(vi.mocked(promptLegacyConversionDecision).mock.calls[1][1]).toBe('b');
+        expect(vi.mocked(promptLegacyConversionDecision).mock.calls[1][1]).toBe('b.md');
         await loadA;
-        resolvers[1]('convert');
+        resolvers[1](CONVERT);
         await loadB;
         expect(vault.process).toHaveBeenCalledTimes(1);
         expect(store.get(fB.path)).toContain('youtnote-format-version: 2');
@@ -805,7 +840,7 @@ describe('YoutnoteView write modes and legacy conversion', () => {
                     finishProcess = resolve;
                 }),
         );
-        decide!('convert');
+        decide!(CONVERT);
         await flush();
         expect(processCallback).not.toBeNull();
         await view.onLoadFile(fB);
@@ -815,7 +850,7 @@ describe('YoutnoteView write modes and legacy conversion', () => {
         expect(migrated).toBe(LEGACY);
         expect(store.get(fA.path)).toBe(LEGACY);
         expect(view.getWriteMode()).toBe('editable-v2');
-        expect(noticeCalls().some(m => m.includes('Updated this file'))).toBe(false);
+        expect(noticeRecords().some(plainNotice(4000))).toBe(false);
     });
 
     it('re-reads current contents after the modal and opens v2 instead of previewing', async () => {
@@ -961,14 +996,14 @@ describe('YoutnoteView write modes and legacy conversion', () => {
         store.set(f.path, LEGACY);
         let reads = 0;
         let resolvePostRead: ((value: string) => void) | null = null;
-        vi.mocked(vault.cachedRead).mockImplementation((f: { path: string }) => {
+        vi.mocked(vault.read).mockImplementation((f: { path: string }) => {
             reads++;
             if (reads === 2) {
                 return new Promise<string>(resolve => { resolvePostRead = resolve; });
             }
             return Promise.resolve(store.get(f.path) ?? '');
         });
-        vi.mocked(promptLegacyConversionDecision).mockResolvedValue('convert');
+        vi.mocked(promptLegacyConversionDecision).mockResolvedValue(CONVERT);
         const loading = view.onLoadFile(f);
         await flush();
         await view.onUnloadFile(f);
@@ -976,7 +1011,7 @@ describe('YoutnoteView write modes and legacy conversion', () => {
         await loading;
         await flush();
         expect(view.getWriteMode()).toBe('blocked');
-        expect(noticeCalls().some(m => m.includes('Updated this file'))).toBe(false);
+        expect(noticeRecords().some(plainNotice(4000))).toBe(false);
     });
 
     it('persists modified notes when an editable v2 view unloads', async () => {
@@ -1038,14 +1073,14 @@ describe('YoutnoteView write modes and legacy conversion', () => {
         const { store, vault, view, file } = makeFixture();
         const f = file('legacy.md');
         store.set(f.path, LEGACY);
-        vi.mocked(promptLegacyConversionDecision).mockResolvedValue('convert');
+        vi.mocked(promptLegacyConversionDecision).mockResolvedValue(CONVERT);
         vi.mocked(vault.process).mockRejectedValueOnce(new Error('deleted'));
         await view.onLoadFile(f);
         await flush();
         expect(store.get(f.path)).toBe(LEGACY);
         expect(view.getWriteMode()).not.toBe('editable-v2');
-        expect(noticeCalls().some(m => m.includes('Conversion failed'))).toBe(true);
-        const failure = noticeRecords().find(record => record.message.includes('Conversion failed'));
+        const failure = noticeRecords().find(themedNotice('youtnote-plugin__notice-error'));
+        expect(failure).toBeDefined();
         expect(failure?.timeout).toBe(0);
         expect(failure?.classes).toEqual(['youtnote-plugin__notice-error']);
     });
@@ -1073,9 +1108,460 @@ describe('YoutnoteView write modes and legacy conversion', () => {
         expect(openFile).not.toHaveBeenCalled();
         const records = noticeRecords().slice(recordsBefore);
         expect(records).toHaveLength(1);
-        expect(records[0].message).toContain('Exported file created: a - Export.md');
+        expect(records[0].message).toContain('a - Export.md');
         expect(records[0].timeout).toBe(2000);
         expect(records[0].classes).toEqual([]);
+    });
+
+    describe('backup before legacy conversion', () => {
+        it('creates an exact legacy backup in the same folder and converts the original in place', async () => {
+            const { store, vault, view, file } = makeFixture();
+            const f = file('legacy.md');
+            store.set(f.path, LEGACY);
+            vi.mocked(promptLegacyConversionDecision).mockResolvedValue(CONVERT_WITH_BACKUP);
+            await view.onLoadFile(f);
+            await flush();
+            expect(vault.create).toHaveBeenCalledTimes(1);
+            expect(vi.mocked(vault.create).mock.calls[0][0]).toBe('legacy - legacy backup.md');
+            expect(store.get('legacy - legacy backup.md')).toBe(LEGACY);
+            expect(store.get(f.path)).toContain('youtnote-format-version: 2');
+            expect(store.get(f.path)).not.toBe(LEGACY);
+            expect(view.getWriteMode()).toBe('editable-v2');
+            expect(noticeRecords().some(r => plainNotice(6000)(r) && r.message.includes('legacy - legacy backup.md'))).toBe(true);
+        });
+
+        it('numbers the backup path inside nested folders without overwriting existing files', async () => {
+            const { store, vault, view, file } = makeFixture();
+            const f = file('nested dir/my file.md');
+            store.set(f.path, LEGACY_B);
+            store.set('nested dir/my file - legacy backup.md', 'occupied 1');
+            store.set('nested dir/my file - legacy backup 2.md', 'occupied 2');
+            vi.mocked(promptLegacyConversionDecision).mockResolvedValue(CONVERT_WITH_BACKUP);
+            await view.onLoadFile(f);
+            await flush();
+            expect(vi.mocked(vault.create).mock.calls.map(call => call[0]))
+                .toEqual(['nested dir/my file - legacy backup 3.md']);
+            expect(store.get('nested dir/my file - legacy backup.md')).toBe('occupied 1');
+            expect(store.get('nested dir/my file - legacy backup 2.md')).toBe('occupied 2');
+            expect(store.get('nested dir/my file - legacy backup 3.md')).toBe(LEGACY_B);
+            expect(store.get(f.path)).toContain('youtnote-format-version: 2');
+        });
+
+        it('moves to the next numbered path when create fails on a colliding destination', async () => {
+            const { store, vault, view, file } = makeFixture();
+            const f = file('legacy.md');
+            store.set(f.path, LEGACY);
+            vi.mocked(vault.create).mockImplementationOnce(async (path: string, _data: string) => {
+                store.set(path, 'raced content');
+                throw new Error('File already exists.');
+            });
+            vi.mocked(promptLegacyConversionDecision).mockResolvedValue(CONVERT_WITH_BACKUP);
+            await view.onLoadFile(f);
+            await flush();
+            expect(vi.mocked(vault.create).mock.calls.map(call => call[0]))
+                .toEqual(['legacy - legacy backup.md', 'legacy - legacy backup 2.md']);
+            expect(store.get('legacy - legacy backup.md')).toBe('raced content');
+            expect(store.get('legacy - legacy backup 2.md')).toBe(LEGACY);
+            expect(store.get(f.path)).toContain('youtnote-format-version: 2');
+        });
+
+        it('creates no backup when the option is unchecked', async () => {
+            const { store, vault, view, file } = makeFixture();
+            const f = file('legacy.md');
+            store.set(f.path, LEGACY);
+            vi.mocked(promptLegacyConversionDecision).mockResolvedValue(CONVERT);
+            await view.onLoadFile(f);
+            await flush();
+            expect(vault.create).not.toHaveBeenCalled();
+            expect(store.get(f.path)).toContain('youtnote-format-version: 2');
+        });
+
+        it('creates no backup when the decision is read-only', async () => {
+            const { store, vault, view, file } = makeFixture();
+            const f = file('legacy.md');
+            store.set(f.path, LEGACY);
+            vi.mocked(promptLegacyConversionDecision).mockResolvedValue('read-only');
+            await view.onLoadFile(f);
+            await flush();
+            expect(vault.create).not.toHaveBeenCalled();
+            expect(vault.process).not.toHaveBeenCalled();
+            expect(store.get(f.path)).toBe(LEGACY);
+            expect(view.getWriteMode()).toBe('legacy-preview');
+        });
+
+        it('creates no backup when the pending prompt is aborted by unloading', async () => {
+            const { store, vault, view, file } = makeFixture();
+            const f = file('legacy.md');
+            store.set(f.path, LEGACY);
+            vi.mocked(promptLegacyConversionDecision).mockImplementation((_app, _name, signal) =>
+                new Promise<LegacyConversionDecision>(resolve => {
+                    signal?.addEventListener('abort', () => resolve('read-only'), { once: true });
+                }));
+            const loading = view.onLoadFile(f);
+            await flush();
+            expect(vi.mocked(promptLegacyConversionDecision)).toHaveBeenCalledTimes(1);
+            await view.onUnloadFile(f);
+            await loading;
+            await flush();
+            expect(vault.create).not.toHaveBeenCalled();
+            expect(vault.process).not.toHaveBeenCalled();
+            expect(store.get(f.path)).toBe(LEGACY);
+        });
+
+        it('stops without touching the original when the backup cannot be created', async () => {
+            const { store, vault, view, file } = makeFixture();
+            const f = file('legacy.md');
+            store.set(f.path, LEGACY);
+            const recordsBefore = noticeRecords().length;
+            vi.mocked(vault.create).mockRejectedValue(new Error('disk full'));
+            vi.mocked(promptLegacyConversionDecision).mockResolvedValue(CONVERT_WITH_BACKUP);
+            await view.onLoadFile(f);
+            await flush();
+            expect(vault.create).toHaveBeenCalledTimes(1);
+            expect(vault.process).not.toHaveBeenCalled();
+            expect(store.get(f.path)).toBe(LEGACY);
+            expect(view.getWriteMode()).toBe('legacy-preview');
+            const records = noticeRecords().slice(recordsBefore);
+            expect(records).toHaveLength(1);
+            expect(records[0].timeout).toBe(0);
+            expect(records[0].classes).toEqual(['youtnote-plugin__notice-error']);
+            expect(records[0].message).toContain('disk full');
+        });
+
+        it('stops without creating anything when the existence check fails', async () => {
+            const { store, vault, view, file } = makeFixture();
+            const f = file('legacy.md');
+            store.set(f.path, LEGACY);
+            const recordsBefore = noticeRecords().length;
+            vi.mocked(vault.adapter.exists).mockRejectedValue(new Error('storage unavailable'));
+            vi.mocked(promptLegacyConversionDecision).mockResolvedValue(CONVERT_WITH_BACKUP);
+            await view.onLoadFile(f);
+            await flush();
+            expect(vault.adapter.exists).toHaveBeenCalledTimes(1);
+            expect(vault.create).not.toHaveBeenCalled();
+            expect(vault.process).not.toHaveBeenCalled();
+            expect(store.get(f.path)).toBe(LEGACY);
+            const records = noticeRecords().slice(recordsBefore);
+            expect(records).toHaveLength(1);
+            expect(records[0].timeout).toBe(0);
+            expect(records[0].classes).toEqual(['youtnote-plugin__notice-error']);
+            expect(records[0].message).toContain('storage unavailable');
+        });
+
+        it('stops without retrying when the post-create existence recheck fails', async () => {
+            const { store, vault, view, file } = makeFixture();
+            const f = file('legacy.md');
+            store.set(f.path, LEGACY);
+            const recordsBefore = noticeRecords().length;
+            vi.mocked(vault.create).mockRejectedValue(new Error('create failed'));
+            vi.mocked(vault.adapter.exists)
+                .mockResolvedValueOnce(false)
+                .mockRejectedValue(new Error('exists check failed'));
+            vi.mocked(promptLegacyConversionDecision).mockResolvedValue(CONVERT_WITH_BACKUP);
+            await view.onLoadFile(f);
+            await flush();
+            expect(vault.create).toHaveBeenCalledTimes(1);
+            expect(vault.process).not.toHaveBeenCalled();
+            expect(store.get(f.path)).toBe(LEGACY);
+            const records = noticeRecords().slice(recordsBefore);
+            expect(records).toHaveLength(1);
+            expect(records[0].timeout).toBe(0);
+            expect(records[0].classes).toEqual(['youtnote-plugin__notice-error']);
+        });
+
+        it.each(['initial exists', 'post-create exists recheck'] as const)(
+            'shows no backup failure notice when the view unloads before the %s rejection lands',
+            async (kind) => {
+                const { store, vault, view, file } = makeFixture();
+                const f = file('legacy.md');
+                store.set(f.path, LEGACY);
+                const recordsBefore = noticeRecords().length;
+                let rejectExists: ((error: unknown) => void) | null = null;
+                if (kind === 'post-create exists recheck') {
+                    vi.mocked(vault.adapter.exists)
+                        .mockResolvedValueOnce(false)
+                        .mockImplementationOnce(() =>
+                            new Promise<boolean>((_resolve, reject) => { rejectExists = reject; }));
+                    vi.mocked(vault.create).mockRejectedValueOnce(new Error('create failed'));
+                } else {
+                    vi.mocked(vault.adapter.exists).mockImplementationOnce(() =>
+                        new Promise<boolean>((_resolve, reject) => { rejectExists = reject; }));
+                }
+                vi.mocked(promptLegacyConversionDecision).mockResolvedValue(CONVERT_WITH_BACKUP);
+                const loading = view.onLoadFile(f);
+                await flush();
+                if (kind === 'post-create exists recheck') {
+                    expect(vault.create).toHaveBeenCalledTimes(1);
+                    expect(vault.adapter.exists).toHaveBeenCalledTimes(2);
+                } else {
+                    expect(vault.adapter.exists).toHaveBeenCalledTimes(1);
+                }
+                await view.onUnloadFile(f);
+                rejectExists!(new Error('storage unavailable'));
+                await loading;
+                await flush();
+                expect(vault.process).not.toHaveBeenCalled();
+                expect(store.get(f.path)).toBe(LEGACY);
+                const records = noticeRecords().slice(recordsBefore);
+                expect(records).toHaveLength(0);
+            },
+        );
+
+        it('stops without a backup when the fresh source snapshot cannot be read', async () => {
+            const { store, vault, view, file } = makeFixture();
+            const f = file('legacy.md');
+            store.set(f.path, LEGACY);
+            vi.mocked(vault.read).mockRejectedValueOnce(new Error('read failed'));
+            vi.mocked(promptLegacyConversionDecision).mockResolvedValue(CONVERT_WITH_BACKUP);
+            await view.onLoadFile(f);
+            await flush();
+            expect(vault.adapter.exists).not.toHaveBeenCalled();
+            expect(vault.create).not.toHaveBeenCalled();
+            expect(vault.process).not.toHaveBeenCalled();
+            expect(store.get(f.path)).toBe(LEGACY);
+            expect(noticeRecords().some(r => r.classes.includes('youtnote-plugin__notice-error'))).toBe(true);
+        });
+
+        it('keeps the created backup when the conversion write itself fails', async () => {
+            const { store, vault, view, file } = makeFixture();
+            const f = file('legacy.md');
+            store.set(f.path, LEGACY);
+            vi.mocked(vault.process).mockRejectedValueOnce(new Error('process failed'));
+            vi.mocked(promptLegacyConversionDecision).mockResolvedValue(CONVERT_WITH_BACKUP);
+            await view.onLoadFile(f);
+            await flush();
+            expect(store.get('legacy - legacy backup.md')).toBe(LEGACY);
+            expect(store.get(f.path)).toBe(LEGACY);
+            expect(noticeRecords().some(themedNotice('youtnote-plugin__notice-error'))).toBe(true);
+        });
+
+        it('keeps newer source bytes and warns when the file changes between backup and process', async () => {
+            const { store, vault, view, file } = makeFixture();
+            const f = file('legacy.md');
+            store.set(f.path, LEGACY);
+            vi.mocked(vault.create).mockImplementationOnce(async (path: string, data: string) => {
+                store.set(f.path, LEGACY_B);
+                store.set(path, data);
+                return unsafeCast<TFile>({ path, basename: path });
+            });
+            const recordsBefore = noticeRecords().length;
+            vi.mocked(promptLegacyConversionDecision).mockResolvedValue(CONVERT_WITH_BACKUP);
+            await view.onLoadFile(f);
+            await flush();
+            expect(store.get(f.path)).toBe(LEGACY_B);
+            expect(view.getWriteMode()).toBe('legacy-preview');
+            const records = noticeRecords().slice(recordsBefore);
+            const warning = records.find(themedNotice('youtnote-plugin__notice-warning'));
+            expect(warning).toBeDefined();
+            expect(warning?.timeout).toBe(0);
+            expect(warning?.classes).toEqual(['youtnote-plugin__notice-warning']);
+            expect(records.some(plainNotice(4000))).toBe(false);
+        });
+
+        it('does not downgrade when the file becomes v3 while the backup is pending', async () => {
+            const { store, vault, view, file } = makeFixture();
+            const f = file('legacy.md');
+            store.set(f.path, LEGACY);
+            vi.mocked(vault.create).mockImplementationOnce(async (path: string, data: string) => {
+                store.set(f.path, V3);
+                store.set(path, data);
+                return unsafeCast<TFile>({ path, basename: path });
+            });
+            vi.mocked(vault.cachedRead).mockResolvedValue(LEGACY);
+            vi.mocked(promptLegacyConversionDecision).mockResolvedValue(CONVERT_WITH_BACKUP);
+            await view.onLoadFile(f);
+            await flush();
+            expect(store.get(f.path)).toBe(V3);
+            expect(view.getWriteMode()).toBe('blocked');
+        });
+
+        it('writes nothing to either file when a switch happens while the backup is pending', async () => {
+            const { store, vault, view, file } = makeFixture();
+            const f = file('legacy.md');
+            const other = file('other.md');
+            store.set(f.path, LEGACY);
+            store.set(other.path, V2_B);
+            let resolveCreate: ((created: TFile) => void) | null = null;
+            vi.mocked(vault.create).mockImplementationOnce(async (path: string, data: string) => {
+                return new Promise<TFile>(resolve => {
+                    resolveCreate = () => {
+                        store.set(path, data);
+                        resolve(unsafeCast<TFile>({ path, basename: path }));
+                    };
+                });
+            });
+            vi.mocked(promptLegacyConversionDecision).mockResolvedValue(CONVERT_WITH_BACKUP);
+            const loading = view.onLoadFile(f);
+            await flush();
+            expect(vault.create).toHaveBeenCalledTimes(1);
+            await view.onLoadFile(other);
+            resolveCreate!(unsafeCast<TFile>({ path: 'legacy - legacy backup.md' }));
+            await loading;
+            await flush();
+            expect(store.get(f.path)).toBe(LEGACY);
+            expect(store.get('other.md')).toBe(V2_B);
+        });
+
+        it('does not rewrite the original when the file unloads while the backup is pending', async () => {
+            const { store, vault, view, file } = makeFixture();
+            const f = file('legacy.md');
+            store.set(f.path, LEGACY);
+            let resolveCreate: ((created: TFile) => void) | null = null;
+            vi.mocked(vault.create).mockImplementationOnce(async (path: string, data: string) => {
+                return new Promise<TFile>(resolve => {
+                    resolveCreate = () => {
+                        store.set(path, data);
+                        resolve(unsafeCast<TFile>({ path, basename: path }));
+                    };
+                });
+            });
+            vi.mocked(promptLegacyConversionDecision).mockResolvedValue(CONVERT_WITH_BACKUP);
+            const loading = view.onLoadFile(f);
+            await flush();
+            expect(vault.create).toHaveBeenCalledTimes(1);
+            await view.onUnloadFile(f);
+            resolveCreate!(unsafeCast<TFile>({ path: 'legacy - legacy backup.md' }));
+            await loading;
+            await flush();
+            expect(vault.process).not.toHaveBeenCalled();
+            expect(store.get(f.path)).toBe(LEGACY);
+            expect(store.get('legacy - legacy backup.md')).toBe(LEGACY);
+        });
+
+        it('does not rewrite old or new paths when the file is renamed while the backup is pending', async () => {
+            const { store, vault, view, file } = makeFixture();
+            const f = file('legacy.md');
+            store.set(f.path, LEGACY);
+            let resolveCreate: ((created: TFile) => void) | null = null;
+            vi.mocked(vault.create).mockImplementationOnce(async (path: string, data: string) => {
+                return new Promise<TFile>(resolve => {
+                    resolveCreate = () => {
+                        store.set(path, data);
+                        resolve(unsafeCast<TFile>({ path, basename: path }));
+                    };
+                });
+            });
+            vi.mocked(promptLegacyConversionDecision).mockResolvedValue(CONVERT_WITH_BACKUP);
+            const loading = view.onLoadFile(f);
+            await flush();
+            expect(vault.create).toHaveBeenCalledTimes(1);
+            store.delete('legacy.md');
+            store.set('renamed.md', LEGACY_B);
+            unsafeCast<{ path: string }>(f).path = 'renamed.md';
+            resolveCreate!(unsafeCast<TFile>({ path: 'legacy - legacy backup.md' }));
+            await loading;
+            await flush();
+            expect(vault.process).not.toHaveBeenCalled();
+            expect(store.get('renamed.md')).toBe(LEGACY_B);
+            expect(store.has('legacy.md')).toBe(false);
+            expect(store.get('legacy - legacy backup.md')).toBe(LEGACY);
+        });
+
+        it('names the backup from the real file name, including a .md.md file', async () => {
+            const { store, vault, view, file } = makeFixture();
+            const f = file('dir/foo.md.md');
+            store.set(f.path, LEGACY);
+            vi.mocked(promptLegacyConversionDecision).mockResolvedValue(CONVERT_WITH_BACKUP);
+            await view.onLoadFile(f);
+            await flush();
+            expect(vi.mocked(promptLegacyConversionDecision).mock.calls[0][1]).toBe('foo.md.md');
+            expect(vi.mocked(vault.create).mock.calls.map(call => call[0]))
+                .toEqual(['dir/foo.md - legacy backup.md']);
+            expect(store.get('dir/foo.md - legacy backup.md')).toBe(LEGACY);
+            expect(store.get(f.path)).toContain('youtnote-format-version: 2');
+        });
+
+        it('stores the exact frontmatter and whitespace bytes in the backup', async () => {
+            const { store, vault, view, file } = makeFixture();
+            const f = file('rich.md');
+            store.set(f.path, LEGACY_RICH);
+            vi.mocked(promptLegacyConversionDecision).mockResolvedValue(CONVERT_WITH_BACKUP);
+            await view.onLoadFile(f);
+            await flush();
+            expect(vault.create).toHaveBeenCalledTimes(1);
+            expect(store.get('rich - legacy backup.md')).toBe(LEGACY_RICH);
+            expect(store.get(f.path)).not.toBe(LEGACY_RICH);
+            expect(store.get(f.path)).toContain('youtnote-format-version: 2');
+        });
+
+        it('skips backup and rewrite when the file is already v2 once consent resolves', async () => {
+            const { store, vault, view, file } = makeFixture();
+            const f = file('legacy.md');
+            store.set(f.path, LEGACY);
+            const decision = deferred<LegacyConversionDecision>();
+            vi.mocked(promptLegacyConversionDecision).mockReturnValue(decision.promise);
+            const loading = view.onLoadFile(f);
+            await flush();
+            store.set(f.path, V2);
+            decision.resolve(CONVERT_WITH_BACKUP);
+            await loading;
+            await flush();
+            expect(vault.create).not.toHaveBeenCalled();
+            expect(store.get(f.path)).toBe(V2);
+            expect(view.getWriteMode()).toBe('editable-v2');
+        });
+
+        it('backs up the original bytes for an explicitly declared v1 file', async () => {
+            const { store, view, file } = makeFixture();
+            const f = file('declared-v1.md');
+            store.set(f.path, DECLARED_V1);
+            vi.mocked(promptLegacyConversionDecision).mockResolvedValue(CONVERT_WITH_BACKUP);
+            await view.onLoadFile(f);
+            await flush();
+            expect(store.get('declared-v1 - legacy backup.md')).toBe(DECLARED_V1);
+            expect(store.get(f.path)).toContain('youtnote-format-version: 2');
+            expect(view.getWriteMode()).toBe('editable-v2');
+        });
+
+        it('backs up the original bytes for a corrected-declaration migration', async () => {
+            const { store, view, file } = makeFixture();
+            const f = file('mislabeled.md');
+            store.set(f.path, LEGACY);
+            const mislabeled = `---\nyoutnote: true\nyoutnote-format-version: 1\n---\n${V2.slice(V2.indexOf('<!-- youtnote:file:start'))}`;
+            const decision = deferred<LegacyConversionDecision>();
+            vi.mocked(promptLegacyConversionDecision).mockReturnValue(decision.promise);
+            const loading = view.onLoadFile(f);
+            await flush();
+            store.set(f.path, mislabeled);
+            decision.resolve(CONVERT_WITH_BACKUP);
+            await loading;
+            await flush();
+            expect(store.get('mislabeled - legacy backup.md')).toBe(mislabeled);
+            expect(store.get(f.path)).toContain('youtnote-format-version: 2');
+            expect(view.getWriteMode()).toBe('editable-v2');
+            expect(noticeRecords().some(plainNotice(4000))).toBe(true);
+        });
+
+        it('creates no backup for an invalid legacy document', async () => {
+            const { store, vault, view, file } = makeFixture();
+            const f = file('broken.md');
+            store.set(f.path, INVALID_LEGACY);
+            vi.mocked(promptLegacyConversionDecision).mockResolvedValue(CONVERT_WITH_BACKUP);
+            await view.onLoadFile(f);
+            await flush();
+            expect(vault.create).not.toHaveBeenCalled();
+            expect(vault.process).not.toHaveBeenCalled();
+            expect(store.get(f.path)).toBe(INVALID_LEGACY);
+            expect(view.getWriteMode()).toBe('blocked');
+        });
+
+        it('converts the source as it was when consent resolved, not when the prompt opened', async () => {
+            const { store, view, file } = makeFixture();
+            const f = file('legacy.md');
+            store.set(f.path, LEGACY);
+            const decision = deferred<LegacyConversionDecision>();
+            vi.mocked(promptLegacyConversionDecision).mockReturnValue(decision.promise);
+            const loading = view.onLoadFile(f);
+            await flush();
+            store.set(f.path, LEGACY_B);
+            decision.resolve(CONVERT_WITH_BACKUP);
+            await loading;
+            await flush();
+            expect(store.get(f.path)).toContain('youtnote-format-version: 2');
+            expect(store.get(f.path)).toContain('abcdefghijk');
+            expect(store.get('legacy - legacy backup.md')).toBe(LEGACY_B);
+            expect(view.getWriteMode()).toBe('editable-v2');
+        });
     });
 
     it('does not rewrite a file that became an unsupported version before conversion ran', async () => {
@@ -1089,12 +1575,12 @@ describe('YoutnoteView write modes and legacy conversion', () => {
         const loading = view.onLoadFile(f);
         await flush();
         store.set(f.path, V3);
-        decide!('convert');
+        decide!(CONVERT);
         await loading;
         await flush();
         expect(store.get(f.path)).toBe(V3);
         expect(view.getWriteMode()).not.toBe('editable-v2');
-        expect(noticeCalls().some(m => m.includes('Updated this file'))).toBe(false);
+        expect(noticeRecords().some(plainNotice(4000))).toBe(false);
         expect(unsafeCast<{ setViewState: ReturnType<typeof vi.fn> }>(leaf).setViewState)
             .toHaveBeenCalledWith(expect.objectContaining({ type: 'markdown' }));
     });
@@ -1217,13 +1703,13 @@ describe('YoutnoteView write modes and legacy conversion', () => {
         const { store, vault, view, file } = makeFixture();
         const f = file('legacy.md');
         store.set(f.path, LEGACY);
-        vi.mocked(promptLegacyConversionDecision).mockResolvedValue('convert');
-        vi.mocked(vault.cachedRead)
+        vi.mocked(promptLegacyConversionDecision).mockResolvedValue(CONVERT);
+        vi.mocked(vault.read)
             .mockResolvedValueOnce(LEGACY)
             .mockRejectedValueOnce(new Error('read failed'));
         await view.onLoadFile(f);
         expect(store.get(f.path)).toContain('youtnote-format-version: 2');
-        expect(noticeCalls().some(message => message.includes('unchanged'))).toBe(false);
+        expect(noticeRecords().some(themedNotice('youtnote-plugin__notice-error'))).toBe(true);
         expect(view.isWritable()).toBe(false);
     });
 
@@ -1312,7 +1798,7 @@ describe('YoutnoteView write modes and legacy conversion', () => {
         const { store, vault, view, file } = makeFixture();
         const f = file('legacy.md');
         store.set(f.path, LEGACY);
-        vi.mocked(promptLegacyConversionDecision).mockResolvedValue('convert');
+        vi.mocked(promptLegacyConversionDecision).mockResolvedValue(CONVERT);
         await view.onLoadFile(f);
         await flush();
         expect(view.isWritable()).toBe(true);
@@ -1342,7 +1828,7 @@ describe('YoutnoteView write modes and legacy conversion', () => {
         store.set(f.path, LEGACY);
         await view.onLoadFile(f);
         expect(view.getWriteMode()).toBe('legacy-preview');
-        vi.mocked(promptLegacyConversionDecision).mockResolvedValue('convert');
+        vi.mocked(promptLegacyConversionDecision).mockResolvedValue(CONVERT);
         view.handleRequestConversion();
         await flush();
         expect(view.isWritable()).toBe(true);
@@ -1694,7 +2180,7 @@ describe('YoutnoteView write modes and legacy conversion', () => {
             const { store, vault, view, file } = makeFixture();
             const f = file('rich-legacy.md');
             store.set(f.path, source);
-            vi.mocked(promptLegacyConversionDecision).mockResolvedValue('convert');
+            vi.mocked(promptLegacyConversionDecision).mockResolvedValue(CONVERT);
             await view.onLoadFile(f);
             await flush();
             expect(vault.process).toHaveBeenCalledTimes(1);
@@ -1721,7 +2207,7 @@ describe('YoutnoteView write modes and legacy conversion', () => {
             store.set(f.path, source);
             await view.onLoadFile(f);
             expect(view.getWriteMode()).toBe('legacy-preview');
-            vi.mocked(promptLegacyConversionDecision).mockResolvedValue('convert');
+            vi.mocked(promptLegacyConversionDecision).mockResolvedValue(CONVERT);
             view.handleRequestConversion();
             await flush();
             expect(vault.process).toHaveBeenCalledTimes(1);
@@ -1747,7 +2233,7 @@ describe('YoutnoteView write modes and legacy conversion', () => {
             const loading = view.onLoadFile(f);
             await flush();
             store.set(f.path, LEGACY_RICH);
-            decide!('convert');
+            decide!(CONVERT);
             await loading;
             expect(vault.process).toHaveBeenCalledTimes(1);
             const migrated = store.get(f.path)!;
@@ -1871,7 +2357,7 @@ describe('YoutnoteView startup legacy loading (layout not ready)', () => {
         expect(vi.mocked(promptLegacyConversionDecision)).toHaveBeenCalledTimes(1);
         expect(vault.process).not.toHaveBeenCalled();
 
-        decision.resolve('convert');
+        decision.resolve(CONVERT);
         await flush();
         await loading;
         expect(vault.process).toHaveBeenCalledTimes(1);
@@ -1909,7 +2395,7 @@ describe('YoutnoteView startup legacy loading (layout not ready)', () => {
 
             finishLayout();
             await flush();
-            decision.resolve('convert');
+            decision.resolve(CONVERT);
             await flush();
             await loading;
 
@@ -1963,7 +2449,7 @@ describe('YoutnoteView startup legacy loading (layout not ready)', () => {
         finishLayout();
         await flush();
         expect(vi.mocked(promptLegacyConversionDecision)).toHaveBeenCalledTimes(1);
-        expect(vi.mocked(promptLegacyConversionDecision).mock.calls[0][1]).toBe('b');
+        expect(vi.mocked(promptLegacyConversionDecision).mock.calls[0][1]).toBe('b.md');
         decision.resolve('read-only');
         await flush();
         expect(store.get(a.path)).toBe(LEGACY);
@@ -2000,7 +2486,7 @@ describe('YoutnoteView startup legacy loading (layout not ready)', () => {
         store.set(f.path, V3);
         finishLayout();
         await flush();
-        decision.resolve('convert');
+        decision.resolve(CONVERT);
         await flush();
         expect(store.get(f.path)).toBe(V3);
         expect(vault.modify).not.toHaveBeenCalled();
@@ -2054,7 +2540,7 @@ describe('YoutnoteView same-tab legacy open while a v2 file was loaded', () => {
         vi.mocked(promptLegacyConversionDecision).mockResolvedValue('read-only');
     });
 
-    it.each(['read-only', 'convert'] as const)(
+    it.each<LegacyConversionDecision>(['read-only', CONVERT])(
         'never renders the old v2 video under the new file while the modal is pending (%s)',
         async (decisionKind) => {
             const { store, vault, view, file, layoutCallbacks } = makeFixture();

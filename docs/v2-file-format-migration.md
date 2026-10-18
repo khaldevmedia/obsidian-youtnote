@@ -22,7 +22,7 @@ Files remain ordinary `.md` files in your vault. Format v2 does not require a ne
 
 ## Before you convert
 
-1. **Make a backup** of the files you plan to convert. The conversion dialog does not create a separate backup copy for you.
+1. **Make a backup** of the files you plan to convert. The conversion dialog creates a same-folder copy by default (see below), but that copy lives inside the same synced vault and stays in the legacy format — it is not an independent disaster-recovery backup. Keep your own vault backups as well.
 2. **Update Youtnote on every device that uses the synced vault**, including phones, tablets, and computers you use less often. Install a plugin version that supports format v2. Youtnote `1.3.0` and older are not compatible.
 3. If any device still uses an older plugin, **postpone conversion and choose Open read-only** in the updated plugin. Your legacy files can remain in the old format until every device is ready.
 
@@ -30,10 +30,11 @@ Files remain ordinary `.md` files in your vault. Format v2 does not require a ne
 
 1. Open an existing legacy youtnote in the updated plugin. Unversioned files and files explicitly declaring format version 1 are treated as legacy files.
 2. Read the conversion dialog, including the warning about older plugin versions and synced devices.
-3. Choose one of the following:
-   - **Convert to v2:** converts this file, checks the result, and enables editing. Videos, timestamped notes, and general notes are retained.
-   - **Open read-only:** displays the existing content without converting or saving the source file. Playback, searching, copying, and export remain available, but editing is disabled.
-4. After conversion, check the file's videos and notes, then make a small edit and reopen the file to confirm it persists. Keep your backup until you are satisfied with the result.
+3. Review the **Create a backup before converting** option, which is checked by default. With it checked, Youtnote first saves the exact source snapshot used for conversion — read after you confirm, including frontmatter and whitespace — in the same folder. The copy is named `name - legacy backup.md` next to `name.md`; if that name is already taken, the next free numbered name is used (`name - legacy backup 2.md`, `name - legacy backup 3.md`, ...), and existing files are never overwritten. The backup copy stays in the legacy format, and links to the file still point at the original. Uncheck the option to convert without a backup.
+4. Choose one of the following:
+   - **Convert to v2:** converts this file in place under its existing name, checks the result, and enables editing. Videos, timestamped notes, and general notes are retained. If the backup cannot be created, or the file changes while the conversion is being prepared, the conversion stops and the original is left untouched — you can try again. If conversion itself fails after a backup was written, the backup is kept.
+   - **Open read-only:** displays the existing content without converting or saving the source file. No backup is created. Playback, searching, copying, and export remain available, but editing is disabled.
+5. After conversion, check the file's videos and notes, then make a small edit and reopen the file to confirm it persists. Keep your backups until you are satisfied with the result.
 
 Closing the dialog also chooses read-only. You can convert later while the file is open as read-only by clicking the **See options** button in the read-only banner. It shows the convert popup again.
 

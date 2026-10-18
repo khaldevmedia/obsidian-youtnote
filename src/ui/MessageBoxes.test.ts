@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { App } from 'obsidian';
 import { AlertModal, ConfirmModal, LegacyFormatConversionModal, promptLegacyConversionDecision } from './MessageBoxes';
+import type { LegacyConversionDecision } from './MessageBoxes';
 import { GITHUB_DOCS_BRANCH, V2_FILE_FORMAT_MIGRATION_URL } from '../constants';
+import { getLegacyBackupPath } from '../conversionBackup';
 
 const { fakeEl } = vi.hoisted(() => {
     interface FakeEl {
@@ -15,13 +17,15 @@ const { fakeEl } = vi.hoisted(() => {
         addClass(cls: string): void;
         createDiv(options?: { cls?: string; text?: string }): FakeEl;
         createEl(tag: string, options?: { text?: string; cls?: string; attr?: Record<string, string> }): FakeEl;
-        createSpan(options?: { text?: string }): FakeEl;
+        createSpan(options?: { text?: string; cls?: string }): FakeEl;
+        appendText(text: string): void;
         setText(text: string): void;
         addEventListener(type: string, handler: () => void): void;
         contains(node: unknown): boolean;
         focus(): void;
         click(): void;
         findByAction(action: string): FakeEl | null;
+        findByCls(cls: string): FakeEl | null;
         dataset: Record<string, string>;
         attr: Record<string, string>;
     }
@@ -59,9 +63,14 @@ const { fakeEl } = vi.hoisted(() => {
             },
             createSpan(options) {
                 const child = fakeEl();
+                child.tag = 'span';
                 child.text = options?.text ?? '';
+                child.cls = options?.cls ?? '';
                 el.children.push(child);
                 return child;
+            },
+            appendText(text) {
+                el.text += text;
             },
             setText(text) {
                 el.text = text;
@@ -82,6 +91,14 @@ const { fakeEl } = vi.hoisted(() => {
                 for (const child of el.children) {
                     if (child.dataset.youtnoteAction === action) return child;
                     const nested = child.findByAction(action);
+                    if (nested) return nested;
+                }
+                return null;
+            },
+            findByCls(cls) {
+                for (const child of el.children) {
+                    if (child.cls.includes(cls)) return child;
+                    const nested = child.findByCls(cls);
                     if (nested) return nested;
                 }
                 return null;
@@ -192,12 +209,79 @@ describe('LegacyFormatConversionModal', () => {
         const convertButton = unsafeCast<ReturnType<typeof fakeEl>>(modal.contentEl).findByAction('convert');
         expect(convertButton).not.toBeNull();
         convertButton!.click();
-        await expect(modal.decision).resolves.toBe('convert');
+        await expect(modal.decision).resolves.toEqual({ action: 'convert', createBackup: true });
+    });
+
+    const findBackupCheckbox = (modal: LegacyFormatConversionModal) => {
+        const contentEl = unsafeCast<ReturnType<typeof fakeEl>>(modal.contentEl);
+        const backupEl = contentEl.children.find(child => child.cls.includes('youtnote-plugin__conversion-backup'));
+        expect(backupEl).toBeDefined();
+        const label = backupEl!.children.find(child => child.tag === 'label');
+        const input = label?.children.find(child => child.tag === 'input');
+        expect(input).toBeDefined();
+        return { backupEl: backupEl!, input: unsafeCast<FakeInput>(input!) };
+    };
+    interface FakeInput {
+        checked: boolean;
+        attr: Record<string, string>;
+    }
+
+    const findBackupFilenameSpan = (modal: LegacyFormatConversionModal) => {
+        const contentEl = unsafeCast<ReturnType<typeof fakeEl>>(modal.contentEl);
+        const descEl = contentEl.findByCls('youtnote-plugin__conversion-backup-desc');
+        expect(descEl).not.toBeNull();
+        const spans = descEl!.children.filter(child =>
+            child.cls.includes('youtnote-plugin__conversion-backup-filename'));
+        expect(spans).toHaveLength(1);
+        expect(spans[0].tag).toBe('span');
+        return spans[0];
+    };
+
+    it('checks the backup checkbox by default and shows the backup filename', () => {
+        const modal = new LegacyFormatConversionModal(app, 'a.md');
+        modal.open();
+        const { input } = findBackupCheckbox(modal);
+        expect(input.checked).toBe(true);
+        expect(input.attr.type).toBe('checkbox');
+        expect(findBackupFilenameSpan(modal).text).toBe(getLegacyBackupPath('a.md'));
+        const contentEl = unsafeCast<ReturnType<typeof fakeEl>>(modal.contentEl);
+        const backupIndex = contentEl.children.findIndex(child => child.cls.includes('youtnote-plugin__conversion-backup'));
+        const guideIndex = contentEl.children.findIndex(child => child.cls.includes('youtnote-plugin__conversion-guide-link'));
+        expect(backupIndex).toBeGreaterThanOrEqual(0);
+        expect(backupIndex).toBeLessThan(guideIndex);
+    });
+
+    it('previews the exact backup name for a .md.md file name', () => {
+        const modal = new LegacyFormatConversionModal(app, 'foo.md.md');
+        modal.open();
+        expect(findBackupFilenameSpan(modal).text).toBe(getLegacyBackupPath('foo.md.md'));
+    });
+
+    it('keeps the backup checkbox checked by default after another modal opted out', async () => {
+        const first = new LegacyFormatConversionModal(app, 'a.md');
+        first.open();
+        findBackupCheckbox(first).input.checked = false;
+        unsafeCast<ReturnType<typeof fakeEl>>(first.contentEl).findByAction('convert')!.click();
+        await expect(first.decision).resolves.toEqual({ action: 'convert', createBackup: false });
+        const second = new LegacyFormatConversionModal(app, 'a.md');
+        second.open();
+        expect(findBackupCheckbox(second).input.checked).toBe(true);
+        second.close();
+        await expect(second.decision).resolves.toBe('read-only');
+    });
+
+    it('resolves convert with createBackup false when the checkbox is unchecked', async () => {
+        const modal = new LegacyFormatConversionModal(app, 'a.md');
+        modal.open();
+        const { input } = findBackupCheckbox(modal);
+        input.checked = false;
+        unsafeCast<ReturnType<typeof fakeEl>>(modal.contentEl).findByAction('convert')!.click();
+        await expect(modal.decision).resolves.toEqual({ action: 'convert', createBackup: false });
     });
 
     it.each(['close', 'double-close'] as const)('resolves read-only exactly once on %s dismissal', async (kind) => {
         const modal = new LegacyFormatConversionModal(app, 'a.md');
-        const decisions: string[] = [];
+        const decisions: LegacyConversionDecision[] = [];
         void modal.decision.then(decision => decisions.push(decision));
         modal.open();
         modal.close();
