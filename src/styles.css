@@ -120,7 +120,6 @@ to avoid conflicts with other plugins */
     top: 0;
     z-index: 10;
     background-color: var(--background-primary);
-    padding-bottom: 10px;
     border-bottom: var(--border-width) solid var(--background-modifier-border);
 }
 
@@ -695,7 +694,7 @@ to avoid conflicts with other plugins */
     background-color: var(--interactive-accent);
     color: var(--text-on-accent);
     border: none;
-    border-radius: var(--button-radius);
+    border-radius: var(--radius-m);
     padding: var(--size-4-1);
     display: flex;
     align-items: center;
@@ -951,7 +950,7 @@ to avoid conflicts with other plugins */
     background-color: var(--interactive-accent);
     color: var(--text-on-accent);
     border: none;
-    border-radius: var(--button-radius);
+    border-radius: var(--radius-m);
     padding: var(--size-4-1);
     display: flex;
     align-items: center;
