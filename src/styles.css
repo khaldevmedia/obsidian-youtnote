@@ -35,7 +35,7 @@ to avoid conflicts with other plugins */
     width: 100%;
     gap: 0;
     overflow: hidden;
-    padding: 16px;
+    padding: var(--size-4-4);
     box-sizing: border-box;
     position: relative;
 
@@ -46,7 +46,7 @@ to avoid conflicts with other plugins */
 }
 
 .is-mobile .youtnote-plugin__plugin-container {
-    padding: 8px;
+    padding: var(--size-4-2);
     flex-direction: column;
     overflow-y: auto;
 }
@@ -79,9 +79,9 @@ to avoid conflicts with other plugins */
     flex: 0 0 auto;
     display: flex;
     flex-direction: column;
-    gap: 16px;
+    gap: var(--size-4-4);
     min-width: 300px;
-    padding-right: 8px;
+    padding-right: var(--size-4-2);
 }
 
 .is-mobile .youtnote-plugin__video-pane {
@@ -94,12 +94,12 @@ to avoid conflicts with other plugins */
 .youtnote-plugin__readonly-banner {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--size-4-2);
     flex-wrap: wrap;
-    padding: 8px 10px;
+    padding: var(--size-4-2) 10px;
     border-radius: 6px;
     background: var(--background-secondary);
-    border: 1px solid var(--background-modifier-border);
+    border: var(--border-width) solid var(--background-modifier-border);
     font-size: var(--font-ui-smaller);
     color: var(--text-muted);
 }
@@ -121,7 +121,7 @@ to avoid conflicts with other plugins */
     z-index: 10;
     background-color: var(--background-primary);
     padding-bottom: 10px;
-    border-bottom: 1px solid var(--background-modifier-border);
+    border-bottom: var(--border-width) solid var(--background-modifier-border);
 }
 
 
@@ -129,12 +129,12 @@ to avoid conflicts with other plugins */
     width: 100%;
     aspect-ratio: 16 / 9;
     background-color: var(--background-secondary);
-    border-radius: 8px;
+    border-radius: var(--radius-m);
     overflow: hidden;
     display: flex;
     align-items: center;
     justify-content: center;
-    border: 1px solid var(--background-modifier-border);
+    border: var(--border-width) solid var(--background-modifier-border);
     flex-shrink: 0;
     position: relative;
 }
@@ -161,14 +161,14 @@ to avoid conflicts with other plugins */
     font-weight: 500;
     color: var(--text-muted);
     letter-spacing: 0.5px;
-    padding: 8px 12px;
-    margin-bottom: 8px;
-    border-bottom: 1px solid var(--background-modifier-border);
+    padding: var(--size-4-2) var(--size-4-3);
+    margin-bottom: var(--size-4-2);
+    border-bottom: var(--border-width) solid var(--background-modifier-border);
     flex-shrink: 0;
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 8px;
+    gap: var(--size-4-2);
 }
 
 .youtnote-plugin__note-list-header {
@@ -176,20 +176,20 @@ to avoid conflicts with other plugins */
     font-weight: 500;
     color: var(--text-muted);
     letter-spacing: 0.5px;
-    padding: 8px 12px;
-    margin-bottom: 8px;
-    border-bottom: 1px solid var(--background-modifier-border);
+    padding: var(--size-4-2) var(--size-4-3);
+    margin-bottom: var(--size-4-2);
+    border-bottom: var(--border-width) solid var(--background-modifier-border);
     flex-shrink: 0;
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: var(--size-4-2);
 }
 
 .youtnote-plugin__note-list-header-row {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 8px;
+    gap: var(--size-4-2);
 }
 
 /* Counter numbers */
@@ -220,9 +220,9 @@ to avoid conflicts with other plugins */
 .youtnote-plugin__add-video-input {
     font-size: var(--font-ui-small);
     background: var(--background-primary);
-    border: 1px solid var(--background-modifier-border);
-    border-radius: 4px;
-    padding: 6px 10px;
+    border: var(--input-border-width) solid var(--background-modifier-border);
+    border-radius: var(--input-radius);
+    padding: var(--size-2-3) 10px;
     color: var(--text-normal);
     outline: none;
     transition: border-color 0.15s ease;
@@ -251,7 +251,7 @@ to avoid conflicts with other plugins */
 
 .youtnote-plugin__note-search-clear {
     position: absolute;
-    right: 8px;
+    right: var(--size-4-2);
     top: 50%;
     transform: translateY(-50%);
     background: none;
@@ -280,7 +280,7 @@ to avoid conflicts with other plugins */
 /* Export and Merge buttons in note list header */
 .youtnote-plugin__note-list-action-btns-container {
     display: flex;
-    gap: 8px;
+    gap: var(--size-4-2);
 }
 
 .youtnote-plugin__export-btn,
@@ -295,8 +295,8 @@ to avoid conflicts with other plugins */
     border: none;
     color: var(--text-muted);
     cursor: pointer;
-    padding: 4px;
-    border-radius: 4px;
+    padding: var(--size-4-1);
+    border-radius: var(--button-radius);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -330,14 +330,14 @@ to avoid conflicts with other plugins */
 .youtnote-plugin__ai-generation {
     display: flex;
     flex-direction: column;
-    gap: 12px;
-    margin-bottom: 12px;
+    gap: var(--size-4-3);
+    margin-bottom: var(--size-4-3);
 }
 
 .youtnote-plugin__ai-generation-field {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: var(--size-4-1);
 }
 
 .youtnote-plugin__ai-generation-label {
@@ -359,7 +359,7 @@ to avoid conflicts with other plugins */
 .youtnote-plugin__ai-generation-mode {
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: var(--size-2-3);
 }
 
 .youtnote-plugin__ai-generation-mode[hidden] {
@@ -369,9 +369,9 @@ to avoid conflicts with other plugins */
 .youtnote-plugin__ai-generation-section {
     display: flex;
     flex-direction: column;
-    gap: 8px;
-    padding: 10px 12px;
-    border: 1px solid var(--background-modifier-border);
+    gap: var(--size-4-2);
+    padding: 10px var(--size-4-3);
+    border: var(--border-width) solid var(--background-modifier-border);
     border-radius: var(--radius-s);
 }
 
@@ -381,13 +381,13 @@ to avoid conflicts with other plugins */
 }
 
 .youtnote-plugin__ai-generation-general-options {
-    margin-left: 24px;
-    padding-left: 12px;
+    margin-left: var(--size-4-6);
+    padding-left: var(--size-4-3);
     border-left: 2px solid var(--background-modifier-border);
 }
 
 .youtnote-plugin__ai-generation-general-preserved {
-    margin-left: 24px;
+    margin-left: var(--size-4-6);
     color: var(--text-muted);
     font-size: var(--font-ui-smaller);
 }
@@ -399,11 +399,11 @@ to avoid conflicts with other plugins */
 .youtnote-plugin__ai-generation-radio {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--size-4-2);
 }
 
 .youtnote-plugin__ai-generation-warning {
-    margin-left: 24px;
+    margin-left: var(--size-4-6);
     color: var(--text-warning);
     font-size: var(--font-ui-smaller);
 }
@@ -421,20 +421,20 @@ to avoid conflicts with other plugins */
 .youtnote-plugin__video-list {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: var(--size-4-2);
     overflow-y: auto;
     flex: 0 1 auto;
     max-height: 100%;
-    padding-right: 8px; /* For scrollbar */
+    padding-right: var(--size-4-2); /* For scrollbar */
 }
 
 .youtnote-plugin__video-item {
     display: flex;
     align-items: center;
-    gap: 12px;
-    padding: 8px 12px;
+    gap: var(--size-4-3);
+    padding: var(--size-4-2) var(--size-4-3);
     background-color: var(--background-secondary);
-    border: 1px solid var(--background-modifier-border);
+    border: var(--border-width) solid var(--background-modifier-border);
     border-radius: 6px;
     cursor: pointer;
     transition: background-color 0.15s ease, border-color 0.15s ease;
@@ -452,7 +452,7 @@ to avoid conflicts with other plugins */
 .youtnote-plugin__video-item img {
     width: 64px;
     height: 40px;
-    border-radius: 4px;
+    border-radius: var(--radius-s);
     object-fit: cover;
     background-color: var(--background-primary);
 }
@@ -484,8 +484,8 @@ to avoid conflicts with other plugins */
     border: none;
     color: var(--text-muted);
     cursor: pointer;
-    padding: 4px;
-    border-radius: 4px;
+    padding: var(--size-4-1);
+    border-radius: var(--button-radius);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -548,11 +548,11 @@ to avoid conflicts with other plugins */
     flex: 0 0 auto;
     display: flex;
     flex-direction: column;
-    gap: 16px;
+    gap: var(--size-4-4);
     min-width: 300px;
     max-height: 100%;
     overflow: hidden;
-    padding-left: 8px;
+    padding-left: var(--size-4-2);
 }
 
 .is-mobile .youtnote-plugin__notes-pane {
@@ -579,22 +579,22 @@ to avoid conflicts with other plugins */
 .youtnote-plugin__notes-list {
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: var(--size-4-3);
     overflow-y: auto;
     flex: 0 1 auto;
     max-height: 100%;
-    padding-right: 8px; /* For scrollbar */
+    padding-right: var(--size-4-2); /* For scrollbar */
 }
 
 /* Transcript view */
 .youtnote-plugin__transcript-list {
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: var(--size-2-1);
     overflow-y: auto;
     flex: 1 1 auto;
     min-height: 0;
-    padding-right: 8px;
+    padding-right: var(--size-4-2);
 }
 
 .is-mobile .youtnote-plugin__transcript-list {
@@ -607,7 +607,7 @@ to avoid conflicts with other plugins */
     display: flex;
     align-items: flex-start;
     gap: 10px;
-    padding: 6px 8px;
+    padding: var(--size-2-3) var(--size-4-2);
     border-radius: 6px;
     position: relative;
     content-visibility: auto;
@@ -654,17 +654,17 @@ to avoid conflicts with other plugins */
 .youtnote-plugin__transcript-text-editing {
     outline: none;
     cursor: text;
-    border-bottom: 1px solid var(--interactive-accent);
+    border-bottom: var(--border-width) solid var(--interactive-accent);
 }
 
 .youtnote-plugin__transcript-actions {
     position: absolute;
-    right: 4px;
-    top: 2px;
+    right: var(--size-4-1);
+    top: var(--size-2-1);
     display: flex;
-    gap: 4px;
-    padding: 2px;
-    border-radius: 4px;
+    gap: var(--size-4-1);
+    padding: var(--size-2-1);
+    border-radius: var(--radius-s);
     background-color: var(--background-modifier-hover);
 }
 
@@ -673,8 +673,8 @@ to avoid conflicts with other plugins */
     border: none;
     color: var(--text-muted);
     cursor: pointer;
-    padding: 4px;
-    border-radius: 4px;
+    padding: var(--size-4-1);
+    border-radius: var(--button-radius);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -695,8 +695,8 @@ to avoid conflicts with other plugins */
     background-color: var(--interactive-accent);
     color: var(--text-on-accent);
     border: none;
-    border-radius: 4px;
-    padding: 4px;
+    border-radius: var(--button-radius);
+    padding: var(--size-4-1);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -710,8 +710,8 @@ to avoid conflicts with other plugins */
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 16px;
-    padding: 24px;
+    gap: var(--size-4-4);
+    padding: var(--size-4-6);
     text-align: center;
     color: var(--text-muted);
     font-size: 14px;
@@ -729,10 +729,10 @@ to avoid conflicts with other plugins */
 .youtnote-plugin__note-card {
     display: flex;
     flex-direction: column;
-    padding: 12px;
+    padding: var(--size-4-3);
     background-color: var(--background-secondary);
-    border: 1px solid var(--background-modifier-border);
-    border-radius: 8px;
+    border: var(--border-width) solid var(--background-modifier-border);
+    border-radius: var(--radius-m);
     cursor: pointer;
     transition: background-color 0.15s ease, border-color 0.15s ease;
 }
@@ -757,9 +757,9 @@ to avoid conflicts with other plugins */
 .youtnote-plugin__general-note-label {
     display: inline-flex;
     align-items: center;
-    gap: 4px;
-    padding: 2px 8px;
-    border-radius: 4px;
+    gap: var(--size-4-1);
+    padding: var(--size-2-1) var(--size-4-2);
+    border-radius: var(--radius-s);
     background-color: var(--interactive-accent);
     color: var(--text-on-accent, var(--text-normal));
     font-size: 12px;
@@ -775,8 +775,8 @@ to avoid conflicts with other plugins */
 .youtnote-plugin__note-header {
     display: flex;
     align-items: center;
-    gap: 8px;
-    margin-bottom: 8px;
+    gap: var(--size-4-2);
+    margin-bottom: var(--size-4-2);
     font-size: 16px;
     font-weight: 600;
     color: var(--text-normal);
@@ -794,11 +794,11 @@ to avoid conflicts with other plugins */
 
 .youtnote-plugin__timestamp {
     background-color: var(--background-primary);
-    padding: 2px 6px;
-    border-radius: 4px;
+    padding: var(--size-2-1) var(--size-2-3);
+    border-radius: var(--radius-s);
     font-family: var(--font-monospace);
     font-size: 14px;
-    border: 1px solid var(--background-modifier-border);
+    border: var(--border-width) solid var(--background-modifier-border);
     cursor: pointer;
     transition: background-color 0.15s ease, border-color 0.15s ease;
 }
@@ -815,7 +815,7 @@ to avoid conflicts with other plugins */
     line-height: 1.5;
     white-space: pre-wrap;
     background-color: var(--background-primary);
-    padding: 8px;
+    padding: var(--size-4-2);
     border-radius: 6px;
     /* Collapsed state by default */
     display: -webkit-box;
@@ -837,8 +837,8 @@ to avoid conflicts with other plugins */
     color: var(--text-muted);
     line-height: 1.5;
     background-color: var(--background-primary);
-    padding-block: 4px;
-    padding-inline: 8px;
+    padding-block: var(--size-4-1);
+    padding-inline: var(--size-4-2);
     border-radius: 6px;
     /* Collapsed state by default - reserves space for 2 lines */
     display: -webkit-box;
@@ -923,8 +923,8 @@ to avoid conflicts with other plugins */
 
 .youtnote-plugin__markdown-note-body pre {
     background-color: var(--background-secondary);
-    padding: 8px;
-    border-radius: 4px;
+    padding: var(--size-4-2);
+    border-radius: var(--radius-s);
     overflow-x: auto;
 }
 
@@ -936,23 +936,23 @@ to avoid conflicts with other plugins */
 .youtnote-plugin__note-editor-container {
     width: 100%;
     margin-top: 0;
-    border: 1px solid var(--interactive-accent);
+    border: var(--border-width) solid var(--interactive-accent);
     border-radius: 6px;
     background-color: var(--background-primary);
     overflow: hidden;
-    padding: 8px;
+    padding: var(--size-4-2);
     position: relative;
 }
 
 .youtnote-plugin__mobile-note-save-btn {
     position: absolute;
-    top: 4px;
-    right: 4px;
+    top: var(--size-4-1);
+    right: var(--size-4-1);
     background-color: var(--interactive-accent);
     color: var(--text-on-accent);
     border: none;
-    border-radius: 4px;
-    padding: 4px;
+    border-radius: var(--button-radius);
+    padding: var(--size-4-1);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1019,10 +1019,10 @@ to avoid conflicts with other plugins */
 .youtnote-plugin__note-actions {
     display: flex;
     justify-content: flex-end;
-    gap: 8px;
-    margin-top: 12px;
-    padding-top: 8px;
-    border-top: 1px solid var(--background-modifier-border);
+    gap: var(--size-4-2);
+    margin-top: var(--size-4-3);
+    padding-top: var(--size-4-2);
+    border-top: var(--border-width) solid var(--background-modifier-border);
 }
 
 .youtnote-plugin__note-actions button {
@@ -1030,8 +1030,8 @@ to avoid conflicts with other plugins */
     border: none;
     color: var(--text-muted);
     cursor: pointer;
-    padding: 4px;
-    border-radius: 4px;
+    padding: var(--size-4-1);
+    border-radius: var(--button-radius);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1052,7 +1052,7 @@ to avoid conflicts with other plugins */
 .youtnote-plugin__timestamp-editor {
     display: flex;
     align-items: center;
-    gap: 4px;
+    gap: var(--size-4-1);
 }
 
 .youtnote-plugin__timestamp-editing {
@@ -1096,8 +1096,8 @@ to avoid conflicts with other plugins */
     display: inline-flex;
     align-items: center;
     height: var(--input-height);
-    margin-top: 8px;
-    padding: 4px 14px;
+    margin-top: var(--size-4-2);
+    padding: var(--size-4-1) 14px;
     border-radius: var(--button-radius);
     background-color: var(--interactive-normal);
     box-shadow: var(--input-shadow);
@@ -1128,8 +1128,8 @@ to avoid conflicts with other plugins */
     border: none;
     color: var(--text-muted);
     cursor: pointer;
-    padding: 4px;
-    border-radius: 4px;
+    padding: var(--size-4-1);
+    border-radius: var(--button-radius);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1151,17 +1151,17 @@ to avoid conflicts with other plugins */
 /* URL Input Modal/Row */
 .youtnote-plugin__add-video-form {
     display: flex;
-    gap: 8px;
-    margin-top: 8px;
+    gap: var(--size-4-2);
+    margin-top: var(--size-4-2);
     flex-shrink: 0;
 }
 
 button.youtnote-plugin__add-btn {
     background-color: var(--background-secondary);
-    border: 1px solid var(--background-modifier-border);
+    border: var(--border-width) solid var(--background-modifier-border);
     border-radius: 6px;
     color: var(--text-muted);
-    padding: 12px;
+    padding: var(--size-4-3);
     display: flex;
     cursor: pointer;
     align-items: center;
@@ -1182,25 +1182,25 @@ button.youtnote-plugin__add-btn {
 
 /* Base Modal Styles */
 .youtnote-plugin__base-modal {
-    padding: 8px;
+    padding: var(--size-4-2);
 }
 
 .youtnote-plugin__base-modal-title {
-    margin-bottom: 24px;
+    margin-bottom: var(--size-4-6);
     font-size: var(--font-ui-large);
     color: var(--text-normal);
     line-height: 1.5;
 }
 
 .youtnote-plugin__base-modal-message {
-    margin-bottom: 24px;
+    margin-bottom: var(--size-4-6);
     font-size: var(--font-ui-medium);
     color: var(--text-normal);
     line-height: 1.5;
 }
 
 .youtnote-plugin__conversion-message > p {
-    margin: 0 0 12px;
+    margin: 0 0 var(--size-4-3);
 }
 
 .youtnote-plugin__conversion-warning-heading {
@@ -1209,7 +1209,7 @@ button.youtnote-plugin__add-btn {
 }
 
 .youtnote-plugin__conversion-guide-link {
-    margin: 12px 0 12px;
+    margin: var(--size-4-3) 0 var(--size-4-3);
 }
 
 .youtnote-plugin__conversion-backup-filename {
@@ -1221,19 +1221,19 @@ button.youtnote-plugin__add-btn {
 }
 
 .youtnote-plugin__base-modal-filename {
-    margin-bottom: 16px;
+    margin-bottom: var(--size-4-4);
     font-weight: var(--font-semibold);
 }
 
 .youtnote-plugin__base-modal-buttons {
     display: flex;
     justify-content: flex-end;
-    gap: 8px;
+    gap: var(--size-4-2);
 }
 
 /* Modal */
 .youtnote-plugin__modal-button {
-    padding: 8px 16px;
+    padding: var(--size-4-2) var(--size-4-4);
     font-size: var(--font-ui-small);
     cursor: pointer;
     border: none;
@@ -1266,14 +1266,14 @@ button.youtnote-plugin__add-btn {
 .youtnote-plugin__export-options {
     display: flex;
     flex-direction: column;
-    gap: 8px;
-    margin-bottom: 24px;
+    gap: var(--size-4-2);
+    margin-bottom: var(--size-4-6);
 }
 
 .youtnote-plugin__export-option {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--size-4-2);
     cursor: pointer;
     color: var(--text-normal);
     font-size: var(--font-ui-medium);
@@ -1302,8 +1302,8 @@ button.youtnote-plugin__add-btn {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 20px;
-    padding: 16px;
+    gap: var(--size-4-5);
+    padding: var(--size-4-4);
 }
 
 .youtnote-plugin__ai-progress-modal-status {
@@ -1340,7 +1340,7 @@ button.youtnote-plugin__add-btn {
     align-items: center;
     justify-content: center;
     background-color: var(--background-secondary);
-    gap: 16px;
+    gap: var(--size-4-4);
     z-index: 10;
 }
 
