@@ -643,7 +643,8 @@ to avoid conflicts with other plugins */
 
 .youtnote-plugin__transcript-text {
     flex: 1;
-    font-size: 14px;
+    font-family: var(--font-text);
+    font-size: var(--font-text-size);
     line-height: 1.5;
     color: var(--text-normal);
     overflow-wrap: anywhere;
@@ -808,7 +809,8 @@ to avoid conflicts with other plugins */
 }
 
 .youtnote-plugin__note-body {
-    font-size: 14px;
+    font-family: var(--font-text);
+    font-size: var(--font-text-size);
     color: var(--text-muted);
     line-height: 1.5;
     white-space: pre-wrap;
@@ -830,7 +832,8 @@ to avoid conflicts with other plugins */
 
 /* Markdown-rendered note body */
 .youtnote-plugin__markdown-note-body {
-    font-size: 14px;
+    font-family: var(--font-text);
+    font-size: var(--font-text-size);
     color: var(--text-muted);
     line-height: 1.5;
     background-color: var(--background-primary);
@@ -845,7 +848,7 @@ to avoid conflicts with other plugins */
     overflow: hidden;
     cursor: pointer;
     /* Min height = 2 lines * line-height (1.5) * font-size (14px) = 42px */
-    min-height: 42px;
+    min-height: 3em;
     /* Handle very long words that would overflow */
     word-wrap: break-word;
     overflow-wrap: break-word;
@@ -857,7 +860,7 @@ to avoid conflicts with other plugins */
     overflow: visible;
     cursor: default;
     /* Keep same min-height to prevent shrinking on single-line notes */
-    min-height: 42px;
+    min-height: 3em;
     /* Handle very long words that would overflow */
     word-wrap: break-word;
     overflow-wrap: break-word;
@@ -975,7 +978,7 @@ to avoid conflicts with other plugins */
 .youtnote-plugin__obsidian-editor-container .cm-scroller {
     padding: 0;
     font-family: var(--font-text);
-    font-size: 14px;
+    font-size: var(--font-text-size);
     line-height: 1.5;
 }
 
