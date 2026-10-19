@@ -58,6 +58,10 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
             .sort(compareNotes),
         [notes, activeVideoId]
     );
+    const activeVideoTimestampedNotes = useMemo(
+        () => activeVideoNotes.filter(note => note.isGeneral !== true && note.timestampSec !== -1),
+        [activeVideoNotes]
+    );
     const activeVideo = useMemo(
         () => videos.find(v => v.id === activeVideoId),
         [videos, activeVideoId]
@@ -274,7 +278,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
         if (transcriptSyncButtonRef.current) {
             setIcon(transcriptSyncButtonRef.current, 'locate-fixed');
         }
-    }, [activeVideoId, activeVideoNotes.length, videos.length, notes.length, hasGeneralNote, showTranscript, hasTranscript]);
+    }, [activeVideoId, activeVideoNotes.length, activeVideoTimestampedNotes.length, videos.length, notes.length, hasGeneralNote, showTranscript, hasTranscript]);
 
     useEffect(() => {
         if (!readOnly && videoListRef.current) {
@@ -814,7 +818,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
         if (readOnly || !activeVideoId || !renderMutationGuard()) return;
 
         const notesByTimestamp = new Map<number, Note[]>();
-        activeVideoNotes.forEach(note => {
+        activeVideoTimestampedNotes.forEach(note => {
             const existing = notesByTimestamp.get(note.timestampSec) || [];
             existing.push(note);
             notesByTimestamp.set(note.timestampSec, existing);
@@ -1409,7 +1413,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
                                                 aria-label="Add general note"
                                             />
                                             )}
-                                            {activeVideoNotes.length > 0 && !readOnly && (
+                                            {activeVideoTimestampedNotes.length >= 2 && !readOnly && (
                                                 <button
                                                     ref={mergeNotesButtonRef}
                                                     className="youtnote-plugin__small-btn"
