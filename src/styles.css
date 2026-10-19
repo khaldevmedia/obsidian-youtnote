@@ -116,6 +116,7 @@ to avoid conflicts with other plugins */
     align-items: center;
     gap: var(--size-4-2);
     flex-wrap: wrap;
+    margin-inline: var(--size-4-4);
     padding: var(--size-4-2) var(--size-4-3);
     border-radius: var(--radius-m);
     background: var(--background-secondary);
@@ -134,6 +135,9 @@ to avoid conflicts with other plugins */
     cursor: pointer;
 }
 
+.is-mobile .youtnote-plugin__readonly-banner {
+    margin-inline: var(--size-4-2);
+}
 
 .is-mobile .youtnote-plugin__plugin-container.youtnote-plugin__iframe-sticky .youtnote-plugin__player-container {
     position: sticky;
