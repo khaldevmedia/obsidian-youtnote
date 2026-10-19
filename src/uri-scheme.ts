@@ -24,10 +24,26 @@ export interface ParsedYoutnoteUriParams {
     text?: string | undefined;
 }
 
+export type YoutnoteUriErrorCode =
+    | 'url-too-long'
+    | 'missing-mode'
+    | 'invalid-mode'
+    | 'missing-url'
+    | 'url-param-too-long'
+    | 'invalid-url'
+    | 'url-normalization-failed'
+    | 'missing-timestamp'
+    | 'invalid-timestamp'
+    | 'missing-text'
+    | 'text-too-long'
+    | 'frontmatter-not-allowed'
+    | 'structural-delimiter-not-allowed';
+
 /** Result of validating parsed URI parameters. */
 export interface ValidatedYoutnoteUriParams {
     valid: boolean;
     error?: string | undefined;
+    errorCode?: YoutnoteUriErrorCode | undefined;
     normalizedUrl?: string | undefined;
     mode: YoutnoteUriMode;
     timestampSec?: number | undefined;
@@ -89,6 +105,7 @@ export function validateYoutnoteUriParams(
         return {
             valid: false,
             error: `URL is too long (${fullUrlLength} chars). Maximum is ${MAX_URL_LENGTH} chars.`,
+            errorCode: 'url-too-long',
             mode: 'new',
         };
     }
@@ -99,6 +116,7 @@ export function validateYoutnoteUriParams(
         return {
             valid: false,
             error: 'Missing required "mode" parameter.',
+            errorCode: 'missing-mode',
             mode: 'new',
         };
     }
@@ -106,6 +124,7 @@ export function validateYoutnoteUriParams(
         return {
             valid: false,
             error: `Invalid mode "${params.mode}". Must be one of: new, append, note, general-note.`,
+            errorCode: 'invalid-mode',
             mode: 'new',
         };
     }
@@ -116,6 +135,7 @@ export function validateYoutnoteUriParams(
         return {
             valid: false,
             error: 'Missing required "url" parameter.',
+            errorCode: 'missing-url',
             mode,
         };
     }
@@ -125,6 +145,7 @@ export function validateYoutnoteUriParams(
         return {
             valid: false,
             error: `"url" parameter is too long (${params.url.length} chars). Maximum is ${MAX_URL_PARAM_LENGTH} chars.`,
+            errorCode: 'url-param-too-long',
             mode,
         };
     }
@@ -135,6 +156,7 @@ export function validateYoutnoteUriParams(
         return {
             valid: false,
             error: 'The "url" parameter is not a valid YouTube URL.',
+            errorCode: 'invalid-url',
             mode,
         };
     }
@@ -145,6 +167,7 @@ export function validateYoutnoteUriParams(
         return {
             valid: false,
             error: 'Failed to normalize the YouTube URL.',
+            errorCode: 'url-normalization-failed',
             mode,
         };
     }
@@ -157,6 +180,7 @@ export function validateYoutnoteUriParams(
             return {
                 valid: false,
                 error: 'Missing required "timestamp" parameter for mode=note.',
+                errorCode: 'missing-timestamp',
                 mode,
                 normalizedUrl,
             };
@@ -170,6 +194,7 @@ export function validateYoutnoteUriParams(
             return {
                 valid: false,
                 error: `Invalid timestamp: ${tsResult.error}`,
+                errorCode: 'invalid-timestamp',
                 mode,
                 normalizedUrl,
             };
@@ -185,6 +210,7 @@ export function validateYoutnoteUriParams(
             return {
                 valid: false,
                 error: `Missing required "text" parameter for mode=${mode}.`,
+                errorCode: 'missing-text',
                 mode,
                 normalizedUrl,
                 timestampSec,
@@ -195,6 +221,7 @@ export function validateYoutnoteUriParams(
             return {
                 valid: false,
                 error: `"text" parameter is too long (${params.text.length} chars). Maximum is ${MAX_TEXT_LENGTH} chars.`,
+                errorCode: 'text-too-long',
                 mode,
                 normalizedUrl,
                 timestampSec,
@@ -206,6 +233,7 @@ export function validateYoutnoteUriParams(
             return {
                 valid: false,
                 error: 'The "text" parameter contains a leading frontmatter marker (---), which is not allowed.',
+                errorCode: 'frontmatter-not-allowed',
                 mode,
                 normalizedUrl,
                 timestampSec,
@@ -216,6 +244,7 @@ export function validateYoutnoteUriParams(
             return {
                 valid: false,
                 error: 'The "text" parameter contains a line that would be interpreted as a youtnote section marker (video link, timestamp note marker, or general-note marker), which is not allowed.',
+                errorCode: 'structural-delimiter-not-allowed',
                 mode,
                 normalizedUrl,
                 timestampSec,

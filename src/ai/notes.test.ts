@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { AIProviderError } from './types';
-import type { AIConversationRequest, AIConversationResponse, AIProvider } from './types';
+import type { AIConversationRequest, AIConversationResponse, AIErrorReason, AIProvider } from './types';
 import type { TranscriptEntry } from '../types';
 import {
     createYoutnoteNotesJsonSchema,
@@ -14,6 +14,17 @@ import {
     YOUTNOTE_AI_SYSTEM_PROMPT,
     YOUTNOTE_SEGMENTS_JSON_SCHEMA,
 } from './notes';
+
+const expectInvalidReason = (run: () => unknown, reason: AIErrorReason): void => {
+    let caught: unknown = null;
+    try {
+        run();
+    } catch (error) {
+        caught = error;
+    }
+    expect(caught).toBeInstanceOf(AIProviderError);
+    expect(caught).toMatchObject({ kind: 'invalid-response', reason });
+};
 
 const TRANSCRIPT: TranscriptEntry[] = [
     { startMs: 0, text: 'Welcome to the video' },
@@ -81,32 +92,26 @@ describe('parseStructuredSegments', () => {
     });
 
     it('rejects malformed JSON', () => {
-        expect(() => parseStructuredSegments('not json'))
-            .toThrow(/AI structured response failed validation: Response is not valid JSON/);
-        expect(() => parseStructuredSegments('```json\n{"segments":[]}\n```'))
-            .toThrow(/not valid JSON/);
+        expectInvalidReason(() => parseStructuredSegments('not json'), 'invalid-json');
+        expectInvalidReason(() => parseStructuredSegments('```json\n{"segments":[]}\n```'), 'invalid-json');
     });
 
     it('rejects non-object JSON and missing or empty segments arrays', () => {
-        expect(() => parseStructuredSegments('[1,2]')).toThrow(/not an object/);
-        expect(() => parseStructuredSegments('{}')).toThrow(/segments/);
-        expect(() => parseStructuredSegments('{"segments":[]}')).toThrow(/segments/);
+        expectInvalidReason(() => parseStructuredSegments('[1,2]'), 'not-object');
+        expectInvalidReason(() => parseStructuredSegments('{}'), 'missing-segments');
+        expectInvalidReason(() => parseStructuredSegments('{"segments":[]}'), 'missing-segments');
+        expectInvalidReason(() => parseStructuredSegments('{"segments":[5]}'), 'invalid-segment');
     });
 
     it('rejects invalid timestamp_seconds values', () => {
-        expect(() => parseStructuredSegments('{"segments":[{"timestamp_seconds":"10","markdown":"x"}]}'))
-            .toThrow(/invalid timestamp_seconds/);
-        expect(() => parseStructuredSegments('{"segments":[{"timestamp_seconds":-1,"markdown":"x"}]}'))
-            .toThrow(/invalid timestamp_seconds/);
-        expect(() => parseStructuredSegments('{"segments":[{"timestamp_seconds":null,"markdown":"x"}]}'))
-            .toThrow(/invalid timestamp_seconds/);
+        expectInvalidReason(() => parseStructuredSegments('{"segments":[{"timestamp_seconds":"10","markdown":"x"}]}'), 'invalid-timestamp');
+        expectInvalidReason(() => parseStructuredSegments('{"segments":[{"timestamp_seconds":-1,"markdown":"x"}]}'), 'invalid-timestamp');
+        expectInvalidReason(() => parseStructuredSegments('{"segments":[{"timestamp_seconds":null,"markdown":"x"}]}'), 'invalid-timestamp');
     });
 
     it('rejects blank or non-string markdown bodies', () => {
-        expect(() => parseStructuredSegments('{"segments":[{"timestamp_seconds":1,"markdown":"   "}]}'))
-            .toThrow(/empty markdown/);
-        expect(() => parseStructuredSegments('{"segments":[{"timestamp_seconds":1,"markdown":5}]}'))
-            .toThrow(/empty markdown/);
+        expectInvalidReason(() => parseStructuredSegments('{"segments":[{"timestamp_seconds":1,"markdown":"   "}]}'), 'empty-body');
+        expectInvalidReason(() => parseStructuredSegments('{"segments":[{"timestamp_seconds":1,"markdown":5}]}'), 'empty-body');
     });
 
     it('rejects out-of-order timestamps and timestamps beyond maxTimestampSec', () => {
@@ -114,14 +119,12 @@ describe('parseStructuredSegments', () => {
             { timestamp_seconds: 20, markdown: 'a' },
             { timestamp_seconds: 10, markdown: 'b' },
         ] });
-        expect(() => parseStructuredSegments(unordered)).toThrow(/chronological order/);
-        expect(() => parseStructuredSegments(VALID_JSON, { maxTimestampSec: 60 }))
-            .toThrow(/maximum allowed timestamp/);
+        expectInvalidReason(() => parseStructuredSegments(unordered), 'out-of-order');
+        expectInvalidReason(() => parseStructuredSegments(VALID_JSON, { maxTimestampSec: 60 }), 'timestamp-out-of-range');
     });
 
     it('rejects more segments than maxNotes', () => {
-        expect(() => parseStructuredSegments(VALID_JSON, { maxNotes: 1 }))
-            .toThrow(/limit of 1/);
+        expectInvalidReason(() => parseStructuredSegments(VALID_JSON, { maxNotes: 1 }), 'too-many-notes');
     });
 
     it('enforces the hard cap of 100 segments when no maxNotes is given', () => {
@@ -130,12 +133,9 @@ describe('parseStructuredSegments', () => {
             markdown: `Note ${i + 1}`,
         }));
         const payload = JSON.stringify({ segments });
-        expect(() => parseStructuredSegments(payload))
-            .toThrow(/limit of 100/);
-        expect(() => parseStructuredSegments(payload, { maxNotes: 1000 }))
-            .toThrow(/limit of 100/);
-        expect(() => parseStructuredSegments(payload, { maxNotes: NaN }))
-            .toThrow(/limit of 100/);
+        expectInvalidReason(() => parseStructuredSegments(payload), 'too-many-notes');
+        expectInvalidReason(() => parseStructuredSegments(payload, { maxNotes: 1000 }), 'too-many-notes');
+        expectInvalidReason(() => parseStructuredSegments(payload, { maxNotes: NaN }), 'too-many-notes');
     });
 });
 
@@ -233,47 +233,46 @@ describe('parseGeneratedNotes', () => {
     });
 
     it('rejects nonblank content before the first delimiter', () => {
-        expect(() => parseGeneratedNotes(`Here are your notes:\n${VALID_RESPONSE}`))
-            .toThrow(AIProviderError);
+        expectInvalidReason(() => parseGeneratedNotes(`Here are your notes:\n${VALID_RESPONSE}`), 'unexpected-content');
     });
 
     it('rejects responses wrapped in code fences', () => {
-        expect(() => parseGeneratedNotes('```\n' + VALID_RESPONSE + '\n```'))
-            .toThrow(/code fences/);
+        expectInvalidReason(() => parseGeneratedNotes('```\n' + VALID_RESPONSE + '\n```'), 'code-fence');
     });
 
     it('rejects malformed delimiter-like lines', () => {
-        expect(() => parseGeneratedNotes('[00:10](timestamps)\nBody')).toThrow(/Malformed/);
-        expect(() => parseGeneratedNotes('[0a:10](timestamp)\nBody')).toThrow(/Malformed/);
-        expect(() => parseGeneratedNotes('**[00:10](timestamp)**\nBody')).toThrow(/Malformed/);
-        expect(() => parseGeneratedNotes('[00:10](timestamp)\nBody\n[00:20](caption) caption text'))
-            .toThrow(/Malformed/);
+        expectInvalidReason(() => parseGeneratedNotes('[00:10](timestamps)\nBody'), 'malformed-delimiter');
+        expectInvalidReason(() => parseGeneratedNotes('[0a:10](timestamp)\nBody'), 'malformed-delimiter');
+        expectInvalidReason(() => parseGeneratedNotes('**[00:10](timestamp)**\nBody'), 'malformed-delimiter');
+        expectInvalidReason(() => parseGeneratedNotes('[00:10](timestamp)\nBody\n[00:20](caption) caption text'), 'malformed-delimiter');
     });
 
     it('rejects empty note bodies', () => {
-        expect(() => parseGeneratedNotes('[00:10](timestamp)\n\n[00:20](timestamp)\nBody'))
-            .toThrow(/empty body/);
-        expect(() => parseGeneratedNotes('[00:10](timestamp)')).toThrow(/empty body/);
+        expectInvalidReason(() => parseGeneratedNotes('[00:10](timestamp)\n\n[00:20](timestamp)\nBody'), 'empty-body');
+        expectInvalidReason(() => parseGeneratedNotes('[00:10](timestamp)'), 'empty-body');
     });
 
     it('rejects out-of-order timestamps', () => {
         const content = '[00:20](timestamp)\nFirst\n[00:10](timestamp)\nSecond';
-        expect(() => parseGeneratedNotes(content)).toThrow(/chronological order/);
+        expectInvalidReason(() => parseGeneratedNotes(content), 'out-of-order');
     });
 
     it('rejects timestamps beyond maxTimestampSec', () => {
-        expect(() => parseGeneratedNotes('[05:00](timestamp)\nBody', { maxTimestampSec: 60 }))
-            .toThrow(/exceeds video duration/);
+        expectInvalidReason(() => parseGeneratedNotes('[05:00](timestamp)\nBody', { maxTimestampSec: 60 }), 'timestamp-out-of-range');
+        expectInvalidReason(() => parseGeneratedNotes('[61](timestamp)\nBody', { maxTimestampSec: 60 }), 'timestamp-out-of-range');
+    });
+
+    it('rejects malformed timestamps as invalid-timestamp', () => {
+        expectInvalidReason(() => parseGeneratedNotes('[1::2](timestamp)\nBody'), 'invalid-timestamp');
     });
 
     it('rejects more notes than maxNotes', () => {
-        expect(() => parseGeneratedNotes(VALID_RESPONSE, { maxNotes: 1 }))
-            .toThrow(/limit of 1/);
+        expectInvalidReason(() => parseGeneratedNotes(VALID_RESPONSE, { maxNotes: 1 }), 'too-many-notes');
     });
 
     it('rejects responses with no notes', () => {
-        expect(() => parseGeneratedNotes('')).toThrow(/no|did not contain/i);
-        expect(() => parseGeneratedNotes('just some text')).toThrow(AIProviderError);
+        expectInvalidReason(() => parseGeneratedNotes(''), 'missing-notes');
+        expectInvalidReason(() => parseGeneratedNotes('just some text'), 'unexpected-content');
     });
 
     it('accepts a requested general-note block before timestamped notes', () => {
@@ -286,34 +285,27 @@ describe('parseGeneratedNotes', () => {
     });
 
     it('rejects a missing general-note block when one was requested', () => {
-        expect(() => parseGeneratedNotes(VALID_RESPONSE, { includeGeneralNote: true }))
-            .toThrow(/requested general note/);
+        expectInvalidReason(() => parseGeneratedNotes(VALID_RESPONSE, { includeGeneralNote: true }), 'missing-general-note');
     });
 
     it('rejects duplicate, late, empty, and unsolicited general-note blocks', () => {
         const duplicate = VALID_RESPONSE_WITH_GENERAL + '\n\n[general-note](general-note)\nSecond general';
-        expect(() => parseGeneratedNotes(duplicate, { includeGeneralNote: true }))
-            .toThrow(/more than one general-note/);
+        expectInvalidReason(() => parseGeneratedNotes(duplicate, { includeGeneralNote: true }), 'duplicate-general-note');
 
         const afterTimestamp = '[00:10](timestamp)\nBody\n\n[general-note](general-note)\nLate general';
-        expect(() => parseGeneratedNotes(afterTimestamp, { includeGeneralNote: true }))
-            .toThrow(/precede all timestamped/);
+        expectInvalidReason(() => parseGeneratedNotes(afterTimestamp, { includeGeneralNote: true }), 'general-note-order');
 
         const empty = '[general-note](general-note)\n\n[00:10](timestamp)\nBody';
-        expect(() => parseGeneratedNotes(empty, { includeGeneralNote: true }))
-            .toThrow(/empty body/);
+        expectInvalidReason(() => parseGeneratedNotes(empty, { includeGeneralNote: true }), 'empty-body');
 
-        expect(() => parseGeneratedNotes(VALID_RESPONSE_WITH_GENERAL))
-            .toThrow(/unrequested general-note/);
-        expect(() => parseGeneratedNotes(VALID_RESPONSE_WITH_GENERAL, { includeGeneralNote: false }))
-            .toThrow(/unrequested general-note/);
+        expectInvalidReason(() => parseGeneratedNotes(VALID_RESPONSE_WITH_GENERAL), 'unrequested-general-note');
+        expectInvalidReason(() => parseGeneratedNotes(VALID_RESPONSE_WITH_GENERAL, { includeGeneralNote: false }), 'unrequested-general-note');
     });
 
     it('counts only timestamped notes against maxNotes', () => {
         expect(parseGeneratedNotes(VALID_RESPONSE_WITH_GENERAL, { includeGeneralNote: true, maxNotes: 2 }))
             .toHaveLength(3);
-        expect(() => parseGeneratedNotes(VALID_RESPONSE_WITH_GENERAL, { includeGeneralNote: true, maxNotes: 1 }))
-            .toThrow(/limit of 1/);
+        expectInvalidReason(() => parseGeneratedNotes(VALID_RESPONSE_WITH_GENERAL, { includeGeneralNote: true, maxNotes: 1 }), 'too-many-notes');
     });
 });
 

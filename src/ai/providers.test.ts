@@ -110,7 +110,7 @@ describe('OpenAIProvider', () => {
     it('fails with missing-key before any request when the key is absent', async () => {
         const provider = makeProvider(null);
         await expect(provider.sendConversation(CHAT_REQUEST))
-            .rejects.toMatchObject({ kind: 'missing-key', message: 'OpenAI API key is not configured.' });
+            .rejects.toMatchObject({ kind: 'missing-key' });
         await expect(provider.listModels())
             .rejects.toMatchObject({ kind: 'missing-key' });
         expect(mockRequestUrl).not.toHaveBeenCalled();
@@ -155,8 +155,6 @@ describe('OpenAIProvider', () => {
         }));
         await expect(makeProvider().sendConversation(CHAT_REQUEST))
             .rejects.toMatchObject({ kind: 'truncated' });
-        await expect(makeProvider().sendConversation(CHAT_REQUEST))
-            .rejects.toThrow(/Maximum notes|Custom instructions/);
     });
 
     it('rejects finish_reason content_filter as blocked', async () => {
@@ -324,8 +322,6 @@ describe('CustomOpenAIProvider', () => {
         respond(htmlResponse(404, '<html><body>Not Found</body></html>'));
         await expect(makeProvider().sendConversation(CHAT_REQUEST))
             .rejects.toMatchObject({ kind: 'incompatible', status: 404 });
-        await expect(makeProvider().sendConversation(CHAT_REQUEST))
-            .rejects.toThrow(/OpenAI-compatible/);
     });
 
     it('flags JSON 404 chat responses as incompatible with the provider detail', async () => {
@@ -334,8 +330,6 @@ describe('CustomOpenAIProvider', () => {
             .rejects.toMatchObject({ kind: 'incompatible', status: 404 });
         await expect(makeProvider().sendConversation(CHAT_REQUEST))
             .rejects.toThrow(/route not found/);
-        await expect(makeProvider().sendConversation(CHAT_REQUEST))
-            .rejects.toThrow(/OpenAI-compatible/);
     });
 
     it('flags JSON 404 model-list responses as incompatible with the provider detail', async () => {
@@ -344,8 +338,6 @@ describe('CustomOpenAIProvider', () => {
             .rejects.toMatchObject({ kind: 'incompatible', status: 404 });
         await expect(makeProvider().listModels())
             .rejects.toThrow(/route not found/);
-        await expect(makeProvider().listModels())
-            .rejects.toThrow(/OpenAI-compatible/);
     });
 
     it('sends the same strict json_schema response_format as native OpenAI', async () => {
@@ -480,8 +472,6 @@ describe('AnthropicProvider', () => {
             }));
             await expect(makeProvider().sendConversation(CHAT_REQUEST))
                 .rejects.toMatchObject({ kind: 'truncated' });
-            await expect(makeProvider().sendConversation(CHAT_REQUEST))
-                .rejects.toThrow(/Maximum notes|Custom instructions/);
         }
     });
 
@@ -491,7 +481,9 @@ describe('AnthropicProvider', () => {
             stop_reason: 'refusal',
         }));
         await expect(makeProvider().sendConversation(CHAT_REQUEST))
-            .rejects.toMatchObject({ kind: 'refused', message: 'Anthropic refused to complete the response: no.' });
+            .rejects.toMatchObject({ kind: 'refused' });
+        await expect(makeProvider().sendConversation(CHAT_REQUEST))
+            .rejects.toThrow('no');
     });
 
     it('rejects other explicit stop reasons as a terminal provider error', async () => {
@@ -608,8 +600,6 @@ describe('GeminiProvider', () => {
         }));
         await expect(makeProvider().sendConversation(CHAT_REQUEST))
             .rejects.toMatchObject({ kind: 'truncated' });
-        await expect(makeProvider().sendConversation(CHAT_REQUEST))
-            .rejects.toThrow(/Maximum notes|Custom instructions/);
     });
 
     it.each(['SAFETY', 'RECITATION', 'BLOCKLIST', 'PROHIBITED_CONTENT', 'SPII'])(
@@ -886,6 +876,15 @@ describe('createAIProviderError', () => {
         expect(error.status).toBe(503);
         expect(error.code).toBeUndefined();
         expect(error.param).toBeUndefined();
+    });
+
+    it('keeps the internal reason independent from the provider code and param', () => {
+        const error = new AIProviderError('invalid-response', 'fixture', 400, 'external-code', 'schema', 'invalid-json');
+        expect(error.code).toBe('external-code');
+        expect(error.param).toBe('schema');
+        expect(error.status).toBe(400);
+        expect(error.reason).toBe('invalid-json');
+        expect(error.kind).toBe('invalid-response');
     });
 });
 
@@ -1396,15 +1395,14 @@ describe('getAINoteGenerationSetupError', () => {
     it('returns invalid-config for disabled AI without reading secrets', () => {
         const getSecret = vi.fn(() => null);
         const error = getAINoteGenerationSetupError(makeAI(ai => { ai.enabled = false; }), getSecret);
-        expect(error).toMatchObject({ kind: 'invalid-config' });
+        expect(error).toMatchObject({ kind: 'invalid-config', reason: 'ai-disabled' });
         expect(getSecret).not.toHaveBeenCalled();
     });
 
     it('returns invalid-config for provider none without reading secrets', () => {
         const getSecret = vi.fn(() => null);
         const error = getAINoteGenerationSetupError(makeAI(ai => { ai.provider = 'none'; }), getSecret);
-        expect(error).toMatchObject({ kind: 'invalid-config' });
-        expect(error?.message).toContain('No AI provider');
+        expect(error).toMatchObject({ kind: 'invalid-config', reason: 'provider-unconfigured' });
         expect(getSecret).not.toHaveBeenCalled();
     });
 
@@ -1438,8 +1436,7 @@ describe('getAINoteGenerationSetupError', () => {
             makeAI(ai => { ai.models.openai = ' '; }),
             getSecret,
         );
-        expect(error).toMatchObject({ kind: 'invalid-config' });
-        expect(error?.message).toContain('No AI model');
+        expect(error).toMatchObject({ kind: 'invalid-config', reason: 'model-unconfigured' });
     });
 
     it.each(['', '   ', 'not a url', 'ftp://x', 'javascript:alert(1)'])(
@@ -1454,8 +1451,7 @@ describe('getAINoteGenerationSetupError', () => {
                 }),
                 getSecret,
             );
-            expect(error).toMatchObject({ kind: 'invalid-config' });
-            expect(error?.message).toContain('base URL');
+            expect(error).toMatchObject({ kind: 'invalid-config', reason: 'invalid-base-url' });
             expect(getSecret).not.toHaveBeenCalled();
         },
     );

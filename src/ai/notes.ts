@@ -1,6 +1,7 @@
 import { AIProviderError, AI_TRUNCATED_RESPONSE_HINT } from './types';
 import type {
     AIConversationRequest,
+    AIErrorReason,
     AIConversationResponse,
     AIMessage,
     AIProvider,
@@ -192,12 +193,13 @@ interface ParseSuccess {
 interface ParseFailure {
     ok: false;
     error: string;
+    reason: AIErrorReason;
 }
 
 type ParseResult = ParseSuccess | ParseFailure;
 
-function fail(error: string): ParseFailure {
-    return { ok: false, error };
+function fail(reason: AIErrorReason, error: string): ParseFailure {
+    return { ok: false, error, reason };
 }
 
 function tryParseGeneratedNotes(
@@ -216,16 +218,16 @@ function tryParseGeneratedNotes(
     let pendingIsGeneral = false;
     let lastSec = -1;
 
-    const flush = (): string | null => {
+    const flush = (): ParseFailure | null => {
         if (pendingBody === null) {
             return null;
         }
         const body = pendingBody.join('\n').trim();
         if (!body) {
             if (pendingIsGeneral) {
-                return 'The general note has an empty body.';
+                return fail('empty-body', 'The general note has an empty body.');
             }
-            return `Note at ${formatSecondsToDisplay(pendingSec, 0)} has an empty body.`;
+            return fail('empty-body', `Note at ${formatSecondsToDisplay(pendingSec, 0)} has an empty body.`);
         }
         if (pendingIsGeneral) {
             generalDraft = { timestampSec: -1, bodyMarkdown: body, isGeneral: true };
@@ -237,18 +239,18 @@ function tryParseGeneratedNotes(
 
     for (const line of lines) {
         if (GENERAL_NOTE_DELIMITER.test(line)) {
-            const flushError = flush();
-            if (flushError !== null) {
-                return fail(flushError);
+            const flushFailure = flush();
+            if (flushFailure !== null) {
+                return flushFailure;
             }
             if (!includeGeneralNote) {
-                return fail('Response contained an unrequested general-note block.');
+                return fail('unrequested-general-note', 'Response contained an unrequested general-note block.');
             }
             if (generalSeen) {
-                return fail('Response contained more than one general-note block.');
+                return fail('duplicate-general-note', 'Response contained more than one general-note block.');
             }
             if (timestampedSeen) {
-                return fail('The general-note block must precede all timestamped notes.');
+                return fail('general-note-order', 'The general-note block must precede all timestamped notes.');
             }
             generalSeen = true;
             pendingIsGeneral = true;
@@ -257,16 +259,16 @@ function tryParseGeneratedNotes(
         }
         const delimiter = TIMESTAMP_DELIMITER.exec(line);
         if (delimiter) {
-            const flushError = flush();
-            if (flushError !== null) {
-                return fail(flushError);
+            const flushFailure = flush();
+            if (flushFailure !== null) {
+                return flushFailure;
             }
             const parsed = parseTimestampInput(delimiter[1], maxTimestampSec ?? 0);
             if (parsed.error) {
-                return fail(`Invalid timestamp "${delimiter[1]}": ${parsed.error}.`);
+                return fail(parsed.errorCode ?? 'invalid-timestamp', `Invalid timestamp "${delimiter[1]}": ${parsed.error}.`);
             }
             if (parsed.seconds < lastSec) {
-                return fail(`Timestamp "${delimiter[1]}" is out of chronological order.`);
+                return fail('out-of-order', `Timestamp "${delimiter[1]}" is out of chronological order.`);
             }
             lastSec = parsed.seconds;
             timestampedSeen = true;
@@ -276,32 +278,32 @@ function tryParseGeneratedNotes(
             continue;
         }
         if (CODE_FENCE.test(line)) {
-            return fail('Response must not contain code fences.');
+            return fail('code-fence', 'Response must not contain code fences.');
         }
         if (DELIMITER_LIKE_OPEN.test(line) || DELIMITER_LIKE_CLOSE.test(line)) {
-            return fail(`Malformed timestamp delimiter line: "${line.trim()}".`);
+            return fail('malformed-delimiter', `Malformed timestamp delimiter line: "${line.trim()}".`);
         }
         if (pendingBody === null) {
             if (line.trim() !== '') {
-                return fail('Unexpected content before the first timestamped note.');
+                return fail('unexpected-content', 'Unexpected content before the first timestamped note.');
             }
             continue;
         }
         pendingBody.push(line);
     }
 
-    const flushError = flush();
-    if (flushError !== null) {
-        return fail(flushError);
+    const flushFailure = flush();
+    if (flushFailure !== null) {
+        return flushFailure;
     }
     if (includeGeneralNote && generalDraft === null) {
-        return fail('Response did not contain the requested general note.');
+        return fail('missing-general-note', 'Response did not contain the requested general note.');
     }
     if (notes.length === 0) {
-        return fail('Response did not contain any timestamped notes.');
+        return fail('missing-notes', 'Response did not contain any timestamped notes.');
     }
     if (maxNotes !== undefined && notes.length > maxNotes) {
-        return fail(`Response contained ${notes.length} notes, exceeding the limit of ${maxNotes}.`);
+        return fail('too-many-notes', `Response contained ${notes.length} notes, exceeding the limit of ${maxNotes}.`);
     }
     return { ok: true, notes: generalDraft ? [generalDraft, ...notes] : notes };
 }
@@ -317,7 +319,14 @@ export function parseGeneratedNotes(
         options?.includeGeneralNote === true,
     );
     if (!result.ok) {
-        throw new AIProviderError('invalid-response', `AI response failed note validation: ${result.error}`);
+        throw new AIProviderError(
+            'invalid-response',
+            `AI response failed note validation: ${result.error}`,
+            undefined,
+            undefined,
+            undefined,
+            result.reason,
+        );
     }
     return result.notes;
 }
@@ -331,12 +340,13 @@ interface StructuredParseSuccess {
 interface StructuredParseFailure {
     ok: false;
     error: string;
+    reason: AIErrorReason;
 }
 
 type StructuredParseResult = StructuredParseSuccess | StructuredParseFailure;
 
-function structuredFail(error: string): StructuredParseFailure {
-    return { ok: false, error };
+function structuredFail(reason: AIErrorReason, error: string): StructuredParseFailure {
+    return { ok: false, error, reason };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -353,20 +363,20 @@ function tryParseStructuredSegments(
     try {
         parsed = JSON.parse(content);
     } catch (error) {
-        return structuredFail(`Response is not valid JSON: ${error instanceof Error ? error.message : String(error)}`);
+        return structuredFail('invalid-json', `Response is not valid JSON: ${error instanceof Error ? error.message : String(error)}`);
     }
     if (!isRecord(parsed)) {
-        return structuredFail('Response JSON is not an object.');
+        return structuredFail('not-object', 'Response JSON is not an object.');
     }
     let generalNoteMarkdown: string | undefined;
     if (includeGeneralNote) {
         if (typeof parsed.general_note !== 'string' || !parsed.general_note.trim()) {
-            return structuredFail('Response JSON does not contain a non-empty "general_note" string.');
+            return structuredFail('missing-general-note', 'Response JSON does not contain a non-empty "general_note" string.');
         }
         generalNoteMarkdown = parsed.general_note.trim();
     }
     if (!Array.isArray(parsed.segments) || parsed.segments.length === 0) {
-        return structuredFail('Response JSON does not contain a non-empty "segments" array.');
+        return structuredFail('missing-segments', 'Response JSON does not contain a non-empty "segments" array.');
     }
 
     const segments: GeneratedNoteSegment[] = [];
@@ -375,26 +385,26 @@ function tryParseStructuredSegments(
         const item: unknown = parsed.segments[i];
         const label = `Segment ${i + 1}`;
         if (!isRecord(item)) {
-            return structuredFail(`${label} is not an object.`);
+            return structuredFail('invalid-segment', `${label} is not an object.`);
         }
         if (typeof item.timestamp_seconds !== 'number' || !Number.isFinite(item.timestamp_seconds) || item.timestamp_seconds < 0) {
-            return structuredFail(`${label} has an invalid timestamp_seconds value.`);
+            return structuredFail('invalid-timestamp', `${label} has an invalid timestamp_seconds value.`);
         }
         if (maxTimestampSec !== undefined && item.timestamp_seconds > maxTimestampSec) {
-            return structuredFail(`${label} timestamp_seconds exceeds the maximum allowed timestamp.`);
+            return structuredFail('timestamp-out-of-range', `${label} timestamp_seconds exceeds the maximum allowed timestamp.`);
         }
         if (item.timestamp_seconds < lastSec) {
-            return structuredFail(`${label} is out of chronological order.`);
+            return structuredFail('out-of-order', `${label} is out of chronological order.`);
         }
         if (typeof item.markdown !== 'string' || !item.markdown.trim()) {
-            return structuredFail(`${label} has an empty markdown body.`);
+            return structuredFail('empty-body', `${label} has an empty markdown body.`);
         }
         lastSec = item.timestamp_seconds;
         segments.push({ timestamp_seconds: item.timestamp_seconds, markdown: item.markdown.trim() });
     }
 
     if (maxNotes !== undefined && segments.length > maxNotes) {
-        return structuredFail(`Response contained ${segments.length} segments, exceeding the limit of ${maxNotes}.`);
+        return structuredFail('too-many-notes', `Response contained ${segments.length} segments, exceeding the limit of ${maxNotes}.`);
     }
     return { ok: true, segments, generalNoteMarkdown };
 }
@@ -405,7 +415,14 @@ export function parseStructuredSegments(
 ): GeneratedNoteSegment[] {
     const result = tryParseStructuredSegments(content, resolveMaxNotesLimit(options?.maxNotes), options?.maxTimestampSec, false);
     if (!result.ok) {
-        throw new AIProviderError('invalid-response', `AI structured response failed validation: ${result.error}`);
+        throw new AIProviderError(
+            'invalid-response',
+            `AI structured response failed validation: ${result.error}`,
+            undefined,
+            undefined,
+            undefined,
+            result.reason,
+        );
     }
     return result.segments;
 }
@@ -582,6 +599,10 @@ export async function generateNotesFromTranscript(
             throw new AIProviderError(
                 'invalid-response',
                 `AI structured correction and unstructured fallback both failed: ${fallbackParsed.error}`,
+                undefined,
+                undefined,
+                undefined,
+                fallbackParsed.reason,
             );
         }
         return {

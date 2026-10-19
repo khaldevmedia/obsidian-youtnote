@@ -68,6 +68,7 @@ describe('validateYoutnoteUriParams', () => {
         const result = validateYoutnoteUriParams(params, 100);
 
         expect(result.valid).toBe(true);
+        expect(result.errorCode).toBeUndefined();
         expect(result.mode).toBe('new');
         expect(result.normalizedUrl).toBe(VALID_YT_URL);
     });
@@ -77,7 +78,7 @@ describe('validateYoutnoteUriParams', () => {
         const result = validateYoutnoteUriParams(params, 100);
 
         expect(result.valid).toBe(false);
-        expect(result.error).toContain('Invalid mode');
+        expect(result.errorCode).toBe('invalid-mode');
         expect(result.error).toContain('invalid-mode');
     });
 
@@ -86,7 +87,7 @@ describe('validateYoutnoteUriParams', () => {
         const result = validateYoutnoteUriParams(params, 100);
 
         expect(result.valid).toBe(false);
-        expect(result.error).toContain('Missing required "mode"');
+        expect(result.errorCode).toBe('missing-mode');
     });
 
     it('rejects url that does not resolve to a YouTube ID', () => {
@@ -94,7 +95,7 @@ describe('validateYoutnoteUriParams', () => {
         const result = validateYoutnoteUriParams(params, 100);
 
         expect(result.valid).toBe(false);
-        expect(result.error).toContain('not a valid YouTube URL');
+        expect(result.errorCode).toBe('invalid-url');
     });
 
     it('rejects URL > 2000 chars total', () => {
@@ -102,7 +103,7 @@ describe('validateYoutnoteUriParams', () => {
         const result = validateYoutnoteUriParams(params, MAX_URL_LENGTH + 1);
 
         expect(result.valid).toBe(false);
-        expect(result.error).toContain('too long');
+        expect(result.errorCode).toBe('url-too-long');
     });
 
     it('rejects url param > 500 chars', () => {
@@ -111,7 +112,7 @@ describe('validateYoutnoteUriParams', () => {
         const result = validateYoutnoteUriParams(params, longUrl.length + 50);
 
         expect(result.valid).toBe(false);
-        expect(result.error).toContain('"url" parameter is too long');
+        expect(result.errorCode).toBe('url-param-too-long');
     });
 
     it('rejects text param > 1000 chars (decoded)', () => {
@@ -120,7 +121,7 @@ describe('validateYoutnoteUriParams', () => {
         const result = validateYoutnoteUriParams(params, 200);
 
         expect(result.valid).toBe(false);
-        expect(result.error).toContain('"text" parameter is too long');
+        expect(result.errorCode).toBe('text-too-long');
     });
 
     it('accepts valid timestamp for mode=note and returns timestampSec', () => {
@@ -128,6 +129,7 @@ describe('validateYoutnoteUriParams', () => {
         const result = validateYoutnoteUriParams(params, 200);
 
         expect(result.valid).toBe(true);
+        expect(result.errorCode).toBeUndefined();
         expect(result.mode).toBe('note');
         expect(result.timestampSec).toBe(83);
         expect(result.text).toBe('Note text');
@@ -138,7 +140,7 @@ describe('validateYoutnoteUriParams', () => {
         const result = validateYoutnoteUriParams(params, 200);
 
         expect(result.valid).toBe(false);
-        expect(result.error).toContain('Invalid timestamp');
+        expect(result.errorCode).toBe('invalid-timestamp');
     });
 
     it('rejects invalid timestamp for mode=note (negative)', () => {
@@ -146,7 +148,7 @@ describe('validateYoutnoteUriParams', () => {
         const result = validateYoutnoteUriParams(params, 200);
 
         expect(result.valid).toBe(false);
-        expect(result.error).toContain('Invalid timestamp');
+        expect(result.errorCode).toBe('invalid-timestamp');
     });
 
     it('accepts timestamp > 86400 seconds (no duration cap at validation time)', () => {
@@ -154,6 +156,7 @@ describe('validateYoutnoteUriParams', () => {
         const result = validateYoutnoteUriParams(params, 200);
 
         expect(result.valid).toBe(true);
+        expect(result.errorCode).toBeUndefined();
         expect(result.timestampSec).toBe(90000);
     });
 
@@ -162,7 +165,7 @@ describe('validateYoutnoteUriParams', () => {
         const result = validateYoutnoteUriParams(params, 200);
 
         expect(result.valid).toBe(false);
-        expect(result.error).toContain('Missing required "timestamp"');
+        expect(result.errorCode).toBe('missing-timestamp');
     });
 
     it('rejects missing text for mode=note', () => {
@@ -170,7 +173,7 @@ describe('validateYoutnoteUriParams', () => {
         const result = validateYoutnoteUriParams(params, 200);
 
         expect(result.valid).toBe(false);
-        expect(result.error).toContain('Missing required "text"');
+        expect(result.errorCode).toBe('missing-text');
     });
 
     it('rejects missing text for mode=general-note', () => {
@@ -178,7 +181,7 @@ describe('validateYoutnoteUriParams', () => {
         const result = validateYoutnoteUriParams(params, 200);
 
         expect(result.valid).toBe(false);
-        expect(result.error).toContain('Missing required "text"');
+        expect(result.errorCode).toBe('missing-text');
     });
 
     it('accepts missing timestamp/text for mode=new', () => {
@@ -186,6 +189,7 @@ describe('validateYoutnoteUriParams', () => {
         const result = validateYoutnoteUriParams(params, 100);
 
         expect(result.valid).toBe(true);
+        expect(result.errorCode).toBeUndefined();
         expect(result.timestampSec).toBeUndefined();
         expect(result.text).toBeUndefined();
     });
@@ -195,6 +199,7 @@ describe('validateYoutnoteUriParams', () => {
         const result = validateYoutnoteUriParams(params, 100);
 
         expect(result.valid).toBe(true);
+        expect(result.errorCode).toBeUndefined();
         expect(result.timestampSec).toBeUndefined();
         expect(result.text).toBeUndefined();
     });
@@ -204,6 +209,7 @@ describe('validateYoutnoteUriParams', () => {
         const result = validateYoutnoteUriParams(params, 200);
 
         expect(result.valid).toBe(true);
+        expect(result.errorCode).toBeUndefined();
         expect(result.mode).toBe('general-note');
         expect(result.text).toBe('General note content');
     });
@@ -213,7 +219,7 @@ describe('validateYoutnoteUriParams', () => {
         const result = validateYoutnoteUriParams(params, 100);
 
         expect(result.valid).toBe(false);
-        expect(result.error).toContain('Missing required "url"');
+        expect(result.errorCode).toBe('missing-url');
     });
 
     it('rejects text with leading frontmatter marker', () => {
@@ -221,7 +227,7 @@ describe('validateYoutnoteUriParams', () => {
         const result = validateYoutnoteUriParams(params, 200);
 
         expect(result.valid).toBe(false);
-        expect(result.error).toContain('frontmatter marker');
+        expect(result.errorCode).toBe('frontmatter-not-allowed');
     });
 
     it('accepts text with --- that appears later (not at the start)', () => {
@@ -229,6 +235,7 @@ describe('validateYoutnoteUriParams', () => {
         const result = validateYoutnoteUriParams(params, 200);
 
         expect(result.valid).toBe(true);
+        expect(result.errorCode).toBeUndefined();
         expect(result.text).toBe('Some text\n---\nMore text');
     });
 
@@ -237,7 +244,7 @@ describe('validateYoutnoteUriParams', () => {
         const result = validateYoutnoteUriParams(params, 200);
 
         expect(result.valid).toBe(false);
-        expect(result.error).toContain('section marker');
+        expect(result.errorCode).toBe('structural-delimiter-not-allowed');
     });
 
     it('rejects mode=general-note text containing a YouTube link line', () => {
@@ -245,7 +252,7 @@ describe('validateYoutnoteUriParams', () => {
         const result = validateYoutnoteUriParams(params, 200);
 
         expect(result.valid).toBe(false);
-        expect(result.error).toContain('section marker');
+        expect(result.errorCode).toBe('structural-delimiter-not-allowed');
     });
 
     it('throws on non-string url param (guarded by try/catch in main.ts)', () => {
@@ -367,7 +374,7 @@ describe('hasStructuralDelimiter', () => {
         const params = { url: VALID_YT_URL, mode: 'note', timestamp: '10', text: 'body\n<!-- youtnote:video:end -->' };
         const result = validateYoutnoteUriParams(params, 200);
         expect(result.valid).toBe(false);
-        expect(result.error).toContain('section marker');
+        expect(result.errorCode).toBe('structural-delimiter-not-allowed');
     });
 });
 
@@ -395,6 +402,7 @@ describe.each(['note', 'general-note'] as const)(
         ])('accepts text %j', (text) => {
             const result = validateYoutnoteUriParams(buildParams(text), 400);
             expect(result.valid).toBe(true);
+            expect(result.errorCode).toBeUndefined();
             expect(result.valid && result.text).toBe(text);
         });
     }

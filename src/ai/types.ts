@@ -62,6 +62,29 @@ export type AIErrorKind =
     | 'refused'
     | 'blocked';
 
+export type AIErrorReason =
+    | 'ai-disabled'
+    | 'provider-unconfigured'
+    | 'model-unconfigured'
+    | 'invalid-base-url'
+    | 'invalid-json'
+    | 'not-object'
+    | 'missing-segments'
+    | 'invalid-segment'
+    | 'invalid-timestamp'
+    | 'timestamp-out-of-range'
+    | 'out-of-order'
+    | 'empty-body'
+    | 'too-many-notes'
+    | 'missing-general-note'
+    | 'unrequested-general-note'
+    | 'duplicate-general-note'
+    | 'general-note-order'
+    | 'code-fence'
+    | 'malformed-delimiter'
+    | 'unexpected-content'
+    | 'missing-notes';
+
 export const AI_TRUNCATED_RESPONSE_HINT = 'Try a smaller "Maximum notes" value or ask for shorter notes through "Custom instructions".';
 
 export class AIProviderError extends Error {
@@ -71,6 +94,7 @@ export class AIProviderError extends Error {
         public readonly status?: number,
         public readonly code?: string,
         public readonly param?: string,
+        public readonly reason?: AIErrorReason,
     ) {
         super(message);
         this.name = 'AIProviderError';

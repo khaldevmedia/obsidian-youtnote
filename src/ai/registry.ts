@@ -69,6 +69,10 @@ export function getAINoteGenerationSetupError(
         return new AIProviderError(
             'invalid-config',
             'AI integration is turned off. Open Youtnote settings to enable AI and configure a provider.',
+            undefined,
+            undefined,
+            undefined,
+            'ai-disabled',
         );
     }
     const provider = settings.provider;
@@ -76,6 +80,10 @@ export function getAINoteGenerationSetupError(
         return new AIProviderError(
             'invalid-config',
             'No AI provider is configured. Select one in Youtnote settings.',
+            undefined,
+            undefined,
+            undefined,
+            'provider-unconfigured',
         );
     }
     if (provider !== 'custom') {
@@ -89,6 +97,10 @@ export function getAINoteGenerationSetupError(
         return new AIProviderError(
             'invalid-config',
             'No AI model is configured. Select a model in Youtnote settings.',
+            undefined,
+            undefined,
+            undefined,
+            'model-unconfigured',
         );
     }
     if (provider === 'custom') {
@@ -106,6 +118,10 @@ export function getAINoteGenerationSetupError(
             return new AIProviderError(
                 'invalid-config',
                 'The custom AI base URL is not valid. Configure an http or https OpenAI-compatible base URL in Youtnote settings.',
+                undefined,
+                undefined,
+                undefined,
+                'invalid-base-url',
             );
         }
     }

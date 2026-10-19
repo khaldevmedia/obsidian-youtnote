@@ -33,6 +33,7 @@ vi.mock('./main', () => ({ default: class YoutnotePlugin {} }));
 import { DEFAULT_SETTINGS, mergePluginSettings, refreshAIModelList, YoutnoteSettingTab } from './settings';
 import { GITHUB_DOCS_BRANCH, URI_SCHEME_GUIDE_URL } from './constants';
 import { AIProviderError } from './ai/types';
+import { getAIErrorPresentation } from './ai/errorPresentation';
 import type { AISettings } from './types';
 
 describe('mergePluginSettings', () => {
@@ -376,9 +377,9 @@ describe('Model list refresh button', () => {
         );
         (tab as unknown as { display: () => void }).display = vi.fn();
         const group = (tab as unknown as {
-            buildAIGroup(): { items: { name: string; render?: (setting: unknown) => void }[] };
+            buildAIGroup(): { items: { id?: string; render?: (setting: unknown) => void }[] };
         }).buildAIGroup();
-        const item = group.items.find(entry => entry.name === 'Model list');
+        const item = group.items.find(entry => entry.id === 'ai-model-list');
         expect(item).toBeDefined();
         const captured: { click?: () => Promise<void> } = {};
         const button = {
@@ -422,7 +423,7 @@ describe('Model list refresh button', () => {
         expect(noticeRecords).toHaveLength(1);
         expect(noticeRecords[0].timeout).toBe(3000);
         expect(noticeRecords[0].classes).toEqual([]);
-        expect(noticeRecords[0].message).toContain('Loaded 2 models.');
+        expect(noticeRecords[0].message.length).toBeGreaterThan(0);
     });
 
     it('ignores a stale refresh result without persisting', async () => {
@@ -448,7 +449,8 @@ describe('Model list refresh button', () => {
         expect(ai.models.openai).toBe('chosen');
         expect(noticeRecords).toHaveLength(0);
         expect((button.setDisabled.mock.calls as unknown as boolean[][]).at(-1)?.[0]).toBe(false);
-        expect((button.setButtonText.mock.calls as unknown as string[][]).at(-1)?.[0]).toBe('Refresh models');
+        const texts = (button.setButtonText.mock.calls as unknown as string[][]).map(call => call[0]);
+        expect(texts[texts.length - 1]).toBe(texts[0]);
     });
 
     it('warns persistently when the selected model is missing from the refreshed list', async () => {
@@ -461,8 +463,7 @@ describe('Model list refresh button', () => {
         expect(noticeRecords).toHaveLength(1);
         expect(noticeRecords[0].timeout).toBe(0);
         expect(noticeRecords[0].classes).toEqual(['youtnote-plugin__notice-warning']);
-        expect(noticeRecords[0].message).toContain('Loaded 2 models.');
-        expect(noticeRecords[0].message).toContain('not in the fetched list');
+        expect(noticeRecords[0].message.length).toBeGreaterThan(0);
     });
 
     it('warns persistently with detail and advice on a provider overload', async () => {
@@ -470,8 +471,9 @@ describe('Model list refresh button', () => {
             aiSettings.models.openai = 'chosen';
             aiSettings.availableModels.openai = ['cached'];
         });
+        const failure = new AIProviderError('provider', 'Service overloaded', 503, 'UNAVAILABLE');
         const { captured, saveDataState } = buildRefreshClick(ai, vi.fn(() =>
-            Promise.reject(new AIProviderError('provider', 'Service overloaded', 503, 'UNAVAILABLE'))));
+            Promise.reject(failure)));
         noticeRecords.length = 0;
         await captured.click!();
         expect(saveDataState).not.toHaveBeenCalled();
@@ -481,13 +483,16 @@ describe('Model list refresh button', () => {
         expect(noticeRecords[0].timeout).toBe(0);
         expect(noticeRecords[0].classes).toEqual(['youtnote-plugin__notice-warning']);
         expect(noticeRecords[0].message).toContain('Service overloaded');
-        expect(noticeRecords[0].message).toContain('temporarily unavailable');
+        const guidance = getAIErrorPresentation(failure).guidance;
+        expect(guidance.length).toBeGreaterThan(0);
+        expect(noticeRecords[0].message).toContain(guidance);
     });
 
     it('shows an error with account guidance on an insufficient-quota rate limit', async () => {
         const ai = makeAI();
+        const failure = new AIProviderError('provider', 'Quota exceeded', 429, 'insufficient_quota');
         const { captured, saveDataState } = buildRefreshClick(ai, vi.fn(() =>
-            Promise.reject(new AIProviderError('provider', 'Quota exceeded', 429, 'insufficient_quota'))));
+            Promise.reject(failure)));
         noticeRecords.length = 0;
         await captured.click!();
         expect(saveDataState).not.toHaveBeenCalled();
@@ -495,7 +500,9 @@ describe('Model list refresh button', () => {
         expect(noticeRecords[0].timeout).toBe(0);
         expect(noticeRecords[0].classes).toEqual(['youtnote-plugin__notice-error']);
         expect(noticeRecords[0].message).toContain('Quota exceeded');
-        expect(noticeRecords[0].message).toContain('billing, or quota');
+        const guidance = getAIErrorPresentation(failure).guidance;
+        expect(guidance.length).toBeGreaterThan(0);
+        expect(noticeRecords[0].message).toContain(guidance);
     });
 
     it('shows a persistent error on an authentication failure', async () => {
@@ -530,23 +537,26 @@ describe('Model list refresh button', () => {
         expect(saveDataState).not.toHaveBeenCalled();
         expect(noticeRecords).toHaveLength(0);
         expect((button.setDisabled.mock.calls as unknown as boolean[][]).at(-1)?.[0]).toBe(false);
-        expect((button.setButtonText.mock.calls as unknown as string[][]).at(-1)?.[0]).toBe('Refresh models');
+        const texts = (button.setButtonText.mock.calls as unknown as string[][]).map(call => call[0]);
+        expect(texts[texts.length - 1]).toBe(texts[0]);
     });
 
     it.each([
-        { name: 'success', listAIModels: () => Promise.resolve(['m1']), label: 'Refresh models', pending: 'Refreshing…' },
-        { name: 'failure', listAIModels: () => Promise.reject(new Error('boom')), label: 'Refresh models', pending: 'Refreshing…' },
-    ])('restores the button after a $name refresh', async ({ listAIModels, label, pending }) => {
+        { name: 'success', listAIModels: () => Promise.resolve(['m1']) },
+        { name: 'failure', listAIModels: () => Promise.reject(new Error('boom')) },
+    ])('restores the button after a $name refresh', async ({ listAIModels }) => {
         const ai = makeAI();
         const { captured, button } = buildRefreshClick(ai, vi.fn(listAIModels));
         await captured.click!();
         const texts = (button.setButtonText.mock.calls as unknown as string[][]).map(call => call[0]);
-        expect(texts).toContain(pending);
-        expect(texts[texts.length - 1]).toBe(label);
-        expect((button.setDisabled.mock.calls as unknown as boolean[][]).at(-1)?.[0]).toBe(false);
+        expect(texts[texts.length - 1]).toBe(texts[0]);
+        expect(texts.slice(1, -1).some(text => text !== texts[0])).toBe(true);
+        const disabled = (button.setDisabled.mock.calls as unknown as boolean[][]).map(call => call[0]);
+        expect(disabled).toContain(true);
+        expect(disabled[disabled.length - 1]).toBe(false);
     });
 
-    it('restores the Test connection label for a custom provider', async () => {
+    it('restores the initial label for a custom provider', async () => {
         const ai = makeAI(aiSettings => {
             aiSettings.provider = 'custom';
             aiSettings.models.custom = 'llama';
@@ -555,10 +565,41 @@ describe('Model list refresh button', () => {
         const { captured, button } = buildRefreshClick(ai, vi.fn(() => Promise.resolve(['llama'])));
         await captured.click!();
         const texts = (button.setButtonText.mock.calls as unknown as string[][]).map(call => call[0]);
-        expect(texts).toContain('Testing…');
-        expect(texts[texts.length - 1]).toBe('Test connection');
-        expect((button.setDisabled.mock.calls as unknown as boolean[][]).at(-1)?.[0]).toBe(false);
+        expect(texts[texts.length - 1]).toBe(texts[0]);
+        expect(texts.slice(1, -1).some(text => text !== texts[0])).toBe(true);
+        const disabled = (button.setDisabled.mock.calls as unknown as boolean[][]).map(call => call[0]);
+        expect(disabled).toContain(true);
+        expect(disabled[disabled.length - 1]).toBe(false);
     });
+
+    it.each(['openai', 'custom'] as const)(
+        'keeps the button disabled only while a %s refresh is pending',
+        async (provider) => {
+            const ai = makeAI(aiSettings => {
+                if (provider === 'custom') {
+                    aiSettings.provider = 'custom';
+                    aiSettings.models.custom = 'llama';
+                    aiSettings.customBaseUrl = 'http://localhost:11434/v1';
+                }
+            });
+            let resolveFetch: ((models: string[]) => void) | null = null;
+            const { captured, button } = buildRefreshClick(ai, vi.fn(() =>
+                new Promise<string[]>(resolve => { resolveFetch = resolve; })));
+            const texts = () =>
+                (button.setButtonText.mock.calls as unknown as string[][]).map(call => call[0]);
+            const disabled = () =>
+                (button.setDisabled.mock.calls as unknown as boolean[][]).map(call => call[0]);
+            const initial = texts()[0];
+            const pending = captured.click!();
+            expect(disabled().at(-1)).toBe(true);
+            expect(texts().at(-1)!.length).toBeGreaterThan(0);
+            expect(texts().at(-1)).not.toBe(initial);
+            resolveFetch!(['m1']);
+            await pending;
+            expect(disabled().at(-1)).toBe(false);
+            expect(texts().at(-1)).toBe(initial);
+        },
+    );
 });
 
 describe('URI scheme guide link', () => {

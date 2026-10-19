@@ -4,6 +4,7 @@ import {
     normalizeYouTubeUrl,
     hasYoutnoteFrontmatter,
     isSafeExternalUrl,
+    parseTimestampInput,
 } from './utils';
 import {
     parseMarkdownToData,
@@ -424,5 +425,35 @@ Another note.
         expect(exported).toContain('[7](https://youtu.be/abcdefghijk?t=7) other caption');
         expect(exported).not.toContain('Another note.');
         expect(exported).not.toContain('**General note:**');
+    });
+});
+
+describe('parseTimestampInput error codes', () => {
+    it.each(['', 'abc', '1::2', '1:2:3:4', '.'])(
+        'reports invalid-timestamp for malformed input %j',
+        (input) => {
+            const result = parseTimestampInput(input, 60);
+            expect(result.errorCode).toBe('invalid-timestamp');
+            expect(result.error?.length).toBeGreaterThan(0);
+        },
+    );
+
+    it.each(['61', '1:01'])(
+        'reports timestamp-out-of-range for in-range syntax %j beyond the duration',
+        (input) => {
+            const result = parseTimestampInput(input, 60);
+            expect(result.errorCode).toBe('timestamp-out-of-range');
+            expect(result.error?.length).toBeGreaterThan(0);
+        },
+    );
+
+    it.each([
+        ['59', 59],
+        ['0:59', 59],
+    ])('parses %j without an error code', (input, expected) => {
+        const result = parseTimestampInput(input, 60);
+        expect(result.seconds).toBe(expected);
+        expect(result.errorCode).toBeUndefined();
+        expect(result.error).toBeUndefined();
     });
 });

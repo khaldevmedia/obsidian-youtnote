@@ -170,6 +170,7 @@ interface CustomDef {
 	kind: 'custom';
 	name: string;
 	desc: Desc;
+	id?: string;
 	visible?: () => boolean;
 	render: (setting: Setting) => void;
 }
@@ -499,6 +500,7 @@ export class YoutnoteSettingTab extends PluginSettingTab {
 					kind: 'custom',
 					name: 'Model list',
 					desc: 'Fetch the models available for the selected provider.',
+					id: 'ai-model-list',
 					visible: showProviderRows,
 					render: (setting) => {
 						const id = providerId();

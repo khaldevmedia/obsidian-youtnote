@@ -184,18 +184,18 @@ export function isSafeExternalUrl(rawUrl: string): boolean {
  * @param maxDuration - Maximum allowed duration in seconds (video length)
  * @returns Object with parsed seconds and optional error message
  */
-export function parseTimestampInput(input: string, maxDuration: number): { seconds: number; error?: string } {
+export function parseTimestampInput(input: string, maxDuration: number): { seconds: number; error?: string; errorCode?: 'invalid-timestamp' | 'timestamp-out-of-range' } {
     // Trim whitespace
     const trimmed = input.trim();
     
     if (!trimmed) {
-        return { seconds: 0, error: 'Empty input' };
+        return { seconds: 0, error: 'Empty input', errorCode: 'invalid-timestamp' };
     }
 
     // Validate that input only contains digits, colons, and optional decimal points
     // Valid formats: s, m:s, h:m:s (where each segment can be a number with optional decimal)
     if (!/^[\d.:]+$/.test(trimmed)) {
-        return { seconds: 0, error: 'Invalid format: only numbers and colons allowed' };
+        return { seconds: 0, error: 'Invalid format: only numbers and colons allowed', errorCode: 'invalid-timestamp' };
     }
 
     // Check if input contains colons (time format) or is just a number
@@ -204,15 +204,15 @@ export function parseTimestampInput(input: string, maxDuration: number): { secon
         const seconds = parseFloat(trimmed);
         
         if (isNaN(seconds)) {
-            return { seconds: 0, error: 'Invalid number format' };
+            return { seconds: 0, error: 'Invalid number format', errorCode: 'invalid-timestamp' };
         }
         
         if (seconds < 0) {
-            return { seconds: 0, error: 'Time cannot be negative' };
+            return { seconds: 0, error: 'Time cannot be negative', errorCode: 'invalid-timestamp' };
         }
         
         if (maxDuration > 0 && seconds > maxDuration) {
-            return { seconds: maxDuration, error: `Time exceeds video duration (max: ${formatSecondsToDisplay(maxDuration)})` };
+            return { seconds: maxDuration, error: `Time exceeds video duration (max: ${formatSecondsToDisplay(maxDuration)})`, errorCode: 'timestamp-out-of-range' };
         }
         
         return { seconds: Math.floor(seconds) };
@@ -223,12 +223,12 @@ export function parseTimestampInput(input: string, maxDuration: number): { secon
     
     // Validate that we don't have empty segments or consecutive colons
     if (segments.some(seg => seg.trim() === '')) {
-        return { seconds: 0, error: 'Invalid format: empty segment' };
+        return { seconds: 0, error: 'Invalid format: empty segment', errorCode: 'invalid-timestamp' };
     }
     
     // Validate segment count (max 3: hours:minutes:seconds)
     if (segments.length > 3) {
-        return { seconds: 0, error: 'Invalid format: too many segments' };
+        return { seconds: 0, error: 'Invalid format: too many segments', errorCode: 'invalid-timestamp' };
     }
 
     // Parse each segment as a number
@@ -239,12 +239,12 @@ export function parseTimestampInput(input: string, maxDuration: number): { secon
 
     // Check for invalid segments
     if (values.some(v => v === null)) {
-        return { seconds: 0, error: 'Invalid format: non-numeric segment' };
+        return { seconds: 0, error: 'Invalid format: non-numeric segment', errorCode: 'invalid-timestamp' };
     }
 
     // Check for negative values
     if (values.some(v => v! < 0)) {
-        return { seconds: 0, error: 'Time segments cannot be negative' };
+        return { seconds: 0, error: 'Time segments cannot be negative', errorCode: 'invalid-timestamp' };
     }
 
     // Calculate total seconds using backwards iteration
@@ -260,11 +260,11 @@ export function parseTimestampInput(input: string, maxDuration: number): { secon
 
     // Validate against bounds
     if (totalSeconds < 0) {
-        return { seconds: 0, error: 'Time cannot be negative' };
+        return { seconds: 0, error: 'Time cannot be negative', errorCode: 'invalid-timestamp' };
     }
 
     if (maxDuration > 0 && totalSeconds > maxDuration) {
-        return { seconds: maxDuration, error: `Time exceeds video duration (max: ${formatSecondsToDisplay(maxDuration)})` };
+        return { seconds: maxDuration, error: `Time exceeds video duration (max: ${formatSecondsToDisplay(maxDuration)})`, errorCode: 'timestamp-out-of-range' };
     }
 
     return { seconds: totalSeconds };

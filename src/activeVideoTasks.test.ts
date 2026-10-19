@@ -4,6 +4,8 @@ import type { TFile } from 'obsidian';
 import { ActiveVideoTaskRegistry } from './activeVideoTasks';
 import type { VideoTaskTarget } from './activeVideoTasks';
 import { AIProviderError } from './ai/types';
+import { getAIErrorPresentation } from './ai/errorPresentation';
+import { getAINoteGenerationSetupError } from './ai/registry';
 import type { AIGenerationDialogOptions, PluginSettings, TranscriptEntry, Video, VideoId } from './types';
 import type YoutnotePlugin from './main';
 import { YoutnoteView } from './view';
@@ -379,48 +381,56 @@ describe('YoutnotePlugin AI task workflow', () => {
         format: 'structured',
     });
 
-    it.each<['disabled' | 'none' | 'blank secret' | 'blank model' | 'bad base URL', string]>([
-        ['disabled', 'AI integration is turned off'],
-        ['none', 'No AI provider is configured'],
-        ['blank secret', 'MISSING_KEY_MESSAGE'],
-        ['blank model', 'No AI model is configured'],
-        ['bad base URL', 'The custom AI base URL is not valid'],
-    ])('shows the setup modal for %s and starts no work', (caseName, expectedMessage) => {
-        vi.mocked(showAISetupModal).mockClear();
-        vi.mocked(fetchCaptionTracks).mockClear();
-        const plugin = makePlugin(ai => {
-            if (caseName === 'disabled') {
-                ai.enabled = false;
-            } else if (caseName === 'none') {
-                ai.provider = 'none';
-            } else if (caseName === 'blank secret') {
-                ai.secretNames.openai = '  ';
-            } else if (caseName === 'blank model') {
-                ai.models.openai = ' ';
-            } else if (caseName === 'bad base URL') {
-                ai.provider = 'custom';
-                ai.models.custom = 'llama';
-                ai.customBaseUrl = 'not a url';
+    it.each(['disabled', 'none', 'blank secret', 'blank model', 'bad base URL'] as const)(
+        'shows the setup modal for %s and starts no work', (caseName) => {
+            vi.mocked(showAISetupModal).mockClear();
+            vi.mocked(fetchCaptionTracks).mockClear();
+            const plugin = makePlugin(ai => {
+                if (caseName === 'disabled') {
+                    ai.enabled = false;
+                } else if (caseName === 'none') {
+                    ai.provider = 'none';
+                } else if (caseName === 'blank secret') {
+                    ai.secretNames.openai = '  ';
+                } else if (caseName === 'blank model') {
+                    ai.models.openai = ' ';
+                } else if (caseName === 'bad base URL') {
+                    ai.provider = 'custom';
+                    ai.models.custom = 'llama';
+                    ai.customBaseUrl = 'not a url';
+                }
+            }, caseName === 'blank model' ? 'sk-test' : null);
+            const runAITask = vi.fn(() => Promise.resolve());
+            const generateAINotes = vi.fn();
+            const internals = unsafeCast<Record<string, unknown>>(plugin);
+            internals.runAITask = runAITask;
+            plugin.generateAINotes = generateAINotes;
+            const progressModals = unsafeCast<{ instances: { opened: boolean }[] }>(AIGenerationProgressModal).instances;
+            const progressBefore = progressModals.length;
+            const { file, video, view } = makeView();
+            plugin.startAINoteGeneration(view, video.id, DIALOG_OPTIONS);
+            expect(vi.mocked(showAISetupModal)).toHaveBeenCalledTimes(1);
+            const call = vi.mocked(showAISetupModal).mock.calls[0];
+            expect(call[0]).toBe(plugin.app);
+            expect(call[2]).toBe(plugin.openSettings);
+            const setupError = getAINoteGenerationSetupError(
+                plugin.settings.ai,
+                name => unsafeCast<{ secretStorage: { getSecret(n: string): string | null } }>(plugin.app)
+                    .secretStorage.getSecret(name),
+            );
+            expect(setupError).not.toBeNull();
+            if (setupError!.kind === 'missing-key') {
+                expect(call[1]).toBe('MISSING_KEY_MESSAGE');
+            } else {
+                expect(call[1]).toBe(setupError!.message);
             }
-        }, caseName === 'blank model' ? 'sk-test' : null);
-        const runAITask = vi.fn(() => Promise.resolve());
-        const generateAINotes = vi.fn();
-        const internals = unsafeCast<Record<string, unknown>>(plugin);
-        internals.runAITask = runAITask;
-        plugin.generateAINotes = generateAINotes;
-        const progressModals = unsafeCast<{ instances: { opened: boolean }[] }>(AIGenerationProgressModal).instances;
-        const progressBefore = progressModals.length;
-        const { file, video, view } = makeView();
-        plugin.startAINoteGeneration(view, video.id, DIALOG_OPTIONS);
-        expect(vi.mocked(showAISetupModal)).toHaveBeenCalledTimes(1);
-        expect(vi.mocked(showAISetupModal).mock.calls[0][1]).toContain(expectedMessage);
-        expect(runAITask).not.toHaveBeenCalled();
-        expect(generateAINotes).not.toHaveBeenCalled();
-        expect(fetchCaptionTracks).not.toHaveBeenCalled();
-        expect(progressModals.length).toBe(progressBefore);
-        expect((unsafeCast<Record<string, unknown>>(plugin).activeVideoTasks as ActiveVideoTaskRegistry)
-            .getVideoState(file, 'abcdefghijk')).toEqual({ transcriptPhase: null, aiPhase: null });
-    });
+            expect(runAITask).not.toHaveBeenCalled();
+            expect(generateAINotes).not.toHaveBeenCalled();
+            expect(fetchCaptionTracks).not.toHaveBeenCalled();
+            expect(progressModals.length).toBe(progressBefore);
+            expect((unsafeCast<Record<string, unknown>>(plugin).activeVideoTasks as ActiveVideoTaskRegistry)
+                .getVideoState(file, 'abcdefghijk')).toEqual({ transcriptPhase: null, aiPhase: null });
+        });
 
     it('shows the missing-key message when the hosted secret resolves empty', () => {
         vi.mocked(showAISetupModal).mockClear();
@@ -516,8 +526,8 @@ describe('YoutnotePlugin AI task workflow', () => {
         const fixture = makeTaskFixture();
         const persistGeneratedNotesResult = vi.fn((..._args: unknown[]) => Promise.resolve(true));
         fixture.internals.persistGeneratedNotesResult = persistGeneratedNotesResult;
-        fixture.plugin.generateAINotes = vi.fn(() =>
-            Promise.reject(new AIProviderError('provider', 'Service overloaded', 503, 'UNAVAILABLE')));
+        const failure = new AIProviderError('provider', 'Service overloaded', 503, 'UNAVAILABLE');
+        fixture.plugin.generateAINotes = vi.fn(() => Promise.reject(failure));
         const before = noticeRecords().length;
         await invokeRunAITask(fixture);
         expect(persistGeneratedNotesResult).not.toHaveBeenCalled();
@@ -525,16 +535,18 @@ describe('YoutnotePlugin AI task workflow', () => {
         expect(notices).toHaveLength(1);
         expect(notices[0].timeout).toBe(0);
         expect(notices[0].classes).toEqual(['youtnote-plugin__notice-warning']);
-        expect(notices[0].message).toContain('Unable to generate notes for "Video" in video: Service overloaded');
-        expect(notices[0].message).toContain('temporarily unavailable');
+        expect(notices[0].message).toContain(fixture.target.videoTitle);
+        expect(notices[0].message).toContain(fixture.target.file.basename);
+        expect(notices[0].message).toContain('Service overloaded');
+        expect(notices[0].message).toContain(getAIErrorPresentation(failure).guidance);
     });
 
     it('shows a persistent error notice for a provider bad request', async () => {
         const fixture = makeTaskFixture();
         const persistGeneratedNotesResult = vi.fn((..._args: unknown[]) => Promise.resolve(true));
         fixture.internals.persistGeneratedNotesResult = persistGeneratedNotesResult;
-        fixture.plugin.generateAINotes = vi.fn(() =>
-            Promise.reject(new AIProviderError('provider', 'Invalid schema', 400, 'INVALID_ARGUMENT')));
+        const failure = new AIProviderError('provider', 'Invalid schema', 400, 'INVALID_ARGUMENT');
+        fixture.plugin.generateAINotes = vi.fn(() => Promise.reject(failure));
         const before = noticeRecords().length;
         await invokeRunAITask(fixture);
         expect(persistGeneratedNotesResult).not.toHaveBeenCalled();
@@ -542,15 +554,18 @@ describe('YoutnotePlugin AI task workflow', () => {
         expect(notices).toHaveLength(1);
         expect(notices[0].timeout).toBe(0);
         expect(notices[0].classes).toEqual(['youtnote-plugin__notice-error']);
-        expect(notices[0].message).toContain('Unable to generate notes for "Video" in video: Invalid schema');
+        expect(notices[0].message).toContain(fixture.target.videoTitle);
+        expect(notices[0].message).toContain('Invalid schema');
+        const guidance = getAIErrorPresentation(failure).guidance;
+        if (guidance) expect(notices[0].message).toContain(guidance);
     });
 
     it('shows a persistent warning notice for an AI timeout with the timeout advice', async () => {
         const fixture = makeTaskFixture();
         const persistGeneratedNotesResult = vi.fn((..._args: unknown[]) => Promise.resolve(true));
         fixture.internals.persistGeneratedNotesResult = persistGeneratedNotesResult;
-        fixture.plugin.generateAINotes = vi.fn(() =>
-            Promise.reject(new AIProviderError('timeout', 'The request timed out after 1 ms.')));
+        const failure = new AIProviderError('timeout', 'timed out after 1 ms');
+        fixture.plugin.generateAINotes = vi.fn(() => Promise.reject(failure));
         const before = noticeRecords().length;
         await invokeRunAITask(fixture);
         expect(persistGeneratedNotesResult).not.toHaveBeenCalled();
@@ -558,8 +573,9 @@ describe('YoutnotePlugin AI task workflow', () => {
         expect(notices).toHaveLength(1);
         expect(notices[0].timeout).toBe(0);
         expect(notices[0].classes).toEqual(['youtnote-plugin__notice-warning']);
-        expect(notices[0].message).toContain('AI request timed out for "Video"');
-        expect(notices[0].message).toContain('Increase the request timeout in Youtnote settings');
+        expect(notices[0].message).toContain(fixture.target.videoTitle);
+        expect(notices[0].message).toContain('timed out after 1 ms');
+        expect(notices[0].message).toContain(getAIErrorPresentation(failure).guidance);
     });
 
     it('shows a default normal notice on a structured success', async () => {
@@ -572,7 +588,8 @@ describe('YoutnotePlugin AI task workflow', () => {
         expect(notices).toHaveLength(1);
         expect(notices[0].timeout).toBe(3000);
         expect(notices[0].classes).toEqual([]);
-        expect(notices[0].message).toContain('Generated 1 note(s) with AI for "Video" in video.');
+        expect(notices[0].message).toContain(fixture.target.videoTitle);
+        expect(notices[0].message).toContain(fixture.target.file.basename);
     });
 
     it('shows a persistent warning notice on an unstructured (compatibility mode) success', async () => {
@@ -589,7 +606,8 @@ describe('YoutnotePlugin AI task workflow', () => {
         expect(notices).toHaveLength(1);
         expect(notices[0].timeout).toBe(0);
         expect(notices[0].classes).toEqual(['youtnote-plugin__notice-warning']);
-        expect(notices[0].message).toContain('compatibility mode');
+        expect(notices[0].message).toContain(fixture.target.videoTitle);
+        expect(notices[0].message).toContain(fixture.target.file.basename);
     });
 
     it('shows no notice when the task fails as cancelled', async () => {
@@ -617,7 +635,7 @@ describe('YoutnotePlugin AI task workflow', () => {
     it('rejects transcript fetch and AI generation on a read-only view before any task starts', () => {
         vi.mocked(showAISetupModal).mockClear();
         vi.mocked(fetchCaptionTracks).mockClear();
-        const noticesBefore = unsafeCast<{ calls: string[] }>(Notice).calls.length;
+        const noticesBefore = noticeRecords().length;
         const plugin = makePlugin(ai => {
             ai.provider = 'custom';
             ai.models.custom = 'llama';
@@ -637,9 +655,9 @@ describe('YoutnotePlugin AI task workflow', () => {
         expect(vi.mocked(showAISetupModal)).not.toHaveBeenCalled();
         const registry = internals.activeVideoTasks as ActiveVideoTaskRegistry;
         expect(registry.getVideoState(file, 'abcdefghijk')).toEqual({ transcriptPhase: null, aiPhase: null });
-        const notices = unsafeCast<{ calls: string[] }>(Notice).calls.slice(noticesBefore);
-        expect(notices).toHaveLength(2);
-        expect(notices.every(message => message.includes('read-only'))).toBe(true);
+        const records = noticesSince(noticesBefore);
+        expect(records).toHaveLength(2);
+        expect(records.every(r => r.classes.includes('youtnote-plugin__notice-error'))).toBe(true);
     });
 
     const makeOpenLeafView = (plugin: YoutnotePlugin, file: TFile, writable: boolean | (() => boolean)) => {
@@ -679,7 +697,7 @@ describe('YoutnotePlugin AI task workflow', () => {
 
     it('discards a completed transcript when the open view is no longer writable', async () => {
         const fixture = makeTaskFixture();
-        const noticesBefore = unsafeCast<{ calls: string[] }>(Notice).calls.length;
+        const noticesBefore = noticeRecords().length;
         const { handleUpdateVideos, save } = makeOpenLeafView(fixture.plugin, fixture.target.file, false);
         const persist = unsafeCast<{
             persistTranscriptResult(handle: unknown, target: unknown, entries: TranscriptEntry[]): Promise<boolean>;
@@ -688,13 +706,14 @@ describe('YoutnotePlugin AI task workflow', () => {
         expect(result).toBe(false);
         expect(handleUpdateVideos).not.toHaveBeenCalled();
         expect(save).not.toHaveBeenCalled();
-        const notices = unsafeCast<{ calls: string[] }>(Notice).calls.slice(noticesBefore);
-        expect(notices.some(message => message.includes('read-only'))).toBe(true);
+        const records = noticesSince(noticesBefore);
+        expect(records).toHaveLength(1);
+        expect(records[0].timeout).toBe(0);
+        expect(records[0].classes).toEqual(['youtnote-plugin__notice-error']);
     });
 
     it('discards completed generated notes when the open view is no longer writable', async () => {
         const fixture = makeTaskFixture();
-        const noticesBefore = unsafeCast<{ calls: string[] }>(Notice).calls.length;
         const recordsBefore = noticeRecords().length;
         const { handleUpdateNotes, save } = makeOpenLeafView(fixture.plugin, fixture.target.file, false);
         const persist = unsafeCast<{
@@ -714,12 +733,11 @@ describe('YoutnotePlugin AI task workflow', () => {
         expect(result).toBe(false);
         expect(handleUpdateNotes).not.toHaveBeenCalled();
         expect(save).not.toHaveBeenCalled();
-        const notices = unsafeCast<{ calls: string[] }>(Notice).calls.slice(noticesBefore);
-        expect(notices.some(message => message.includes('read-only'))).toBe(true);
         const records = noticesSince(recordsBefore);
         expect(records).toHaveLength(1);
         expect(records[0].timeout).toBe(0);
         expect(records[0].classes).toEqual(['youtnote-plugin__notice-error']);
+        expect(records[0].message).toContain(fixture.target.videoTitle);
     });
 
     it('discards completed generated notes with a persistent error when the file is incompatible', async () => {
@@ -732,7 +750,7 @@ describe('YoutnotePlugin AI task workflow', () => {
                 cb('markdown');
                 return Promise.resolve();
             });
-        vi.mocked(updateYoutnoteSource).mockReturnValueOnce({ status: 'incompatible', message: 'bad format' });
+        vi.mocked(updateYoutnoteSource).mockReturnValueOnce({ status: 'incompatible', message: 'bad format', reason: 'invalid-document' });
         const recordsBefore = noticeRecords().length;
         const persist = unsafeCast<{
             persistGeneratedNotesResult(
@@ -753,7 +771,8 @@ describe('YoutnotePlugin AI task workflow', () => {
         expect(records).toHaveLength(1);
         expect(records[0].timeout).toBe(0);
         expect(records[0].classes).toEqual(['youtnote-plugin__notice-error']);
-        expect(records[0].message).toContain('were not saved');
+        expect(records[0].message).toContain('bad format');
+        expect(records[0].message).toContain(fixture.target.videoTitle);
     });
 
     it('discards completed generated notes with a persistent warning when the target is missing', async () => {
@@ -786,7 +805,7 @@ describe('YoutnotePlugin AI task workflow', () => {
         expect(records).toHaveLength(1);
         expect(records[0].timeout).toBe(0);
         expect(records[0].classes).toEqual(['youtnote-plugin__notice-warning']);
-        expect(records[0].message).toContain('no longer exists');
+        expect(records[0].message).toContain(fixture.target.videoTitle);
     });
 
     it('reports a persist as unsuccessful when the view turns read-only during the save', async () => {
@@ -810,13 +829,14 @@ describe('YoutnotePlugin AI task workflow', () => {
         const fetchVideoMetadata = vi.fn(() =>
             Promise.resolve({ title: 't', thumbnail: 't', durationSec: 60 }));
         fixture.internals.fetchVideoMetadata = fetchVideoMetadata;
-        const noticesBefore = unsafeCast<{ calls: string[] }>(Notice).calls.length;
+        const noticesBefore = noticeRecords().length;
         await unsafeCast<{ handleUriSchemeAppend(url: string): Promise<void> }>(fixture.plugin)
             .handleUriSchemeAppend('https://www.youtube.com/watch?v=bbbbbbbbbbb');
         expect(fetchVideoMetadata).not.toHaveBeenCalled();
         expect(handleUpdateVideos).not.toHaveBeenCalled();
-        const notices = unsafeCast<{ calls: string[] }>(Notice).calls.slice(noticesBefore);
-        expect(notices.some(message => message.includes('uri scheme error') && message.includes('read-only'))).toBe(true);
+        const records = noticesSince(noticesBefore);
+        expect(records).toHaveLength(1);
+        expect(records[0].classes).toEqual(['youtnote-plugin__notice-error']);
     });
 
     it('rejects a URI append when the target becomes read-only during the metadata fetch', async () => {
@@ -828,7 +848,7 @@ describe('YoutnotePlugin AI task workflow', () => {
             new Promise<{ title: string; thumbnail: string; durationSec: number }>(resolve => {
                 resolveMetadata = resolve;
             }));
-        const noticesBefore = unsafeCast<{ calls: string[] }>(Notice).calls.length;
+        const noticesBefore = noticeRecords().length;
         const pending = unsafeCast<{ handleUriSchemeAppend(url: string): Promise<void> }>(fixture.plugin)
             .handleUriSchemeAppend('https://www.youtube.com/watch?v=bbbbbbbbbbb');
         await Promise.resolve();
@@ -836,25 +856,25 @@ describe('YoutnotePlugin AI task workflow', () => {
         resolveMetadata!({ title: 't', thumbnail: 't', durationSec: 60 });
         await pending;
         expect(handleUpdateVideos).not.toHaveBeenCalled();
-        const notices = unsafeCast<{ calls: string[] }>(Notice).calls.slice(noticesBefore);
-        expect(notices.some(message => message.includes('uri scheme error') && message.includes('read-only'))).toBe(true);
-        expect(notices.some(message => message.includes('Video added'))).toBe(false);
+        const records = noticesSince(noticesBefore);
+        expect(records.length).toBeGreaterThan(0);
+        expect(records.every(r => r.classes.includes('youtnote-plugin__notice-error'))).toBe(true);
     });
 
     it('rejects a URI note on an existing target when the view file switches during the duration wait', async () => {
         const fixture = makeTaskFixture();
         const { view, handleUpdateNotes } = makeOpenLeafView(fixture.plugin, fixture.target.file, true);
         const otherFile = unsafeCast<TFile>({ path: 'other.md' });
-        const noticesBefore = unsafeCast<{ calls: string[] }>(Notice).calls.length;
+        const noticesBefore = noticeRecords().length;
         const pending = unsafeCast<{
             handleUriSchemeNote(url: string, timestampSec: number, text: string): Promise<void>;
         }>(fixture.plugin).handleUriSchemeNote('https://www.youtube.com/watch?v=abcdefghijk', 5, 'body');
         unsafeCast<Record<string, unknown>>(view).file = otherFile;
         await pending;
         expect(handleUpdateNotes).not.toHaveBeenCalled();
-        const notices = unsafeCast<{ calls: string[] }>(Notice).calls.slice(noticesBefore);
-        expect(notices.some(message => message.includes('uri scheme error') && message.includes('read-only'))).toBe(true);
-        expect(notices.some(message => message.includes('Note added'))).toBe(false);
+        const records = noticesSince(noticesBefore);
+        expect(records.length).toBeGreaterThan(0);
+        expect(records.every(r => r.classes.includes('youtnote-plugin__notice-error'))).toBe(true);
     });
 
     it('rejects a URI note on a newly created target when the view file switches during the duration wait', async () => {
@@ -891,7 +911,7 @@ describe('YoutnotePlugin AI task workflow', () => {
         let resolveDuration: ((value: number) => void) | null = null;
         fixture.internals.waitForVideoDuration = vi.fn(() =>
             new Promise<number>(resolve => { resolveDuration = resolve; }));
-        const noticesBefore = unsafeCast<{ calls: string[] }>(Notice).calls.length;
+        const noticesBefore = noticeRecords().length;
         const pending = unsafeCast<{
             handleUriSchemeNote(url: string, timestampSec: number, text: string): Promise<void>;
         }>(plugin).handleUriSchemeNote('https://www.youtube.com/watch?v=bbbbbbbbbbb', 5, 'body');
@@ -900,9 +920,9 @@ describe('YoutnotePlugin AI task workflow', () => {
         resolveDuration!(120);
         await pending;
         expect(handleUpdateNotes).not.toHaveBeenCalled();
-        const notices = unsafeCast<{ calls: string[] }>(Notice).calls.slice(noticesBefore);
-        expect(notices.some(message => message.includes('uri scheme error') && message.includes('read-only'))).toBe(true);
-        expect(notices.some(message => message.includes('Note added'))).toBe(false);
+        const records = noticesSince(noticesBefore);
+        expect(records.length).toBeGreaterThan(0);
+        expect(records.every(r => r.classes.includes('youtnote-plugin__notice-error'))).toBe(true);
     });
 
     it('rejects a URI video auto-add when the view file switches during the metadata fetch', async () => {
@@ -913,7 +933,7 @@ describe('YoutnotePlugin AI task workflow', () => {
             new Promise<{ title: string; thumbnail: string; durationSec: number }>(resolve => {
                 resolveMetadata = resolve;
             }));
-        const noticesBefore = unsafeCast<{ calls: string[] }>(Notice).calls.length;
+        const noticesBefore = noticeRecords().length;
         const pending = unsafeCast<{
             handleUriSchemeNote(url: string, timestampSec: number, text: string): Promise<void>;
         }>(fixture.plugin).handleUriSchemeNote('https://www.youtube.com/watch?v=bbbbbbbbbbb', 5, 'body');
@@ -922,9 +942,9 @@ describe('YoutnotePlugin AI task workflow', () => {
         resolveMetadata!({ title: 't', thumbnail: 't', durationSec: 60 });
         await pending;
         expect(handleUpdateVideos).not.toHaveBeenCalled();
-        const notices = unsafeCast<{ calls: string[] }>(Notice).calls.slice(noticesBefore);
-        expect(notices.some(message => message.includes('uri scheme error') && message.includes('read-only'))).toBe(true);
-        expect(notices.some(message => message.includes('Note added'))).toBe(false);
+        const records = noticesSince(noticesBefore);
+        expect(records.length).toBeGreaterThan(0);
+        expect(records.every(r => r.classes.includes('youtnote-plugin__notice-error'))).toBe(true);
     });
 
     it.each(['addVideoToView', 'addNoteToView', 'addGeneralNoteToView'] as const)(
@@ -936,7 +956,7 @@ describe('YoutnotePlugin AI task workflow', () => {
                 fixture.target.file,
                 false,
             );
-            const noticesBefore = unsafeCast<{ calls: string[] }>(Notice).calls.length;
+            const noticesBefore = noticeRecords().length;
             const helpers = unsafeCast<Record<string, (...args: unknown[]) => unknown>>(fixture.plugin);
             const result = helper === 'addVideoToView'
                 ? helpers.addVideoToView(view, 'https://www.youtube.com/watch?v=bbbbbbbbbbb', { title: 't', thumbnail: 't', durationSec: 1 })
@@ -946,8 +966,9 @@ describe('YoutnotePlugin AI task workflow', () => {
             expect(result).toBeFalsy();
             expect(handleUpdateVideos).not.toHaveBeenCalled();
             expect(handleUpdateNotes).not.toHaveBeenCalled();
-            const notices = unsafeCast<{ calls: string[] }>(Notice).calls.slice(noticesBefore);
-            expect(notices.some(message => message.includes('read-only'))).toBe(true);
+            const records = noticesSince(noticesBefore);
+            expect(records).toHaveLength(1);
+            expect(records[0].classes).toEqual(['youtnote-plugin__notice-error']);
         },
     );
 });

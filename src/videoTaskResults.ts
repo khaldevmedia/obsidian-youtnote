@@ -44,7 +44,7 @@ export function applyGeneratedNotesForYoutubeVideo(
 export type YoutnoteSourceUpdate =
     | { status: 'updated'; markdown: string }
     | { status: 'missing-target' }
-    | { status: 'incompatible'; message: string };
+    | { status: 'incompatible'; message: string; reason: 'unsupported-version' | 'malformed-version' | 'invalid-document' | 'legacy-format' };
 
 function describeParseFailure(result: ParseYoutnoteResult): string {
     if (result.ok) {
@@ -65,12 +65,13 @@ export function updateYoutnoteSource(
 ): YoutnoteSourceUpdate {
     const parsed = parseYoutnoteDocument(source);
     if (!parsed.ok) {
-        return { status: 'incompatible', message: describeParseFailure(parsed) };
+        return { status: 'incompatible', message: describeParseFailure(parsed), reason: parsed.reason };
     }
     if (parsed.document.sourceFormatVersion !== CURRENT_FORMAT_VERSION) {
         return {
             status: 'incompatible',
             message: 'the file uses the legacy Youtnote format and must be converted to format v2 before it can be updated (open it and choose "Convert to v2")',
+            reason: 'legacy-format',
         };
     }
     const updated = apply(parsed.document);

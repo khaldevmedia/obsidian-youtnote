@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { getAIErrorPresentation } from './errorPresentation';
+import type { AIGuidanceId } from './errorPresentation';
 import { AIProviderError } from './types';
 
 describe('getAIErrorPresentation', () => {
@@ -43,39 +44,28 @@ describe('getAIErrorPresentation', () => {
         expect(getAIErrorPresentation(error).severity).toBe(expectedSeverity);
     });
 
-    it('attaches timeout guidance', () => {
-        const { guidance } = getAIErrorPresentation(new AIProviderError('timeout', 'x'));
-        expect(guidance).toContain('Increase the request timeout');
-    });
-
-    it('attaches connection guidance to network errors', () => {
-        const { guidance } = getAIErrorPresentation(new AIProviderError('network', 'x'));
-        expect(guidance).toContain('connection');
-    });
-
-    it('attaches rate-limit guidance to 429 errors', () => {
-        const { guidance } = getAIErrorPresentation(new AIProviderError('provider', 'x', 429));
-        expect(guidance).toContain('rate or resource limit');
-    });
-
-    it('attaches unavailability guidance to overload errors', () => {
-        const { guidance } = getAIErrorPresentation(new AIProviderError('provider', 'x', 503));
-        expect(guidance).toContain('temporarily unavailable');
-    });
-
-    it('attaches account guidance to quota evidence', () => {
-        const { guidance } = getAIErrorPresentation(
-            new AIProviderError('provider', 'insufficient_quota', 429, 'insufficient_quota'),
-        );
-        expect(guidance).toContain('billing, or quota');
-    });
-
-    it('attaches no guidance to plain auth failures', () => {
-        expect(getAIErrorPresentation(new AIProviderError('provider', 'x', 401)).guidance).toBe('');
-    });
-
-    it('attaches no guidance to non-AI errors and other kinds', () => {
-        expect(getAIErrorPresentation(new Error('x')).guidance).toBe('');
-        expect(getAIErrorPresentation(new AIProviderError('provider', 'x')).guidance).toBe('');
+    it.each<[string, unknown, 'warning' | 'error', AIGuidanceId]>([
+        ['non-AI error', new Error('boom'), 'error', 'none'],
+        ['AI timeout', new AIProviderError('timeout', 'x'), 'warning', 'timeout'],
+        ['AI network', new AIProviderError('network', 'x'), 'warning', 'network'],
+        ['AI cancelled', new AIProviderError('cancelled', 'x'), 'error', 'none'],
+        ['429 rate limit', new AIProviderError('provider', 'x', 429), 'warning', 'rate-limit'],
+        ['code rate_limit_error', new AIProviderError('provider', 'x', 429, 'rate_limit_error'), 'warning', 'rate-limit'],
+        ['503 unavailable', new AIProviderError('provider', 'x', 503), 'warning', 'unavailable'],
+        ['529 overloaded_error', new AIProviderError('provider', 'x', 529, 'overloaded_error'), 'warning', 'unavailable'],
+        ['429 insufficient_quota', new AIProviderError('provider', 'insufficient_quota', 429, 'insufficient_quota'), 'error', 'account'],
+        ['daily quota message', new AIProviderError('provider', 'You exceeded your current quota; daily limit reached', 429), 'error', 'account'],
+        ['401 unauthorized', new AIProviderError('provider', 'x', 401), 'error', 'none'],
+        ['400 bad request', new AIProviderError('provider', 'x', 400), 'error', 'none'],
+        ['generic provider error', new AIProviderError('provider', 'x'), 'error', 'none'],
+    ])('classifies %s as %s with guidance %s', (_label, error, expectedSeverity, expectedId) => {
+        const presentation = getAIErrorPresentation(error);
+        expect(presentation.severity).toBe(expectedSeverity);
+        expect(presentation.guidanceId).toBe(expectedId);
+        if (expectedId === 'none') {
+            expect(presentation.guidance).toBe('');
+        } else {
+            expect(presentation.guidance.length).toBeGreaterThan(0);
+        }
     });
 });

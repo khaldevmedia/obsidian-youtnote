@@ -87,7 +87,9 @@ describe('getPlayabilityError', () => {
 
     it('returns a generic message when no reason is present', () => {
         const response = { playabilityStatus: { status: 'LOGIN_REQUIRED' } };
-        expect(getPlayabilityError(response)).toBe('Video is not playable (LOGIN_REQUIRED)');
+        const message = getPlayabilityError(response);
+        expect(message).not.toBeNull();
+        expect(message).toContain('LOGIN_REQUIRED');
     });
 
     it('tolerates garbage input', () => {

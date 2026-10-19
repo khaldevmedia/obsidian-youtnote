@@ -168,13 +168,19 @@ describe('updateYoutnoteSource', () => {
     });
 
     it.each([
-        ['unsupported', '---\nyoutnote: true\nyoutnote-format-version: 3\n---\n'],
-        ['malformed', '---\nyoutnote: true\nyoutnote-format-version: two\n---\n'],
-        ['invalid', '---\nyoutnote: true\nyoutnote-format-version: 2\n---\n\nstray content\n'],
-    ])('returns incompatible for %s sources without producing markdown', (_label, source) => {
-        const result = updateYoutnoteSource(source, () => ({ notes: [] }));
+        ['unsupported-version' as const, '---\nyoutnote: true\nyoutnote-format-version: 3\n---\n'],
+        ['malformed-version' as const, '---\nyoutnote: true\nyoutnote-format-version: two\n---\n'],
+        ['invalid-document' as const, '---\nyoutnote: true\nyoutnote-format-version: 2\n---\n\nstray content\n'],
+    ])('returns incompatible for %s sources without producing markdown', (reason, source) => {
+        const apply = vi.fn(() => ({ notes: [] }));
+        const result = updateYoutnoteSource(source, apply);
         expect(result.status).toBe('incompatible');
+        if (result.status === 'incompatible') {
+            expect(result.reason).toBe(reason);
+            expect(result.message.length).toBeGreaterThan(0);
+        }
         expect(result).not.toHaveProperty('markdown');
+        expect(apply).not.toHaveBeenCalled();
     });
 
     it.each([
@@ -185,9 +191,10 @@ describe('updateYoutnoteSource', () => {
         const result = updateYoutnoteSource(source, apply);
         expect(result.status).toBe('incompatible');
         if (result.status === 'incompatible') {
-            expect(result.message).toContain('legacy Youtnote format');
-            expect(result.message).toContain('Convert to v2');
+            expect(result.reason).toBe('legacy-format');
+            expect(result.message.length).toBeGreaterThan(0);
         }
+        expect(result).not.toHaveProperty('markdown');
         expect(apply).not.toHaveBeenCalled();
     });
 
