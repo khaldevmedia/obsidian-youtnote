@@ -227,6 +227,14 @@ to avoid conflicts with other plugins */
     flex: 1;
 }
 
+.youtnote-plugin__note-stats {
+    display: inline;
+}
+
+.is-mobile .youtnote-plugin__note-stats {
+    display: block;
+}
+
 /* Search input in note list header */
 .youtnote-plugin__note-search-container {
     position: relative;
@@ -242,7 +250,7 @@ to avoid conflicts with other plugins */
 .youtnote-plugin__note-search-input,
 .youtnote-plugin__add-video-input {
     font-size: var(--font-ui-small);
-    background: var(--background-primary);
+    background: var(--background-primary-alt);
     border: var(--input-border-width) solid var(--background-modifier-border);
     border-radius: var(--input-radius);
     padding: var(--size-2-3) var(--size-4-3);

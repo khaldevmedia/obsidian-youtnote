@@ -1,14 +1,24 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { Platform } from 'obsidian';
 import type { Note, Video } from '../types';
+import { calculateTotalWords, calculateTotalCharacters } from '../utils';
 
 vi.mock('react', async (importOriginal) => {
     const actual = await importOriginal<typeof import('react')>();
+    const hooks = { values: [] as unknown[], cursor: 0 };
     return {
         ...actual,
-        useState: <T,>(init: T | (() => T)) => [
-            typeof init === 'function' ? (init as () => T)() : init,
-            vi.fn(),
-        ],
+        __youtnoteTestHooks: hooks,
+        useState: <T,>(init: T | (() => T)) => {
+            const index = hooks.cursor++;
+            if (!(index in hooks.values)) {
+                hooks.values[index] = typeof init === 'function' ? (init as () => T)() : init;
+            }
+            const setValue = (v: T | ((prev: T) => T)) => {
+                hooks.values[index] = typeof v === 'function' ? (v as (p: T) => T)(hooks.values[index] as T) : v;
+            };
+            return [hooks.values[index] as T, setValue];
+        },
         useMemo: <T,>(fn: () => T) => fn(),
         useEffect: vi.fn(),
         useLayoutEffect: vi.fn(),
@@ -63,6 +73,7 @@ vi.mock('./MessageBoxes', () => ({
 }));
 
 const { YoutubePluginView } = await import('./YoutnoteView');
+const { __youtnoteTestHooks } = await import('react') as unknown as { __youtnoteTestHooks: TestHooks };
 
 const VIDEO_ID = 'v1' as Video['id'];
 const OTHER_VIDEO_ID = 'v2' as Video['id'];
@@ -85,17 +96,27 @@ function makeNote(partial: Partial<Note> & { videoId?: Video['id'] }): Note {
     };
 }
 
+interface TestHooks {
+    values: unknown[];
+    cursor: number;
+}
+
+function testHooks(): TestHooks {
+    return __youtnoteTestHooks;
+}
+
 function makeProps(overrides: {
     notes?: Note[];
     videos?: Video[];
     activeVideoId?: Video['id'] | null;
     readOnly?: boolean;
+    showNoteStats?: boolean;
 } = {}) {
     const onUpdateNotes = vi.fn();
     const props = {
         app: {},
         view: { getMutationGuard: () => () => true },
-        settings: {},
+        settings: { showNoteStats: overrides.showNoteStats ?? false },
         videos: overrides.videos ?? [makeVideo()],
         notes: overrides.notes ?? [],
         activeVideoId: overrides.activeVideoId === undefined ? VIDEO_ID : overrides.activeVideoId,
@@ -138,17 +159,54 @@ function collectMergeButtons(node: unknown, found: VNodeLike[] = []): VNodeLike[
     return found;
 }
 
+function renderView(props: ReturnType<typeof makeProps>['props']) {
+    testHooks().cursor = 0;
+    return (YoutubePluginView as unknown as (p: unknown) => unknown)(props);
+}
+
 function renderMergeButtons(props: ReturnType<typeof makeProps>['props']) {
-    const tree = (YoutubePluginView as unknown as (p: unknown) => unknown)(props);
-    return collectMergeButtons(tree);
+    return collectMergeButtons(renderView(props));
+}
+
+function collectByClass(node: unknown, cls: string, found: VNodeLike[] = []): VNodeLike[] {
+    if (Array.isArray(node)) {
+        node.forEach(child => collectByClass(child, cls, found));
+        return found;
+    }
+    if (!node || typeof node !== 'object') return found;
+    const vnode = node as VNodeLike;
+    const className = vnode.props?.className;
+    if (typeof className === 'string' && className.split(/\s+/).includes(cls)) {
+        found.push(vnode);
+    }
+    const children = vnode.props?.children;
+    if (children !== undefined) collectByClass(children, cls, found);
+    return found;
+}
+
+function directChildrenWithClass(node: VNodeLike, cls: string): VNodeLike[] {
+    const children = node.props?.children;
+    const list = Array.isArray(children) ? children : children === undefined ? [] : [children];
+    return list.filter(
+        (child): child is VNodeLike =>
+            !!child && typeof child === 'object' &&
+            typeof (child as VNodeLike).props?.className === 'string' &&
+            ((child as VNodeLike).props!.className as string).split(/\s+/).includes(cls)
+    );
+}
+
+function resetTestState() {
+    alertOpens.length = 0;
+    confirmInstances.length = 0;
+    noteSeq = 0;
+    const hooks = testHooks();
+    hooks.values.length = 0;
+    hooks.cursor = 0;
+    Platform.isMobile = false;
 }
 
 describe('merge duplicate notes button visibility', () => {
-    beforeEach(() => {
-        alertOpens.length = 0;
-        confirmInstances.length = 0;
-        noteSeq = 0;
-    });
+    beforeEach(resetTestState);
 
     it('is hidden with no notes', () => {
         const { props } = makeProps({ notes: [] });
@@ -246,11 +304,7 @@ describe('merge duplicate notes button visibility', () => {
 });
 
 describe('merge duplicate notes handler', () => {
-    beforeEach(() => {
-        alertOpens.length = 0;
-        confirmInstances.length = 0;
-        noteSeq = 0;
-    });
+    beforeEach(resetTestState);
 
     it('merges only the timestamped duplicate pair and leaves general/other-video notes untouched', () => {
         const dupA = makeNote({ timestampSec: 45, bodyMarkdown: 'dup-a' });
@@ -305,5 +359,137 @@ describe('merge duplicate notes handler', () => {
         expect(alertOpens).toHaveLength(1);
         expect(confirmInstances).toHaveLength(0);
         expect(onUpdateNotes).not.toHaveBeenCalled();
+    });
+});
+
+describe('note statistics layout', () => {
+    beforeEach(resetTestState);
+
+    const HEADER = 'youtnote-plugin__note-list-header';
+    const HEADER_ROW = 'youtnote-plugin__note-list-header-row';
+    const HEADER_CONTENT = 'youtnote-plugin__note-list-header-content';
+    const ACTIONS = 'youtnote-plugin__note-list-action-btns-container';
+    const STATS = 'youtnote-plugin__note-stats';
+    const STATS_WORDS = 'youtnote-plugin__note-stats-words';
+    const STATS_CHARS = 'youtnote-plugin__note-stats-characters';
+    const NOTE_COUNT = 'youtnote-plugin__note-count';
+    const SEARCH = 'youtnote-plugin__note-search-container';
+
+    function headerOf(tree: unknown): VNodeLike {
+        const [header] = collectByClass(tree, HEADER);
+        expect(header).toBeDefined();
+        return header;
+    }
+
+    function statValues(statsEl: VNodeLike): { words: unknown; chars: unknown } {
+        const [w] = collectByClass(statsEl, STATS_WORDS);
+        const [c] = collectByClass(statsEl, STATS_CHARS);
+        return { words: w?.props?.children, chars: c?.props?.children };
+    }
+
+    it('mobile: stats sit on their own line below the count/buttons row with supplied numbers', () => {
+        Platform.isMobile = true;
+        const notes = [
+            makeNote({ isGeneral: true, timestampSec: -1, bodyMarkdown: 'one two' }),
+            makeNote({ timestampSec: 30, bodyMarkdown: 'three' }),
+        ];
+        const { props } = makeProps({ notes, showNoteStats: true });
+        const tree = renderView(props);
+        const header = headerOf(tree);
+
+        const directStats = directChildrenWithClass(header, STATS);
+        expect(directStats).toHaveLength(1);
+        const [row] = directChildrenWithClass(header, HEADER_ROW);
+        const [search] = directChildrenWithClass(header, SEARCH);
+        expect(row).toBeDefined();
+        expect(search).toBeDefined();
+        const order = (Array.isArray(header.props!.children) ? header.props!.children : [header.props!.children]) as unknown[];
+        const flat = order.filter(c => c && typeof c === 'object' && (c as VNodeLike).props?.className);
+        const cls = (el: unknown) => (el as VNodeLike).props!.className as string;
+        expect(flat.findIndex(c => cls(c).includes(HEADER_ROW))).toBeLessThan(flat.findIndex(c => cls(c).includes(STATS)));
+        expect(flat.findIndex(c => cls(c).includes(STATS))).toBeLessThan(flat.findIndex(c => cls(c).includes(SEARCH)));
+
+        expect(collectByClass(row, STATS)).toHaveLength(0);
+        expect(collectByClass(row, NOTE_COUNT)).toHaveLength(1);
+        expect(collectByClass(row, ACTIONS)).toHaveLength(1);
+
+        const { words, chars } = statValues(directStats[0]);
+        const bodies = notes.map(n => n.bodyMarkdown);
+        expect(words).toBe(calculateTotalWords(bodies));
+        expect(chars).toBe(calculateTotalCharacters(bodies));
+    });
+
+    it('desktop: stats stay inline inside the header content', () => {
+        const notes = [makeNote({ timestampSec: 30, bodyMarkdown: 'alpha beta' })];
+        const { props } = makeProps({ notes, showNoteStats: true });
+        const tree = renderView(props);
+        const header = headerOf(tree);
+
+        expect(directChildrenWithClass(header, STATS)).toHaveLength(0);
+        const [content] = collectByClass(header, HEADER_CONTENT);
+        expect(collectByClass(content, STATS)).toHaveLength(1);
+        expect(collectByClass(tree, STATS)).toHaveLength(1);
+    });
+
+    it('mobile: setting off renders no stats but keeps the count', () => {
+        Platform.isMobile = true;
+        const { props } = makeProps({ notes: [makeNote({ timestampSec: 5 })], showNoteStats: false });
+        const tree = renderView(props);
+        expect(collectByClass(tree, STATS)).toHaveLength(0);
+        const [count] = collectByClass(tree, NOTE_COUNT);
+        expect(count).toBeDefined();
+        expect(count.props!.children).toBe(1);
+    });
+
+    it('desktop: setting off renders no stats but keeps the count', () => {
+        const { props } = makeProps({ notes: [makeNote({ timestampSec: 5 })], showNoteStats: false });
+        const tree = renderView(props);
+        expect(collectByClass(tree, STATS)).toHaveLength(0);
+        expect(collectByClass(tree, NOTE_COUNT)).toHaveLength(1);
+    });
+
+    it('no notes: no stats, count still renders zero', () => {
+        const { props } = makeProps({ notes: [], showNoteStats: true });
+        const tree = renderView(props);
+        expect(collectByClass(tree, STATS)).toHaveLength(0);
+        const [count] = collectByClass(tree, NOTE_COUNT);
+        expect(count.props!.children).toBe(0);
+    });
+
+    it('stats exclude notes from other videos', () => {
+        const notes = [
+            makeNote({ timestampSec: 10, bodyMarkdown: 'aa bb cc' }),
+            makeNote({ videoId: OTHER_VIDEO_ID, timestampSec: 10, bodyMarkdown: 'x'.repeat(100) }),
+        ];
+        const { props } = makeProps({ videos: [makeVideo(), makeVideo(OTHER_VIDEO_ID)], notes, showNoteStats: true });
+        const tree = renderView(props);
+        const [stats] = collectByClass(tree, STATS);
+        const { words, chars } = statValues(stats);
+        expect(words).toBe(calculateTotalWords(['aa bb cc']));
+        expect(chars).toBe(calculateTotalCharacters(['aa bb cc']));
+    });
+
+    it('transcript view hides stats', () => {
+        const notes = [makeNote({ timestampSec: 30, bodyMarkdown: 'aa' })];
+        const videos = [{ ...makeVideo(), transcript: [{ startMs: 0, text: 'cap' }] }];
+        const { props } = makeProps({ notes, videos, showNoteStats: true });
+
+        let tree = renderView(props);
+        const [actions] = collectByClass(tree, ACTIONS);
+        const buttons: VNodeLike[] = [];
+        const walkButtons = (n: unknown) => {
+            if (Array.isArray(n)) return n.forEach(walkButtons);
+            if (!n || typeof n !== 'object') return;
+            const v = n as VNodeLike;
+            if (v.type === 'button') buttons.push(v);
+            if (v.props?.children !== undefined) walkButtons(v.props.children);
+        };
+        walkButtons(actions.props!.children);
+        expect(buttons.length).toBeGreaterThan(0);
+        (buttons[0].props!.onClick as () => void)();
+
+        tree = renderView(props);
+        expect(collectByClass(tree, STATS)).toHaveLength(0);
+        expect(collectByClass(tree, NOTE_COUNT)).toHaveLength(0);
     });
 });

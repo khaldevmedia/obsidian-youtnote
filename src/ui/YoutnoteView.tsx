@@ -1211,6 +1211,10 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
         </div>
     );
 
+    const noteStats = !showTranscript && settings.showNoteStats && activeVideoNotes.length > 0 ? (
+        <div className="youtnote-plugin__note-stats">Total words: <span className="youtnote-plugin__note-stats-words">{activeVideoStats.words}</span>{' • '}Total characters: <span className="youtnote-plugin__note-stats-characters">{activeVideoStats.characters}</span></div>
+    ) : null;
+
     return (
         <>
             {readOnly && canConvert && (
@@ -1321,15 +1325,8 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
                                 <>Transcript: <span>{activeTranscript.length}</span></>
                             ) : (
                                 <>
-                                    Notes: <span>{activeVideoNotes.length}</span>
-                                    {settings.showNoteStats && activeVideoNotes.length > 0 && (
-                                        <>
-                                            {' • '}
-                                            Total words: <span>{activeVideoStats.words}</span>
-                                            {' • '}
-                                            Total characters: <span>{activeVideoStats.characters}</span>
-                                        </>
-                                    )}
+                                    Notes: <span className="youtnote-plugin__note-count">{activeVideoNotes.length}</span>
+                                    {!isMobile && noteStats && <>{' • '}{noteStats}</>}
                                 </>
                             )}
                         </div>
@@ -1435,6 +1432,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
                             </div>
                         )}
                     </div>
+                    {isMobile && noteStats}
                     {activeVideoId && ((!showTranscript && activeVideoNotes.length > 0) || (showTranscript && hasTranscript)) && (
                         <div className="youtnote-plugin__note-search-container">
                             <input
