@@ -1176,7 +1176,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
                     setIcon(el, 'bot');
                 }
             }}
-            className="youtnote-plugin__ai-generate-btn"
+            className="youtnote-plugin__small-btn"
             onClick={handleGenerateAINotes}
             disabled={readOnly || isFetchingTranscript}
             aria-label="Generate notes with AI"
@@ -1251,7 +1251,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
                     {videos.length > 0 && (notes.length > 0 || videos.some(video => (video.transcript?.length ?? 0) > 0)) && (
                         <button
                             ref={exportAllButtonRef}
-                            className="youtnote-plugin__export-btn"
+                            className="youtnote-plugin__small-btn youtnote-plugin__export-btn"
                             onClick={() => { void onExportAllVideos(); }}
                             aria-label="Export all videos as Markdown"
                         />
@@ -1341,7 +1341,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
                                                         setIcon(el, 'arrow-left');
                                                     }
                                                 }}
-                                                className="youtnote-plugin__transcript-back-btn"
+                                                className="youtnote-plugin__small-btn"
                                                 onClick={() => setShowTranscript(false)}
                                                 aria-label="Back to notes"
                                             />
@@ -1353,7 +1353,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
                                                             setIcon(el, 'list-restart');
                                                         }
                                                     }}
-                                                    className="youtnote-plugin__transcript-refetch-btn"
+                                                    className="youtnote-plugin__small-btn"
                                                     onClick={handleRefetchTranscript}
                                                     disabled={isFetchingTranscript}
                                                     aria-label="Re-fetch transcript from YouTube"
@@ -1367,7 +1367,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
                                                             setIcon(el, 'trash');
                                                         }
                                                     }}
-                                                    className="youtnote-plugin__transcript-delete-btn"
+                                                    className="youtnote-plugin__small-btn"
                                                     onClick={handleDeleteTranscript}
                                                     disabled={isFetchingTranscript}
                                                     aria-label="Delete transcript"
@@ -1376,7 +1376,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
                                             {hasTranscript && (
                                                 <button
                                                     ref={transcriptSyncButtonRef}
-                                                    className={classNames('youtnote-plugin__transcript-sync-btn', {
+                                                    className={classNames('youtnote-plugin__small-btn youtnote-plugin__transcript-sync-btn', {
                                                         'youtnote-plugin__active': isTranscriptFollowing,
                                                     })}
                                                     onClick={() => { void handleSyncTranscriptPlayback(); }}
@@ -1395,7 +1395,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
                                                         setIcon(el, 'captions');
                                                     }
                                                 }}
-                                                className="youtnote-plugin__transcript-btn"
+                                                className="youtnote-plugin__small-btn"
                                                 onClick={() => setShowTranscript(true)}
                                                 aria-label="Show transcript"
                                             />
@@ -1403,7 +1403,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
                                             {!readOnly && (
                                             <button
                                                 ref={addGeneralNoteButtonRef}
-                                                className="youtnote-plugin__add-general-note-btn"
+                                                className="youtnote-plugin__small-btn"
                                                 onClick={handleAddGeneralNote}
                                                 disabled={hasGeneralNote}
                                                 aria-label="Add general note"
@@ -1412,7 +1412,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
                                             {activeVideoNotes.length > 0 && !readOnly && (
                                                 <button
                                                     ref={mergeNotesButtonRef}
-                                                    className="youtnote-plugin__merge-notes-btn"
+                                                    className="youtnote-plugin__small-btn"
                                                     onClick={handleMergeDuplicateNotes}
                                                     aria-label="Merge notes with the same timestamp"
                                                 />
@@ -1420,7 +1420,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
                                             {(activeVideoNotes.length > 0 || hasTranscript) && (
                                                 <button
                                                     ref={exportButtonRef}
-                                                    className="youtnote-plugin__export-btn"
+                                                    className="youtnote-plugin__small-btn youtnote-plugin__export-btn"
                                                     onClick={() => { void onExportSingleVideo(activeVideoId); }}
                                                     aria-label="Export selected video as Markdown"
                                                 />

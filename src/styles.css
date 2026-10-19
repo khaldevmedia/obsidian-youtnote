@@ -282,14 +282,7 @@ to avoid conflicts with other plugins */
     gap: var(--size-4-2);
 }
 
-.youtnote-plugin__export-btn,
-.youtnote-plugin__merge-notes-btn,
-.youtnote-plugin__transcript-btn,
-.youtnote-plugin__transcript-back-btn,
-.youtnote-plugin__transcript-refetch-btn,
-.youtnote-plugin__transcript-delete-btn,
-.youtnote-plugin__transcript-sync-btn,
-.youtnote-plugin__ai-generate-btn {
+.youtnote-plugin__small-btn {
     background: transparent;
     border: none;
     color: var(--text-muted);
@@ -303,27 +296,19 @@ to avoid conflicts with other plugins */
     flex-shrink: 0;
 }
 
-.youtnote-plugin__export-btn:hover,
-.youtnote-plugin__merge-notes-btn:hover,
-.youtnote-plugin__transcript-btn:hover,
-.youtnote-plugin__transcript-back-btn:hover,
-.youtnote-plugin__transcript-refetch-btn:hover,
-.youtnote-plugin__transcript-delete-btn:hover,
-.youtnote-plugin__transcript-sync-btn:hover,
-.youtnote-plugin__ai-generate-btn:hover {
+.youtnote-plugin__small-btn:hover:where(:not(:disabled)) {
     color: var(--text-normal);
     background-color: var(--background-modifier-hover);
 }
 
-.youtnote-plugin__transcript-refetch-btn:disabled,
-.youtnote-plugin__transcript-delete-btn:disabled {
+.youtnote-plugin__small-btn:disabled {
     opacity: 0.3;
+    cursor: default;
     pointer-events: none;
 }
 
-.youtnote-plugin__ai-generate-btn:disabled {
-    opacity: 0.3;
-    pointer-events: none;
+.is-mobile .youtnote-plugin__small-btn {
+    border-radius: var(--radius-m);
 }
 
 .youtnote-plugin__ai-generation {
@@ -689,8 +674,7 @@ to avoid conflicts with other plugins */
     display: none;
 }
 
-.youtnote-plugin__transcript-mobile-save-btn {
-    flex-shrink: 0;
+.youtnote-plugin__mobile-save-btn {
     background-color: var(--interactive-accent);
     color: var(--text-on-accent);
     border: none;
@@ -701,6 +685,10 @@ to avoid conflicts with other plugins */
     justify-content: center;
     cursor: pointer;
     line-height: 1;
+}
+
+.youtnote-plugin__transcript-mobile-save-btn {
+    flex-shrink: 0;
 }
 
 .youtnote-plugin__transcript-empty {
@@ -947,17 +935,7 @@ to avoid conflicts with other plugins */
     position: absolute;
     top: var(--size-4-1);
     right: var(--size-4-1);
-    background-color: var(--interactive-accent);
-    color: var(--text-on-accent);
-    border: none;
-    border-radius: var(--radius-m);
-    padding: var(--size-4-1);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
     z-index: 10;
-    line-height: 1;
 }
 
 .youtnote-plugin__obsidian-editor-container {
@@ -1048,6 +1026,11 @@ to avoid conflicts with other plugins */
     pointer-events: none;
 }
 
+.is-mobile .youtnote-plugin__transcript-actions button,
+.is-mobile .youtnote-plugin__note-actions button {
+    border-radius: var(--radius-m);
+}
+
 .youtnote-plugin__timestamp-editor {
     display: flex;
     align-items: center;
@@ -1122,30 +1105,6 @@ to avoid conflicts with other plugins */
 }
 
 /* Add General Note button (in note list header, beside merge/export) */
-.youtnote-plugin__add-general-note-btn {
-    background: transparent;
-    border: none;
-    color: var(--text-muted);
-    cursor: pointer;
-    padding: var(--size-4-1);
-    border-radius: var(--button-radius);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: all 0.15s ease;
-    flex-shrink: 0;
-}
-
-.youtnote-plugin__add-general-note-btn:hover:not(:disabled) {
-    color: var(--text-normal);
-    background-color: var(--background-modifier-hover);
-}
-
-.youtnote-plugin__add-general-note-btn:disabled {
-    opacity: 0.3;
-    cursor: default;
-    pointer-events: none;
-}
 
 /* URL Input Modal/Row */
 .youtnote-plugin__add-video-form {

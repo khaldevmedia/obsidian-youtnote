@@ -316,7 +316,7 @@ export const NoteListItem: React.FC<NoteListItemProps> = React.memo(({
                     {Platform.isMobile && (
                         <button
                             ref={mobileSaveIconRef}
-                            className="youtnote-plugin__mobile-note-save-btn"
+                            className="youtnote-plugin__mobile-save-btn youtnote-plugin__mobile-note-save-btn"
                             onPointerUp={handleMobileSavePointerUp}
                             onClick={(e) => {
                                 e.preventDefault();

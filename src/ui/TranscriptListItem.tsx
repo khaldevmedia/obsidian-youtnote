@@ -135,7 +135,7 @@ export const TranscriptListItem: React.FC<TranscriptListItemProps> = React.memo(
                 {Platform.isMobile && (
                     <button
                         ref={(el) => { if (el) { el.empty(); setIcon(el, 'check'); } }}
-                        className="youtnote-plugin__transcript-mobile-save-btn"
+                        className="youtnote-plugin__mobile-save-btn youtnote-plugin__transcript-mobile-save-btn"
                         onPointerDown={(e) => { e.preventDefault(); }}
                         onPointerUp={(e) => {
                             e.preventDefault();
