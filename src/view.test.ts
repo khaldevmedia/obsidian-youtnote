@@ -178,7 +178,7 @@ const LEGACY = `---
 youtnote: true
 ---
 
-[Test Video](https://www.youtube.com/watch?v=dQw4w9WgXcQ)
+[Test Video](https://www.youtube.com/watch?v=aircAruvnKk)
 
 [0:05](timestamp)
 A note.
@@ -205,7 +205,7 @@ youtnote-format-version: 2
 Test Video
 <!-- youtnote:title:end -->
 <!-- youtnote:url:start -->
-https://www.youtube.com/watch?v=dQw4w9WgXcQ
+https://www.youtube.com/watch?v=aircAruvnKk
 <!-- youtnote:url:end -->
 <!-- youtnote:source:end -->
 
@@ -227,7 +227,7 @@ youtnote: true
 youtnote-format-version: 1
 ---
 
-[Test Video](https://www.youtube.com/watch?v=dQw4w9WgXcQ)
+[Test Video](https://www.youtube.com/watch?v=aircAruvnKk)
 `;
 
 const V2_B = `---
@@ -281,7 +281,7 @@ file-level payload
 Test Video
 <!-- youtnote:title:end -->
 <!-- youtnote:url:start -->
-https://www.youtube.com/watch?v=dQw4w9WgXcQ
+https://www.youtube.com/watch?v=aircAruvnKk
 <!-- youtnote:url:end -->
 <!-- youtnote:source:end -->
 
@@ -352,7 +352,7 @@ const RICH_V2_FIRST_VIDEO = `<!-- youtnote:video:start -->
 Test Video
 <!-- youtnote:title:end -->
 <!-- youtnote:url:start -->
-https://www.youtube.com/watch?v=dQw4w9WgXcQ
+https://www.youtube.com/watch?v=aircAruvnKk
 <!-- youtnote:url:end -->
 <!-- youtnote:source:end -->
 
@@ -400,7 +400,7 @@ const V2_RICH_REFRESHED = `${RICH_REFRESHED_FRONTMATTER}\n${RICH_V2_BODY}`;
 const V2_RICH_ROUNDTRIP = `${RICH_ROUNDTRIP_FRONTMATTER}\n${RICH_V2_BODY}`;
 
 const RICH_LEGACY_BODY = `
-[Test Video](https://www.youtube.com/watch?v=dQw4w9WgXcQ)
+[Test Video](https://www.youtube.com/watch?v=aircAruvnKk)
 
 [0:05](timestamp)
 A note.
@@ -935,7 +935,7 @@ describe('YoutnoteView write modes and legacy conversion', () => {
         const saved = store.get(f.path)!;
         expect(saved).toContain('youtnote:topic-description:start');
         expect(saved).toContain('file-level payload');
-        expect(saved).not.toContain('dQw4w9WgXcQ');
+        expect(saved).not.toContain('aircAruvnKk');
         expect(view.getWriteMode()).toBe('editable-v2');
     });
 
@@ -1618,12 +1618,12 @@ describe('YoutnoteView write modes and legacy conversion', () => {
         await view.onLoadFile(f);
         const videoId = view.videos[0].id;
         const noteParams = validateYoutnoteUriParams(
-            { url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ', mode: 'note', timestamp: '0:07', text: 'URI note body' },
+            { url: 'https://www.youtube.com/watch?v=aircAruvnKk', mode: 'note', timestamp: '0:07', text: 'URI note body' },
             200,
         );
         expect(noteParams.valid).toBe(true);
         const generalParams = validateYoutnoteUriParams(
-            { url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ', mode: 'general-note', text: 'URI general body' },
+            { url: 'https://www.youtube.com/watch?v=aircAruvnKk', mode: 'general-note', text: 'URI general body' },
             200,
         );
         expect(generalParams.valid).toBe(true);
@@ -2148,7 +2148,7 @@ describe('YoutnoteView write modes and legacy conversion', () => {
             expect(vault.modify).toHaveBeenCalled();
             const saved = store.get(f.path)!;
             expect(rawFrontmatter(saved)).toBe(RICH_V2_FRONTMATTER);
-            expect(saved).not.toContain('dQw4w9WgXcQ');
+            expect(saved).not.toContain('aircAruvnKk');
             expect(saved).not.toContain('Original timestamped body');
             expect(saved).toContain('abcdefghijk');
             expect(saved).toContain('Second video note');
@@ -2362,7 +2362,7 @@ describe('YoutnoteView startup legacy loading (layout not ready)', () => {
         await loading;
         expect(vault.process).toHaveBeenCalledTimes(1);
         expect(store.get(f.path)).toContain('youtnote-format-version: 2');
-        expect(store.get(f.path)).toContain('dQw4w9WgXcQ');
+        expect(store.get(f.path)).toContain('aircAruvnKk');
         expect(parseYoutnoteDocument(store.get(f.path)!).ok).toBe(true);
         expect(view.getWriteMode()).toBe('editable-v2');
     });
@@ -2588,7 +2588,7 @@ describe('YoutnoteView same-tab legacy open while a v2 file was loaded', () => {
 
             const expected = {
                 file: newFile.path,
-                videos: ['https://www.youtube.com/watch?v=dQw4w9WgXcQ'],
+                videos: ['https://www.youtube.com/watch?v=aircAruvnKk'],
                 notes: ['A note.'],
                 writeMode: 'legacy-preview',
                 writable: false,
@@ -2637,7 +2637,7 @@ const LEGACY_TWO = `---
 youtnote: true
 ---
 
-[Test Video](https://www.youtube.com/watch?v=dQw4w9WgXcQ)
+[Test Video](https://www.youtube.com/watch?v=aircAruvnKk)
 
 [0:05](timestamp)
 A note.

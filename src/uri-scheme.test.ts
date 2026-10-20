@@ -10,7 +10,7 @@ import {
     DEBOUNCE_MS,
 } from './uri-scheme';
 
-const VALID_YT_URL = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ';
+const VALID_YT_URL = 'https://www.youtube.com/watch?v=aircAruvnKk';
 
 const V2_BOUNDARY_MARKERS = [
     '<!-- youtnote:file:start -->',
@@ -107,7 +107,7 @@ describe('validateYoutnoteUriParams', () => {
     });
 
     it('rejects url param > 500 chars', () => {
-        const longUrl = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ' + '&x=' + 'a'.repeat(500);
+        const longUrl = 'https://www.youtube.com/watch?v=aircAruvnKk' + '&x=' + 'a'.repeat(500);
         const params = { url: longUrl, mode: 'new' };
         const result = validateYoutnoteUriParams(params, longUrl.length + 50);
 
@@ -248,7 +248,7 @@ describe('validateYoutnoteUriParams', () => {
     });
 
     it('rejects mode=general-note text containing a YouTube link line', () => {
-        const params = { url: VALID_YT_URL, mode: 'general-note', text: 'Summary\n[Other](https://www.youtube.com/watch?v=dQw4w9WgXcQ)' };
+        const params = { url: VALID_YT_URL, mode: 'general-note', text: 'Summary\n[Other](https://www.youtube.com/watch?v=aircAruvnKk)' };
         const result = validateYoutnoteUriParams(params, 200);
 
         expect(result.valid).toBe(false);
@@ -298,7 +298,7 @@ describe('hasStructuralDelimiter', () => {
     });
 
     it('returns true for a YouTube video link', () => {
-        expect(hasStructuralDelimiter('[Title](https://youtu.be/dQw4w9WgXcQ)')).toBe(true);
+        expect(hasStructuralDelimiter('[Title](https://youtu.be/aircAruvnKk)')).toBe(true);
     });
 
     it('returns true when the marker is on a later line', () => {

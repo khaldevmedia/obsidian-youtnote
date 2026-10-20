@@ -23,7 +23,7 @@ function videoBlock(url: string, title: string, inner: string): string {
 }
 
 const NOTES_EMPTY = '<!-- youtnote:notes:start -->\n\n<!-- youtnote:notes:end -->';
-const YT = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ';
+const YT = 'https://www.youtube.com/watch?v=aircAruvnKk';
 const YT2 = 'https://www.youtube.com/watch?v=abcdefghijk';
 
 function parseOk(source: string) {
@@ -1399,10 +1399,10 @@ ${FILE_CLOSE}
     });
 
     it('initializes fileSections to an empty array for legacy v1 documents', () => {
-        const legacy = parseOk('---\nyoutnote: true\n---\n\n[V](https://www.youtube.com/watch?v=dQw4w9WgXcQ)\n');
+        const legacy = parseOk('---\nyoutnote: true\n---\n\n[V](https://www.youtube.com/watch?v=aircAruvnKk)\n');
         expect(legacy.sourceFormatVersion).toBe(1);
         expect(legacy.fileSections).toEqual([]);
-        const declared = parseOk('---\nyoutnote: true\nyoutnote-format-version: 1\n---\n\n[V](https://www.youtube.com/watch?v=dQw4w9WgXcQ)\n');
+        const declared = parseOk('---\nyoutnote: true\nyoutnote-format-version: 1\n---\n\n[V](https://www.youtube.com/watch?v=aircAruvnKk)\n');
         expect(declared.fileSections).toEqual([]);
     });
 });

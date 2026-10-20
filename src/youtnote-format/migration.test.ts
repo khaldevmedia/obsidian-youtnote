@@ -12,7 +12,7 @@ const LEGACY = `---
 youtnote: true
 ---
 
-[How Transformers Work](https://www.youtube.com/watch?v=dQw4w9WgXcQ)
+[How Transformers Work](https://www.youtube.com/watch?v=aircAruvnKk)
 
 [general-note](general-note)
 Overview of the video.
@@ -67,7 +67,7 @@ youtnote: true
 tags: [a, b]
 ---
 
-[Video](https://www.youtube.com/watch?v=dQw4w9WgXcQ)
+[Video](https://www.youtube.com/watch?v=aircAruvnKk)
 
 [0:05](timestamp)
 Note.
@@ -88,7 +88,7 @@ youtnote: true
 
 Stray paragraph before the first video.
 
-[Video](https://www.youtube.com/watch?v=dQw4w9WgXcQ)
+[Video](https://www.youtube.com/watch?v=aircAruvnKk)
 `;
         const result = migrateLegacyYoutnote(source);
         expect(result.ok).toBe(false);
@@ -156,7 +156,7 @@ const V2_BODY = `
 Video
 <!-- youtnote:title:end -->
 <!-- youtnote:url:start -->
-https://www.youtube.com/watch?v=dQw4w9WgXcQ
+https://www.youtube.com/watch?v=aircAruvnKk
 <!-- youtnote:url:end -->
 <!-- youtnote:source:end -->
 
@@ -246,7 +246,7 @@ const RICH_V1_FRONTMATTER = RICH_MIGRATED_FRONTMATTER
     .replace('\nyoutnote-format-version: 2\n', '\nyoutnote-format-version: 1\n');
 
 const RICH_LEGACY_BODY = `
-[Test Video](https://www.youtube.com/watch?v=dQw4w9WgXcQ)
+[Test Video](https://www.youtube.com/watch?v=aircAruvnKk)
 
 [0:05](timestamp)
 A note.

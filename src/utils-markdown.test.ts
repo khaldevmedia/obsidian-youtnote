@@ -15,16 +15,16 @@ import {
 
 describe('YouTube URL utilities', () => {
     it('extracts ids only from valid YouTube hosts or direct ids', () => {
-        expect(extractYouTubeId('dQw4w9WgXcQ')).toBe('dQw4w9WgXcQ');
-        expect(extractYouTubeId('https://www.youtube.com/watch?v=dQw4w9WgXcQ')).toBe('dQw4w9WgXcQ');
-        expect(extractYouTubeId('https://youtu.be/dQw4w9WgXcQ')).toBe('dQw4w9WgXcQ');
-        expect(extractYouTubeId('https://evil.example/watch?v=dQw4w9WgXcQ')).toBeNull();
+        expect(extractYouTubeId('aircAruvnKk')).toBe('aircAruvnKk');
+        expect(extractYouTubeId('https://www.youtube.com/watch?v=aircAruvnKk')).toBe('aircAruvnKk');
+        expect(extractYouTubeId('https://youtu.be/aircAruvnKk')).toBe('aircAruvnKk');
+        expect(extractYouTubeId('https://evil.example/watch?v=aircAruvnKk')).toBeNull();
         expect(extractYouTubeId('https://www.youtube.com/watch?v=bad')).toBeNull();
     });
 
     it('normalizes valid YouTube urls', () => {
-        expect(normalizeYouTubeUrl('https://youtu.be/dQw4w9WgXcQ')).toBe(
-            'https://www.youtube.com/watch?v=dQw4w9WgXcQ'
+        expect(normalizeYouTubeUrl('https://youtu.be/aircAruvnKk')).toBe(
+            'https://www.youtube.com/watch?v=aircAruvnKk'
         );
     });
 });
@@ -66,7 +66,7 @@ describe('Markdown parser', () => {
 youtnote: true
 ---
 
-[Test Video](https://www.youtube.com/watch?v=dQw4w9WgXcQ)
+[Test Video](https://www.youtube.com/watch?v=aircAruvnKk)
 
 [00:05](timestamp)
 Line 1
@@ -87,7 +87,7 @@ Line 2
 youtnote: true
 ---
 
-[Test Video](https://www.youtube.com/watch?v=dQw4w9WgXcQ)
+[Test Video](https://www.youtube.com/watch?v=aircAruvnKk)
 
 [general-note](general-note)
 This is a general note about the whole video.
@@ -116,7 +116,7 @@ First timestamped note.
 youtnote: true
 ---
 
-[Test Video](https://www.youtube.com/watch?v=dQw4w9WgXcQ)
+[Test Video](https://www.youtube.com/watch?v=aircAruvnKk)
 
 [general-note](general-note)
 This is a general note about the whole video.
@@ -141,7 +141,7 @@ First timestamped note.
 youtnote: true
 ---
 
-[Test Video](https://www.youtube.com/watch?v=dQw4w9WgXcQ)
+[Test Video](https://www.youtube.com/watch?v=aircAruvnKk)
 
 [0:05](timestamp)
 A note.
@@ -169,7 +169,7 @@ A note.
 youtnote: true
 ---
 
-[Test Video](https://www.youtube.com/watch?v=dQw4w9WgXcQ)
+[Test Video](https://www.youtube.com/watch?v=aircAruvnKk)
 
 [0:00.320](caption?durationMs=14260) [Music]
 [5](caption) no duration
@@ -189,7 +189,7 @@ youtnote: true
 youtnote: true
 ---
 
-[Test Video](https://www.youtube.com/watch?v=dQw4w9WgXcQ)
+[Test Video](https://www.youtube.com/watch?v=aircAruvnKk)
 
 [5](caption) Watch this (really)
 `;
@@ -208,7 +208,7 @@ youtnote: true
 youtnote: true
 ---
 
-[First Video](https://www.youtube.com/watch?v=dQw4w9WgXcQ)
+[First Video](https://www.youtube.com/watch?v=aircAruvnKk)
 
 [0:05](timestamp)
 A note.
@@ -241,7 +241,7 @@ Another note.
 youtnote: true
 ---
 
-[Test Video](https://www.youtube.com/watch?v=dQw4w9WgXcQ)
+[Test Video](https://www.youtube.com/watch?v=aircAruvnKk)
 
 [0:05](timestamp)
 A note.
@@ -266,7 +266,7 @@ A note.
 youtnote: true
 ---
 
-[Test Video](https://www.youtube.com/watch?v=dQw4w9WgXcQ)
+[Test Video](https://www.youtube.com/watch?v=aircAruvnKk)
 
 [1:55](caption) late caption
 [0:00.320](caption?durationMs=14260) early caption
@@ -287,7 +287,7 @@ youtnote: true
 youtnote: true
 ---
 
-[Test Video](https://www.youtube.com/watch?v=dQw4w9WgXcQ)
+[Test Video](https://www.youtube.com/watch?v=aircAruvnKk)
 
 [0:05](timestamp)
 A note.
@@ -307,7 +307,7 @@ A note.
 youtnote: true
 ---
 
-[Test Video](https://www.youtube.com/watch?v=dQw4w9WgXcQ)
+[Test Video](https://www.youtube.com/watch?v=aircAruvnKk)
 
 [5](caption) only captions here
 `;
@@ -327,7 +327,7 @@ youtnote: true
 youtnote: true
 ---
 
-[Test Video](https://www.youtube.com/watch?v=dQw4w9WgXcQ)
+[Test Video](https://www.youtube.com/watch?v=aircAruvnKk)
 
 [general-note](general-note)
 This is a general note about the whole video.
@@ -352,7 +352,7 @@ describe('Markdown export options', () => {
 youtnote: true
 ---
 
-[First Video](https://www.youtube.com/watch?v=dQw4w9WgXcQ)
+[First Video](https://www.youtube.com/watch?v=aircAruvnKk)
 
 [general-note](general-note)
 Summary note.
@@ -377,11 +377,11 @@ Another note.
 
         expect(exported).toContain('**General note:**');
         expect(exported).toContain('Summary note.');
-        expect(exported).toContain('[1:23](https://youtu.be/dQw4w9WgXcQ?t=83)');
+        expect(exported).toContain('[1:23](https://youtu.be/aircAruvnKk?t=83)');
         expect(exported).toContain('Timestamped note.');
         expect(exported).toContain('**Transcript:**');
-        expect(exported).toContain('[5](https://youtu.be/dQw4w9WgXcQ?t=5) first caption');
-        expect(exported).toContain('[1:55](https://youtu.be/dQw4w9WgXcQ?t=115) second caption');
+        expect(exported).toContain('[5](https://youtu.be/aircAruvnKk?t=5) first caption');
+        expect(exported).toContain('[1:55](https://youtu.be/aircAruvnKk?t=115) second caption');
     });
 
     it('excludes the transcript when only notes are requested', () => {
@@ -404,13 +404,13 @@ Another note.
             includeTranscripts: true,
         });
 
-        expect(exported).toContain('[First Video](https://www.youtube.com/watch?v=dQw4w9WgXcQ)');
+        expect(exported).toContain('[First Video](https://www.youtube.com/watch?v=aircAruvnKk)');
         expect(exported).toContain('**Transcript:**');
-        expect(exported).toContain('[5](https://youtu.be/dQw4w9WgXcQ?t=5) first caption');
+        expect(exported).toContain('[5](https://youtu.be/aircAruvnKk?t=5) first caption');
         expect(exported).not.toContain('**General note:**');
         expect(exported).not.toContain('Summary note.');
         expect(exported).not.toContain('Timestamped note.');
-        expect(exported).not.toContain('https://youtu.be/dQw4w9WgXcQ?t=83');
+        expect(exported).not.toContain('https://youtu.be/aircAruvnKk?t=83');
     });
 
     it('applies the options across all videos', () => {
@@ -421,7 +421,7 @@ Another note.
         });
 
         expect(exported.match(/\*\*Transcript:\*\*/g)).toHaveLength(2);
-        expect(exported).toContain('[5](https://youtu.be/dQw4w9WgXcQ?t=5) first caption');
+        expect(exported).toContain('[5](https://youtu.be/aircAruvnKk?t=5) first caption');
         expect(exported).toContain('[7](https://youtu.be/abcdefghijk?t=7) other caption');
         expect(exported).not.toContain('Another note.');
         expect(exported).not.toContain('**General note:**');

@@ -13,27 +13,27 @@ import {
     transcriptUsesHours,
 } from './transcript';
 
-// Trimmed from a real InnerTube player response (video dQw4w9WgXcQ)
+// Trimmed from a real InnerTube player response (video aircAruvnKk)
 const PLAYER_RESPONSE = {
     playabilityStatus: { status: 'OK' },
     captions: {
         playerCaptionsTracklistRenderer: {
             captionTracks: [
                 {
-                    baseUrl: 'https://www.youtube.com/api/timedtext?v=dQw4w9WgXcQ&lang=en&fmt=srv3',
+                    baseUrl: 'https://www.youtube.com/api/timedtext?v=aircAruvnKk&lang=en&fmt=srv3',
                     name: { runs: [{ text: 'English' }] },
                     vssId: '.en',
                     languageCode: 'en',
                 },
                 {
-                    baseUrl: 'https://www.youtube.com/api/timedtext?v=dQw4w9WgXcQ&kind=asr&lang=en&fmt=srv3',
+                    baseUrl: 'https://www.youtube.com/api/timedtext?v=aircAruvnKk&kind=asr&lang=en&fmt=srv3',
                     name: { runs: [{ text: 'English (auto-generated)' }] },
                     vssId: 'a.en',
                     languageCode: 'en',
                     kind: 'asr',
                 },
                 {
-                    baseUrl: 'https://www.youtube.com/api/timedtext?v=dQw4w9WgXcQ&lang=de-DE&fmt=srv3',
+                    baseUrl: 'https://www.youtube.com/api/timedtext?v=aircAruvnKk&lang=de-DE&fmt=srv3',
                     name: { simpleText: 'German (Germany)' },
                     vssId: '.de-DE',
                     languageCode: 'de-DE',
@@ -165,7 +165,7 @@ describe('sortCaptionTracks', () => {
 
 describe('buildTranscriptUrl', () => {
     it('replaces an existing fmt param with json3', () => {
-        const url = buildTranscriptUrl('https://www.youtube.com/api/timedtext?v=dQw4w9WgXcQ&lang=en&fmt=srv3');
+        const url = buildTranscriptUrl('https://www.youtube.com/api/timedtext?v=aircAruvnKk&lang=en&fmt=srv3');
         const parsed = new URL(url);
         expect(parsed.searchParams.get('fmt')).toBe('json3');
         expect(url).not.toContain('fmt=srv3');
@@ -173,7 +173,7 @@ describe('buildTranscriptUrl', () => {
     });
 
     it('adds fmt=json3 when no fmt param exists', () => {
-        const url = buildTranscriptUrl('https://www.youtube.com/api/timedtext?v=dQw4w9WgXcQ&lang=en');
+        const url = buildTranscriptUrl('https://www.youtube.com/api/timedtext?v=aircAruvnKk&lang=en');
         expect(new URL(url).searchParams.get('fmt')).toBe('json3');
     });
 });

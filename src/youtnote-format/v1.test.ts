@@ -14,7 +14,7 @@ function parseOk(source: string) {
 describe('legacy (v1) reader', () => {
     it('keeps regular markdown links in note body and does not treat them as videos', () => {
         const markdown = `${LEGACY_HEADER}
-[Test Video](https://www.youtube.com/watch?v=dQw4w9WgXcQ)
+[Test Video](https://www.youtube.com/watch?v=aircAruvnKk)
 
 [00:05](timestamp)
 Line 1
@@ -31,7 +31,7 @@ Line 2
 
     it('parses general notes and timestamped notes', () => {
         const markdown = `${LEGACY_HEADER}
-[Test Video](https://www.youtube.com/watch?v=dQw4w9WgXcQ)
+[Test Video](https://www.youtube.com/watch?v=aircAruvnKk)
 
 [general-note](general-note)
 This is a general note about the whole video.
@@ -50,7 +50,7 @@ First timestamped note.
 
     it('parses caption lines into the video transcript and sorts them', () => {
         const markdown = `${LEGACY_HEADER}
-[Test Video](https://www.youtube.com/watch?v=dQw4w9WgXcQ)
+[Test Video](https://www.youtube.com/watch?v=aircAruvnKk)
 
 [0:05](timestamp)
 A note.
@@ -71,7 +71,7 @@ A note.
 
     it('builds default layouts of notes then transcript per video', () => {
         const markdown = `${LEGACY_HEADER}
-[With Transcript](https://www.youtube.com/watch?v=dQw4w9WgXcQ)
+[With Transcript](https://www.youtube.com/watch?v=aircAruvnKk)
 
 [5](caption) hi
 
@@ -94,7 +94,7 @@ note
         const markdown = `${LEGACY_HEADER}
 Stray paragraph.
 
-[Test Video](https://www.youtube.com/watch?v=dQw4w9WgXcQ)
+[Test Video](https://www.youtube.com/watch?v=aircAruvnKk)
 `;
         const result = parseYoutnoteDocument(markdown);
         expect(result.ok).toBe(false);
@@ -105,7 +105,7 @@ Stray paragraph.
         const markdown = `${LEGACY_HEADER}
 [5](caption) orphan caption
 
-[Test Video](https://www.youtube.com/watch?v=dQw4w9WgXcQ)
+[Test Video](https://www.youtube.com/watch?v=aircAruvnKk)
 `;
         const result = parseYoutnoteDocument(markdown);
         expect(result.ok).toBe(false);
@@ -122,7 +122,7 @@ Orphan note body.
 
     it('absorbs trailing nonblank lines into the open note body like the old parser', () => {
         const markdown = `${LEGACY_HEADER}
-[Test Video](https://www.youtube.com/watch?v=dQw4w9WgXcQ)
+[Test Video](https://www.youtube.com/watch?v=aircAruvnKk)
 
 [0:05](timestamp)
 A note.
@@ -135,7 +135,7 @@ Stray text between records is impossible here;
     });
 
     it('allows blank separator lines anywhere', () => {
-        const markdown = `${LEGACY_HEADER}\n\n\n[Test Video](https://www.youtube.com/watch?v=dQw4w9WgXcQ)\n\n\n`;
+        const markdown = `${LEGACY_HEADER}\n\n\n[Test Video](https://www.youtube.com/watch?v=aircAruvnKk)\n\n\n`;
         const doc = parseOk(markdown);
         expect(doc.videos).toHaveLength(1);
     });
