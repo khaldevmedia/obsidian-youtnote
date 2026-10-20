@@ -253,6 +253,8 @@ to avoid conflicts with other plugins */
     background: var(--background-primary-alt);
     border: var(--input-border-width) solid var(--background-modifier-border);
     border-radius: var(--input-radius);
+    height: var(--input-height);
+    box-sizing: border-box;
     padding: var(--size-2-3) var(--size-4-3);
     color: var(--text-normal);
     outline: none;
