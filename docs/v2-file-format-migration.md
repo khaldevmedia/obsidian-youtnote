@@ -18,7 +18,7 @@ Format v2 improves storage in four ways:
 - **Explicit versioning:** the `youtnote-format-version` property identifies the format. The updated plugin refuses unsupported newer versions rather than partially parsing and rewriting them.
 - **Safer future additions:** unrelated frontmatter and unknown file-level or video-level sections are preserved. This allows compatible additions without throwing away content that an older v2 reader does not understand.
 
-Files remain ordinary `.md` files in your vault. Format v2 does not require a new file extension or a separate database. Custom frontmatter stays byte-for-byte intact, and the plugin only rewrites the marker structure it owns inside the file wrapper. For a complete example of the canonical layout, see the [storage format section of the README](../README.md#storage-format).
+Files remain ordinary `.md` files in your vault. Format v2 does not require a new file extension or a separate database. Custom frontmatter stays byte-for-byte intact, and the plugin only rewrites the marker structure it owns inside the file wrapper. For a complete example of the canonical layout, see the [storage format reference](storage-format.md).
 
 ## Before you convert
 
