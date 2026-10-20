@@ -34,6 +34,7 @@ to avoid conflicts with other plugins */
         display: flex;
         flex-direction: column;
         overflow: hidden;
+        position: relative;
     }
 
     .view-content > .youtnote-plugin__plugin-container,
@@ -527,6 +528,30 @@ to avoid conflicts with other plugins */
     display: none;
 }
 
+.youtnote-plugin__transcript-scroll-top-btn {
+    display: none;
+}
+
+.is-mobile .youtnote-plugin__transcript-scroll-top-btn {
+    display: flex;
+    position: absolute;
+    bottom: calc(var(--size-4-18) + env(safe-area-inset-bottom));
+    inset-inline-end: var(--size-4-4);
+    width: var(--size-4-12);
+    height: var(--size-4-12);
+    min-width: var(--size-4-12);
+    min-height: var(--size-4-12);
+    padding: 0;
+    border-radius: 50%;
+    background: var(--interactive-accent);
+    color: var(--text-on-accent);
+    border: none;
+    align-items: center;
+    justify-content: center;
+    cursor: var(--cursor-link);
+    z-index: var(--layer-cover);
+}
+
 /* Resize Handle */
 .youtnote-plugin__resize-handle {
     flex: 0 0 auto;
@@ -634,6 +659,10 @@ to avoid conflicts with other plugins */
 
 .youtnote-plugin__transcript-card:hover {
     background-color: var(--background-modifier-hover);
+}
+
+.is-mobile .youtnote-plugin__transcript-card {
+    content-visibility: visible;
 }
 
 .youtnote-plugin__transcript-timestamp {
