@@ -1,6 +1,6 @@
 {
   "name": "obsidian-youtnote",
-  "version": "2.0.0-dev.1",
+  "version": "2.0.0",
   "description": "Obsidian plugin for taking timestamped notes across multiple embedded YouTube videos, downloading transcripts, and generating notes by AI.",
   "main": "index.js",
   "scripts": {
