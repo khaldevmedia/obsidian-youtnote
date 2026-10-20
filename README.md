@@ -9,11 +9,7 @@
 ---
 
 <p style="margin-top:50px;" align="center">
-  <img src="docs/images/ai-logo.png" width="40" alt="AI" />
-  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-  <img src="docs/images/obsidian-logo.png" width="40" alt="Obsidian" />
-  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-  <img src="docs/images/youtube-logo.png" width="40" alt="YouTube" />
+  <img src="docs/images/3icons.png" width="200" alt="AI, Obsidian, and YouTube" />
 </p>
 
 
