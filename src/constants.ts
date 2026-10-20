@@ -1,4 +1,4 @@
-export const GITHUB_DOCS_BRANCH = 'develop';
+export const GITHUB_DOCS_BRANCH = 'main';
 
 const DOCS_BASE_URL = `https://github.com/khaldevmedia/obsidian-youtnote/blob/${GITHUB_DOCS_BRANCH}/docs`;
 
