@@ -537,8 +537,8 @@ to avoid conflicts with other plugins */
     flex-direction: column;
     gap: var(--size-4-2);
     position: absolute;
-    bottom: calc(var(--size-4-18) + env(safe-area-inset-bottom));
-    inset-inline-end: var(--size-4-4);
+    bottom: calc(var(--size-4-18) + var(--size-4-1) + env(safe-area-inset-bottom));
+    inset-inline-end: var(--size-4-5);
     z-index: var(--layer-cover);
 }
 
@@ -550,8 +550,8 @@ to avoid conflicts with other plugins */
     min-height: var(--size-4-12);
     padding: 0;
     border-radius: 50%;
-    background: var(--interactive-accent);
-    color: var(--text-on-accent);
+    color: var(--text-color);
+    background-color: var(--interactive-normal);
     border: none;
     align-items: center;
     justify-content: center;
