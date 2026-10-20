@@ -515,6 +515,9 @@ describe('transcript back-to-top button', () => {
     const SCROLL_TOP_BTN = 'youtnote-plugin__transcript-scroll-top-btn';
     const SYNC_BTN = 'youtnote-plugin__transcript-sync-btn';
     const SEARCH_INPUT = 'youtnote-plugin__note-search-input';
+    const FLOAT_ACTIONS = 'youtnote-plugin__transcript-floating-actions';
+    const FLOAT_SYNC = 'youtnote-plugin__transcript-floating-sync-btn';
+    const TRANSCRIPT_LIST = 'youtnote-plugin__transcript-list';
 
     interface FakeRect { top: number; bottom: number; height: number }
     interface FakeContainer {
@@ -902,6 +905,126 @@ describe('transcript back-to-top button', () => {
         expect(preventDefault).toHaveBeenCalledTimes(1);
         expect(container.scrollTo).toHaveBeenCalledTimes(1);
     });
+
+    it('renders a floating actions wrapper outside the scroller with sync above back-to-top', () => {
+        const { getTree, rerender } = transcriptSetup();
+        attachFakes(getTree(), makeContainerFake({ scrollTop: 400 }), makeHeaderFake({ top: -60, bottom: -20, height: 40 }));
+        fireScroll(getTree());
+        rerender();
+        const [wrap] = collectByClass(getTree(), FLOAT_ACTIONS);
+        expect(wrap).toBeDefined();
+        const kids = wrap.props!.children as VNodeLike[];
+        expect(kids[0].props!.className).toContain(FLOAT_SYNC);
+        expect(kids[1].props!.className).toContain(SCROLL_TOP_BTN);
+        const [containerEl] = collectByClass(getTree(), CONTAINER);
+        expect(collectByClass(containerEl.props!.children, FLOAT_ACTIONS)).toHaveLength(0);
+    });
+
+    it('shows and hides the floating sync together with back-to-top', () => {
+        const { getTree, rerender } = transcriptSetup();
+        expect(collectByClass(getTree(), FLOAT_SYNC)).toHaveLength(0);
+        const container = makeContainerFake({ scrollTop: 400 });
+        attachFakes(getTree(), container, makeHeaderFake({ top: -60, bottom: -20, height: 40 }));
+        fireScroll(getTree());
+        rerender();
+        expect(collectByClass(getTree(), FLOAT_SYNC)).toHaveLength(1);
+        container.scrollTop = 0;
+        fireScroll(getTree());
+        rerender();
+        expect(collectByClass(getTree(), FLOAT_SYNC)).toHaveLength(0);
+    });
+
+    it('sets the locate icon through the floating sync ref', () => {
+        const { getTree, rerender } = transcriptSetup();
+        attachFakes(getTree(), makeContainerFake({ scrollTop: 400 }), makeHeaderFake({ top: -60, bottom: -20, height: 40 }));
+        fireScroll(getTree());
+        rerender();
+        const [sync] = collectByClass(getTree(), FLOAT_SYNC);
+        const el = { empty: vi.fn() };
+        (sync.ref as (e: unknown) => void)(el);
+        expect(el.empty).toHaveBeenCalled();
+        expect(vi.mocked(setIcon)).toHaveBeenCalledWith(el, 'locate-fixed');
+    });
+
+    it('re-enables following like the header control after manual scrolling', () => {
+        const { getTree, rerender } = transcriptSetup({ autoScroll: true });
+        const [list] = collectByClass(getTree(), TRANSCRIPT_LIST);
+        ((list.props!.onTouchMove ?? list.props!.ontouchmove) as () => void)();
+        attachFakes(getTree(), makeContainerFake({ scrollTop: 400 }), makeHeaderFake({ top: -60, bottom: -20, height: 40 }));
+        fireScroll(getTree());
+        rerender();
+        let [headerSync] = collectByClass(getTree(), SYNC_BTN);
+        const [floatSync] = collectByClass(getTree(), FLOAT_SYNC);
+        expect(headerSync.props!['aria-pressed']).toBe(false);
+        expect(floatSync.props!['aria-pressed']).toBe(false);
+        armScrollTopButton(floatSync);
+        clickScrollTopButton(floatSync, { pointerType: 'touch' });
+        rerender();
+        [headerSync] = collectByClass(getTree(), SYNC_BTN);
+        const [floatSyncAfter] = collectByClass(getTree(), FLOAT_SYNC);
+        expect(headerSync.props!['aria-pressed']).toBe(true);
+        expect(floatSyncAfter.props!['aria-pressed']).toBe(true);
+    });
+
+    it('an armed back-to-top does not authorize floating sync', () => {
+        const { getTree, rerender } = transcriptSetup({ autoScroll: true });
+        const [list] = collectByClass(getTree(), TRANSCRIPT_LIST);
+        ((list.props!.onTouchMove ?? list.props!.ontouchmove) as () => void)();
+        attachFakes(getTree(), makeContainerFake({ scrollTop: 400 }), makeHeaderFake({ top: -60, bottom: -20, height: 40 }));
+        fireScroll(getTree());
+        rerender();
+        const [top] = collectByClass(getTree(), SCROLL_TOP_BTN);
+        const [sync] = collectByClass(getTree(), FLOAT_SYNC);
+        armScrollTopButton(top);
+        const { preventDefault } = clickScrollTopButton(sync, { pointerType: 'touch' });
+        expect(preventDefault).toHaveBeenCalledTimes(1);
+        rerender();
+        const [syncAfter] = collectByClass(getTree(), FLOAT_SYNC);
+        expect(syncAfter.props!['aria-pressed']).toBe(false);
+    });
+
+    it('an armed floating sync does not authorize back-to-top', () => {
+        const { getTree, rerender } = transcriptSetup();
+        const container = makeContainerFake({ scrollTop: 500 });
+        attachFakes(getTree(), container, makeHeaderFake({ top: -60, bottom: -20, height: 40 }));
+        fireScroll(getTree());
+        rerender();
+        const [top] = collectByClass(getTree(), SCROLL_TOP_BTN);
+        const [sync] = collectByClass(getTree(), FLOAT_SYNC);
+        armScrollTopButton(sync);
+        clickScrollTopButton(top, { pointerType: 'touch' });
+        expect(container.scrollTo).not.toHaveBeenCalled();
+    });
+
+    it('ignores an unarmed pointer click on floating sync', () => {
+        const { getTree, rerender } = transcriptSetup({ autoScroll: true });
+        const [list] = collectByClass(getTree(), TRANSCRIPT_LIST);
+        ((list.props!.onTouchMove ?? list.props!.ontouchmove) as () => void)();
+        attachFakes(getTree(), makeContainerFake({ scrollTop: 400 }), makeHeaderFake({ top: -60, bottom: -20, height: 40 }));
+        fireScroll(getTree());
+        rerender();
+        const [sync] = collectByClass(getTree(), FLOAT_SYNC);
+        const { preventDefault, stopPropagation } = clickScrollTopButton(sync, { pointerType: 'touch' });
+        expect(preventDefault).toHaveBeenCalledTimes(1);
+        expect(stopPropagation).toHaveBeenCalledTimes(1);
+        rerender();
+        const [syncAfter] = collectByClass(getTree(), FLOAT_SYNC);
+        expect(syncAfter.props!['aria-pressed']).toBe(false);
+    });
+
+    it('activates floating sync on keyboard activation without a pointer press', () => {
+        const { getTree, rerender } = transcriptSetup({ autoScroll: true });
+        const [list] = collectByClass(getTree(), TRANSCRIPT_LIST);
+        ((list.props!.onTouchMove ?? list.props!.ontouchmove) as () => void)();
+        attachFakes(getTree(), makeContainerFake({ scrollTop: 400 }), makeHeaderFake({ top: -60, bottom: -20, height: 40 }));
+        fireScroll(getTree());
+        rerender();
+        const [sync] = collectByClass(getTree(), FLOAT_SYNC);
+        clickScrollTopButton(sync, { detail: 0 });
+        rerender();
+        const [syncAfter] = collectByClass(getTree(), FLOAT_SYNC);
+        expect(syncAfter.props!['aria-pressed']).toBe(true);
+    });
 });
 
 describe('transcript back-to-top hidden during caption editing', () => {
@@ -910,6 +1033,7 @@ describe('transcript back-to-top hidden during caption editing', () => {
     const CONTAINER = 'youtnote-plugin__plugin-container';
     const HEADER = 'youtnote-plugin__note-list-header';
     const SCROLL_TOP_BTN = 'youtnote-plugin__transcript-scroll-top-btn';
+    const FLOAT_SYNC = 'youtnote-plugin__transcript-floating-sync-btn';
     const ACTIONS = 'youtnote-plugin__note-list-action-btns-container';
 
     function visibleButton(props: ReturnType<typeof makeProps>['props']) {
@@ -1032,5 +1156,29 @@ describe('transcript back-to-top hidden during caption editing', () => {
         expect(container.scrollTo).not.toHaveBeenCalled();
         const [syncBtn] = collectByClass(getTree(), 'youtnote-plugin__transcript-sync-btn');
         expect(syncBtn.props!['aria-pressed']).toBe(true);
+    });
+
+    it('leaves the remounted floating sync unarmed after a caption edit', () => {
+        const { getTree, rerender } = setupEditing();
+        const item = firstCaptionItem(getTree());
+        (item.props!.onStartEdit as (i: number) => void)(0);
+        rerender();
+        expect(collectByClass(getTree(), FLOAT_SYNC)).toHaveLength(0);
+        (item.props!.onSaveEdit as (i: number, t: string) => void)(0, 'cap-0');
+        rerender();
+        const [sync] = collectByClass(getTree(), FLOAT_SYNC);
+        expect(sync).toBeDefined();
+        (sync.ref as (e: unknown) => void)({ empty: vi.fn() });
+        const preventDefault = vi.fn();
+        (sync.props!.onClick as (e: unknown) => void)({
+            detail: 1,
+            nativeEvent: { pointerType: 'touch' },
+            preventDefault,
+            stopPropagation: vi.fn(),
+        });
+        expect(preventDefault).toHaveBeenCalledTimes(1);
+        rerender();
+        const [syncAfter] = collectByClass(getTree(), FLOAT_SYNC);
+        expect(syncAfter.props!['aria-pressed']).toBe(true);
     });
 });

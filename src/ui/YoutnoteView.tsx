@@ -29,6 +29,41 @@ import {
 
 
 
+function useTranscriptFloatingButton(icon: string) {
+    const pointerStartedRef = useRef(false);
+    const setButtonRef = useCallback((el: HTMLButtonElement | null) => {
+        pointerStartedRef.current = false;
+        if (el) {
+            el.empty();
+            setIcon(el, icon);
+        }
+    }, [icon]);
+    const onPointerDown = useCallback((event: React.PointerEvent<HTMLButtonElement>) => {
+        pointerStartedRef.current = event.isPrimary && event.button === 0;
+    }, []);
+    const onPointerCancel = useCallback(() => {
+        pointerStartedRef.current = false;
+    }, []);
+    const onPointerLeave = useCallback((event: React.PointerEvent<HTMLButtonElement>) => {
+        if (event.buttons > 0) {
+            pointerStartedRef.current = false;
+        }
+    }, []);
+    const acceptClick = useCallback((event: React.MouseEvent<HTMLButtonElement>) => {
+        const wasArmed = pointerStartedRef.current;
+        pointerStartedRef.current = false;
+        const isPointerActivation =
+            event.detail > 0 || Boolean((event.nativeEvent as PointerEvent).pointerType);
+        if (isPointerActivation && !wasArmed) {
+            event.preventDefault();
+            event.stopPropagation();
+            return false;
+        }
+        return true;
+    }, []);
+    return { setButtonRef, onPointerDown, onPointerCancel, onPointerLeave, acceptClick };
+}
+
 export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({ 
     app,
     view,
@@ -157,7 +192,8 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
     const paneWidthStorageKey = 'youtnote-plugin__notes-left-pane-width';
     const containerRef = useRef<HTMLDivElement>(null);
     const transcriptHeaderRef = useRef<HTMLDivElement>(null);
-    const transcriptScrollTopPointerStartedRef = useRef(false);
+    const transcriptScrollTopButton = useTranscriptFloatingButton('chevron-up');
+    const transcriptSyncFloatingButton = useTranscriptFloatingButton('locate-fixed');
     const [showTranscriptScrollTop, setShowTranscriptScrollTop] = useState(false);
     const [leftPaneWidth, setLeftPaneWidth] = useState<number>(50);
     const leftPaneWidthRef = useRef(leftPaneWidth);
@@ -1147,24 +1183,8 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
         return () => win.removeEventListener('resize', updateTranscriptScrollTopVisibility);
     }, [updateTranscriptScrollTopVisibility, activeVideoId, editingTranscriptIndex]);
 
-    const setTranscriptScrollTopButtonRef = useCallback((el: HTMLButtonElement | null) => {
-        transcriptScrollTopPointerStartedRef.current = false;
-        if (el) {
-            el.empty();
-            setIcon(el, 'chevron-up');
-        }
-    }, []);
-
     const handleTranscriptScrollTop = useCallback((event: React.MouseEvent<HTMLButtonElement>) => {
-        const wasArmed = transcriptScrollTopPointerStartedRef.current;
-        transcriptScrollTopPointerStartedRef.current = false;
-        const isPointerActivation =
-            event.detail > 0 || Boolean((event.nativeEvent as PointerEvent).pointerType);
-        if (isPointerActivation && !wasArmed) {
-            event.preventDefault();
-            event.stopPropagation();
-            return;
-        }
+        if (!transcriptScrollTopButton.acceptClick(event)) return;
         handleTranscriptManualScroll();
         const container = containerRef.current;
         const header = transcriptHeaderRef.current;
@@ -1180,28 +1200,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
         const top = Math.max(0, container.scrollTop + headerRect.top - containerRect.top - stickyObstruction);
         container.scrollTo({ top, behavior: 'instant' });
         setShowTranscriptScrollTop(false);
-    }, [handleTranscriptManualScroll, settings.pinOnPhone]);
-
-    const handleTranscriptScrollTopPointerDown = useCallback(
-        (event: React.PointerEvent<HTMLButtonElement>) => {
-            transcriptScrollTopPointerStartedRef.current =
-                event.isPrimary && event.button === 0;
-        },
-        []
-    );
-
-    const handleTranscriptScrollTopPointerCancel = useCallback(() => {
-        transcriptScrollTopPointerStartedRef.current = false;
-    }, []);
-
-    const handleTranscriptScrollTopPointerLeave = useCallback(
-        (event: React.PointerEvent<HTMLButtonElement>) => {
-            if (event.buttons > 0) {
-                transcriptScrollTopPointerStartedRef.current = false;
-            }
-        },
-        []
-    );
+    }, [handleTranscriptManualScroll, settings.pinOnPhone, transcriptScrollTopButton.acceptClick]);
 
     const handleSyncTranscriptPlayback = useCallback(async () => {
         let index = activeTranscriptIndex;
@@ -1219,6 +1218,11 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
         setFollowTranscriptPlayback(true);
         setCaptionCenterRequest(index);
     }, [activeTranscript, activeTranscriptIndex]);
+
+    const handleTranscriptFloatingSync = useCallback((event: React.MouseEvent<HTMLButtonElement>) => {
+        if (!transcriptSyncFloatingButton.acceptClick(event)) return;
+        void handleSyncTranscriptPlayback();
+    }, [handleSyncTranscriptPlayback, transcriptSyncFloatingButton.acceptClick]);
 
     // Resize handlers
     const handleMouseDown = (e: React.MouseEvent) => {
@@ -1664,16 +1668,29 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
             </div>
             </div>
             {isMobile && showTranscript && hasTranscript && filteredTranscript.length > 0 && !isFetchingTranscript && editingTranscriptIndex === null && showTranscriptScrollTop && (
-                <button
-                    type="button"
-                    ref={setTranscriptScrollTopButtonRef}
-                    className="youtnote-plugin__transcript-scroll-top-btn"
-                    onClick={handleTranscriptScrollTop}
-                    onPointerDown={handleTranscriptScrollTopPointerDown}
-                    onPointerCancel={handleTranscriptScrollTopPointerCancel}
-                    onPointerLeave={handleTranscriptScrollTopPointerLeave}
-                    aria-label="Back to captions header"
-                />
+                <div className="youtnote-plugin__transcript-floating-actions">
+                    <button
+                        type="button"
+                        ref={transcriptSyncFloatingButton.setButtonRef}
+                        className="youtnote-plugin__transcript-floating-btn youtnote-plugin__transcript-floating-sync-btn"
+                        onClick={handleTranscriptFloatingSync}
+                        onPointerDown={transcriptSyncFloatingButton.onPointerDown}
+                        onPointerCancel={transcriptSyncFloatingButton.onPointerCancel}
+                        onPointerLeave={transcriptSyncFloatingButton.onPointerLeave}
+                        aria-pressed={isTranscriptFollowing}
+                        aria-label={isTranscriptFollowing ? 'Following playback' : 'Sync transcript with playback'}
+                    />
+                    <button
+                        type="button"
+                        ref={transcriptScrollTopButton.setButtonRef}
+                        className="youtnote-plugin__transcript-floating-btn youtnote-plugin__transcript-scroll-top-btn"
+                        onClick={handleTranscriptScrollTop}
+                        onPointerDown={transcriptScrollTopButton.onPointerDown}
+                        onPointerCancel={transcriptScrollTopButton.onPointerCancel}
+                        onPointerLeave={transcriptScrollTopButton.onPointerLeave}
+                        aria-label="Back to captions header"
+                    />
+                </div>
             )}
         </>
     );

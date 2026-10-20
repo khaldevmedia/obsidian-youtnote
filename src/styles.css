@@ -528,15 +528,22 @@ to avoid conflicts with other plugins */
     display: none;
 }
 
-.youtnote-plugin__transcript-scroll-top-btn {
+.youtnote-plugin__transcript-floating-actions {
     display: none;
 }
 
-.is-mobile .youtnote-plugin__transcript-scroll-top-btn {
+.is-mobile .youtnote-plugin__transcript-floating-actions {
     display: flex;
+    flex-direction: column;
+    gap: var(--size-4-2);
     position: absolute;
     bottom: calc(var(--size-4-18) + env(safe-area-inset-bottom));
     inset-inline-end: var(--size-4-4);
+    z-index: var(--layer-cover);
+}
+
+.is-mobile .youtnote-plugin__transcript-floating-btn {
+    display: flex;
     width: var(--size-4-12);
     height: var(--size-4-12);
     min-width: var(--size-4-12);
@@ -549,7 +556,6 @@ to avoid conflicts with other plugins */
     align-items: center;
     justify-content: center;
     cursor: var(--cursor-link);
-    z-index: var(--layer-cover);
 }
 
 /* Resize Handle */
