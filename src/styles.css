@@ -659,17 +659,17 @@ to avoid conflicts with other plugins */
     padding: var(--size-2-3) var(--size-4-2);
     border-radius: var(--radius-m);
     position: relative;
-    content-visibility: auto;
-    contain-intrinsic-size: auto 2.4em;
+    /* content-visibility: visible;
+    contain-intrinsic-size: auto 2.4em; */
 }
 
 .youtnote-plugin__transcript-card:hover {
     background-color: var(--background-modifier-hover);
 }
 
-.is-mobile .youtnote-plugin__transcript-card {
+/* .is-mobile .youtnote-plugin__transcript-card {
     content-visibility: visible;
-}
+} */
 
 .youtnote-plugin__transcript-timestamp {
     font-family: var(--font-monospace);
