@@ -364,6 +364,96 @@ describe('rememberPlaybackPosition setting', () => {
     });
 });
 
+describe('autoplayOnVideoSelect setting', () => {
+    const stubFragment = () => {
+        vi.stubGlobal('createFragment', (callback: (frag: {
+            appendText(text: string): void;
+            createEl(tag: string): unknown;
+        }) => void) => {
+            callback({ appendText: vi.fn(), createEl: () => ({}) });
+            return {};
+        });
+    };
+
+    it('defaults to false when missing and only enables on literal true', () => {
+        expect(mergePluginSettings(undefined).autoplayOnVideoSelect).toBe(false);
+        expect(mergePluginSettings({}).autoplayOnVideoSelect).toBe(false);
+        expect(mergePluginSettings({ autoplayOnVideoSelect: false }).autoplayOnVideoSelect).toBe(false);
+        expect(mergePluginSettings({ autoplayOnVideoSelect: true }).autoplayOnVideoSelect).toBe(true);
+        for (const invalid of ['yes', 1, {}, [], null]) {
+            expect(mergePluginSettings({ autoplayOnVideoSelect: invalid }).autoplayOnVideoSelect).toBe(false);
+        }
+    });
+
+    it('places the four autoplay/remember toggles first in the Behavior group', () => {
+        stubFragment();
+        try {
+            const plugin = { settings: mergePluginSettings({}) };
+            const tab = new YoutnoteSettingTab({} as never, plugin as never);
+            const firstGroup = tab.getSettingDefinitions()[0];
+            const keys = firstGroup.items.map(item => ('control' in item ? item.control.key : null));
+            expect(keys.slice(0, 4)).toEqual([
+                'autoplayOnNoteSelect',
+                'autoplayOnVideoSelect',
+                'autoplayOnCaptionSelect',
+                'rememberPlaybackPosition',
+            ]);
+        } finally {
+            vi.unstubAllGlobals();
+        }
+    });
+
+    it('setControlValue toggles the stored value and persists once', async () => {
+        const saveDataState = vi.fn(() => Promise.resolve());
+        const refreshAllViews = vi.fn();
+        const plugin = {
+            settings: mergePluginSettings({ autoplayOnVideoSelect: false }),
+            saveDataState,
+            refreshAllViews,
+        };
+        const tab = new YoutnoteSettingTab({} as never, plugin as never);
+        expect(tab.getControlValue('autoplayOnVideoSelect')).toBe(false);
+        await tab.setControlValue('autoplayOnVideoSelect', true);
+        expect(plugin.settings.autoplayOnVideoSelect).toBe(true);
+        expect(tab.getControlValue('autoplayOnVideoSelect')).toBe(true);
+        expect(saveDataState).toHaveBeenCalledTimes(1);
+        expect(refreshAllViews).toHaveBeenCalledTimes(1);
+    });
+
+    it('legacy display() renders a toggle bound to the same settings key', async () => {
+        stubFragment();
+        try {
+            settingRecords.length = 0;
+            const saveDataState = vi.fn(() => Promise.resolve());
+            const refreshAllViews = vi.fn();
+            const plugin = {
+                settings: mergePluginSettings({ autoplayOnVideoSelect: true }),
+                saveDataState,
+                refreshAllViews,
+            };
+            const tab = new YoutnoteSettingTab({} as never, plugin as never);
+            tab.display();
+
+            const toggleOrderInFirstGroup = tab.getSettingDefinitions()[0].items
+                .flatMap(item => ('control' in item && item.control.type === 'toggle'
+                    ? [item.control.key]
+                    : []));
+            const ordinal = toggleOrderInFirstGroup.indexOf('autoplayOnVideoSelect');
+            expect(ordinal).toBeGreaterThanOrEqual(0);
+
+            const toggles = settingRecords.filter(record => record.toggle !== undefined);
+            const target = toggles[ordinal].toggle!;
+            expect(target.value).toBe(true);
+            await target.onChange!(false);
+            expect(plugin.settings.autoplayOnVideoSelect).toBe(false);
+            expect(saveDataState).toHaveBeenCalledTimes(1);
+            expect(refreshAllViews).toHaveBeenCalledTimes(1);
+        } finally {
+            vi.unstubAllGlobals();
+        }
+    });
+});
+
 describe('refreshAIModelList', () => {
     const makeAI = (mutate?: (ai: AISettings) => void): AISettings => {
         const ai: AISettings = {

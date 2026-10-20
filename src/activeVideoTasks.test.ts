@@ -296,6 +296,7 @@ describe('YoutnotePlugin AI task workflow', () => {
         plugin.settings = {
             pinOnPhone: false,
             autoplayOnNoteSelect: false,
+            autoplayOnVideoSelect: false,
             autoplayOnCaptionSelect: false,
             singleExpandMode: true,
             persistExpandedState: false,

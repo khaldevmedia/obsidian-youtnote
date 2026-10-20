@@ -9,6 +9,7 @@ import { URI_SCHEME_GUIDE_URL } from "./constants";
 
 export const DEFAULT_SETTINGS: PluginSettings = {
 	autoplayOnNoteSelect: false,
+	autoplayOnVideoSelect: false,
 	autoplayOnCaptionSelect: false,
 	singleExpandMode: true,
 	newLineTrigger: 'shift+enter',
@@ -90,6 +91,7 @@ export function mergePluginSettings(raw: unknown): PluginSettings {
 	merged.autoplayOnCaptionSelect = typeof source.autoplayOnCaptionSelect === 'boolean'
 		? source.autoplayOnCaptionSelect
 		: source.autoplayOnNoteSelect === true;
+	merged.autoplayOnVideoSelect = source.autoplayOnVideoSelect === true;
 	merged.rememberPlaybackPosition = source.rememberPlaybackPosition === true;
 	merged.ai = mergeAISettings(source.ai);
 	return merged;
@@ -148,7 +150,7 @@ export async function refreshAIModelList(
 
 type ToggleKey = keyof Pick<
 	PluginSettings,
-	'pinOnPhone' | 'autoplayOnNoteSelect' | 'autoplayOnCaptionSelect' | 'singleExpandMode' | 'persistExpandedState' | 'openExportedFile' | 'showNoteStats' | 'autoScrollTranscript' | 'switchToNotesAfterTranscriptNote' | 'rememberPlaybackPosition' | 'uriSchemeEnabled'
+	'pinOnPhone' | 'autoplayOnNoteSelect' | 'autoplayOnVideoSelect' | 'autoplayOnCaptionSelect' | 'singleExpandMode' | 'persistExpandedState' | 'openExportedFile' | 'showNoteStats' | 'autoScrollTranscript' | 'switchToNotesAfterTranscriptNote' | 'rememberPlaybackPosition' | 'uriSchemeEnabled'
 >;
 
 type Desc = string | (() => string | DocumentFragment);
@@ -213,9 +215,21 @@ const SETTING_DEFINITIONS: SettingGroupDef[] = [
 			},
 			{
 				kind: 'toggle',
+				name: 'Autoplay on video select',
+				desc: 'Automatically play the video when selecting it from the video list. Adding a video does not start playback.',
+				key: 'autoplayOnVideoSelect',
+			},
+			{
+				kind: 'toggle',
 				name: 'Autoplay on caption select',
 				desc: 'Automatically play the video when clicking on a transcript caption timestamp.',
 				key: 'autoplayOnCaptionSelect',
+			},
+			{
+				kind: 'toggle',
+				name: 'Remember playback position',
+				desc: 'Remember each video’s playback position when switching videos in open file.',
+				key: 'rememberPlaybackPosition',
 			},
 			{
 				kind: 'toggle',
@@ -262,12 +276,6 @@ const SETTING_DEFINITIONS: SettingGroupDef[] = [
 				name: 'Switch to notes after creating a note from transcript',
 				desc: 'When creating a note from a transcript timestamp, go back to the note list and select the new note. When off, the note is added without leaving the transcript view.',
 				key: 'switchToNotesAfterTranscriptNote',
-			},
-			{
-				kind: 'toggle',
-				name: 'Remember playback position',
-				desc: 'Remember each video’s playback position when switching videos in open file.',
-				key: 'rememberPlaybackPosition',
 			},
 			{
 				kind: 'toggle',

@@ -93,6 +93,7 @@ export interface AISettings {
 export interface PluginSettings {
 	pinOnPhone: boolean;
 	autoplayOnNoteSelect: boolean;
+	autoplayOnVideoSelect: boolean;
 	autoplayOnCaptionSelect: boolean;
 	singleExpandMode: boolean;
 	persistExpandedState: boolean;
@@ -236,6 +237,14 @@ export interface AIGenerationDialogOptions {
     mode: AINoteSaveMode;
 }
 
+export type VideoSelectionSource = 'manual' | 'automatic';
+
+export interface VideoSelectionRequest {
+    id: VideoId | null;
+    source: VideoSelectionSource;
+    sequence: number;
+}
+
 export interface YoutubePluginViewProps {
     app: App;
     view: YoutnoteViewContext;
@@ -244,7 +253,8 @@ export interface YoutubePluginViewProps {
     notes: Note[];
     activeVideoId: VideoId | null;
     videoTaskState: VideoTaskState;
-    setActiveVideoId: (id: VideoId | null) => void;
+    videoSelectionRequest: VideoSelectionRequest | null;
+    setActiveVideoId: (id: VideoId | null, source?: VideoSelectionSource) => void;
     onUpdateVideos: (videos: Video[]) => void;
     onUpdateNotes: (notes: Note[]) => void;
     onExportSingleVideo: (videoId: VideoId) => Promise<void>;

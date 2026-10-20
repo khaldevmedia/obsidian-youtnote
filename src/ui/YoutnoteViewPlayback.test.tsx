@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { PlaybackPositionMemory } from '../playback';
-import type { Note, PluginSettings, Video, VideoId } from '../types';
+import type { Note, PluginSettings, Video, VideoId, VideoSelectionRequest, VideoSelectionSource } from '../types';
 
 interface EffectSlot {
     cb: () => void | (() => void);
@@ -88,13 +88,23 @@ vi.mock('./TranscriptListItem', () => ({ TranscriptListItem: () => null }));
 vi.mock('../ai/registry', () => ({ getAINoteGenerationSetupError: () => null }));
 vi.mock('../notices', () => ({ showYoutnoteNotice: vi.fn() }));
 
-vi.mock('./MessageBoxes', () => ({
-    AlertModal: class { open() {} },
-    ConfirmModal: class { open() {} },
-    AIGenerationModal: class {},
-    MISSING_AI_API_KEY_MESSAGE: 'missing-key',
-    showAISetupModal: vi.fn(),
-}));
+vi.mock('./MessageBoxes', () => {
+    class FakeAlertModal {
+        static opens = 0;
+        open() { FakeAlertModal.opens++; }
+    }
+    return {
+        AlertModal: FakeAlertModal,
+        ConfirmModal: class { open() {} },
+        AIGenerationModal: class {},
+        MISSING_AI_API_KEY_MESSAGE: 'missing-key',
+        showAISetupModal: vi.fn(),
+    };
+});
+
+const { AlertModal: MockAlertModal } = await import('./MessageBoxes') as unknown as {
+    AlertModal: { opens: number };
+};
 
 class FakeAdapter {
     static instances: FakeAdapter[] = [];
@@ -193,6 +203,7 @@ function makeSettings(overrides: Partial<PluginSettings> = {}): PluginSettings {
     return {
         pinOnPhone: false,
         autoplayOnNoteSelect: false,
+        autoplayOnVideoSelect: false,
         autoplayOnCaptionSelect: false,
         singleExpandMode: true,
         persistExpandedState: false,
@@ -233,6 +244,7 @@ function makeProps(overrides: {
     videos?: Video[];
     activeVideoId?: VideoId | null;
     settings?: PluginSettings;
+    readOnly?: boolean;
 } = {}): ViewProps {
     const videos = overrides.videos ?? [makeVideo(VID_A, YT_A), makeVideo(VID_B, YT_B)];
     return {
@@ -243,6 +255,7 @@ function makeProps(overrides: {
         app: { loadLocalStorage: () => null },
         view: { getMutationGuard: () => () => true, videos, notes: [] },
         videoTaskState: { transcriptPhase: null, aiPhase: null },
+        videoSelectionRequest: null,
         setActiveVideoId: vi.fn(),
         onUpdateVideos: vi.fn(),
         onUpdateNotes: vi.fn(),
@@ -252,7 +265,7 @@ function makeProps(overrides: {
         onGenerateAINotes: vi.fn(),
         onCancelVideoTasks: vi.fn(),
         onOpenAISettings: vi.fn(),
-        readOnly: false,
+        readOnly: overrides.readOnly ?? false,
         canConvert: false,
         conversionPending: false,
         onRequestConversion: vi.fn(),
@@ -317,10 +330,24 @@ interface Mounted {
     memory(): PlaybackPositionMemory;
 }
 
+let lastTree: unknown = null;
+
+function walkVNodes(node: unknown, visit: (vnode: VNodeLike) => void) {
+    if (Array.isArray(node)) {
+        for (const child of node) walkVNodes(child, visit);
+        return;
+    }
+    if (!node || typeof node !== 'object') return;
+    const vnode = node as VNodeLike;
+    visit(vnode);
+    const children = vnode.props?.children;
+    if (children !== undefined) walkVNodes(children, visit);
+}
+
 function mount(props: ViewProps): Mounted {
     resetCursors();
-    const tree = (YoutubePluginView as unknown as (p: unknown) => unknown)(props);
-    const iframeRef = findIframeRef(tree);
+    lastTree = (YoutubePluginView as unknown as (p: unknown) => unknown)(props);
+    const iframeRef = findIframeRef(lastTree);
     if (iframeRef) iframeRef.current = { fakeIframe: true };
     runEffects();
     const mounted: Mounted = {
@@ -329,7 +356,7 @@ function mount(props: ViewProps): Mounted {
             Object.assign(props, overrides);
             props.view.videos = props.videos;
             resetCursors();
-            (YoutubePluginView as unknown as (p: unknown) => unknown)(props);
+            lastTree = (YoutubePluginView as unknown as (p: unknown) => unknown)(props);
             runEffects();
         },
         unmount() {
@@ -369,6 +396,7 @@ beforeEach(() => {
     hooks().values.length = 0;
     hooks().refs.length = 0;
     hooks().effects.length = 0;
+    MockAlertModal.opens = 0;
     vi.stubGlobal('window', {
         setTimeout: vi.fn(() => 0),
         clearTimeout: vi.fn(),
@@ -725,5 +753,449 @@ describe('remember playback position - lifecycle', () => {
         expect(adapter.seekAndPause).not.toHaveBeenCalled();
         expect(adapter.listeners.size).toBe(0);
         expect(mounted.props.onUpdateVideos).not.toHaveBeenCalled();
+    });
+});
+
+const { VideoListItem: MockVideoListItem } = await import('./VideoListItem') as unknown as {
+    VideoListItem: unknown;
+};
+
+let selectionSeq = 0;
+
+function applySelection(mounted: Mounted, id: VideoId | null, source: VideoSelectionSource = 'automatic'): VideoSelectionRequest {
+    const request: VideoSelectionRequest = { id, source, sequence: ++selectionSeq };
+    mounted.rerender({ activeVideoId: id, videoSelectionRequest: request });
+    return request;
+}
+
+function videoListItemProps(id: VideoId): Record<string, unknown> | null {
+    let found: Record<string, unknown> | null = null;
+    walkVNodes(lastTree, vnode => {
+        if (found || vnode.type !== MockVideoListItem || !vnode.props) return;
+        const video = vnode.props.video as { id: VideoId } | undefined;
+        if (video?.id === id) found = vnode.props;
+    });
+    return found;
+}
+
+function selectFromList(mounted: Mounted, id: VideoId) {
+    const item = videoListItemProps(id);
+    expect(item).not.toBeNull();
+    const onSelect = item!.onSelect as (id: VideoId) => void;
+    onSelect(id);
+    const spy = mounted.props.setActiveVideoId as ReturnType<typeof vi.fn>;
+    const lastCall = spy.mock.calls[spy.mock.calls.length - 1] as [VideoId, VideoSelectionSource?] | undefined;
+    expect(lastCall).toBeDefined();
+    applySelection(mounted, lastCall![0], lastCall![1] ?? 'automatic');
+}
+
+describe('autoplay on video select', () => {
+    const AUTOPLAY_ON = () => makeSettings({ autoplayOnVideoSelect: true });
+
+    it('does not play on a manual selection when the setting is off', async () => {
+        const { mounted, adapter } = await mountWithAdapterLoaded(makeSettings());
+        selectFromList(mounted, VID_B);
+        await tick();
+        adapter.resolveLoad(YT_B);
+        await tick();
+        expect(mounted.props.setActiveVideoId).toHaveBeenCalledWith(VID_B, 'manual');
+        expect(adapter.play).not.toHaveBeenCalled();
+        mounted.unmount();
+    });
+
+    it('plays after a manual video-list selection when enabled', async () => {
+        const { mounted, adapter } = await mountWithAdapterLoaded(AUTOPLAY_ON());
+        expect(adapter.play).not.toHaveBeenCalled();
+        selectFromList(mounted, VID_B);
+        await tick();
+        adapter.resolveLoad(YT_B);
+        await tick();
+        expect(adapter.play).toHaveBeenCalledTimes(1);
+        mounted.unmount();
+    });
+
+    it('restores the remembered position before playing', async () => {
+        const { mounted, adapter } = await mountWithAdapterLoaded(AUTOPLAY_ON());
+        adapter.emitTime(120);
+        await switchTo(mounted, VID_B);
+        adapter.resolveLoad(YT_B);
+        await tick();
+        adapter.emitTime(45);
+        let finishRestore: (() => void) | undefined;
+        adapter.seekAndPause.mockImplementationOnce(async (time: number) => {
+            await new Promise<void>(resolve => { finishRestore = resolve; });
+            adapter.currentTime = time;
+            adapter.playerState = 2;
+        });
+        selectFromList(mounted, VID_A);
+        await tick();
+        adapter.resolveLoad(YT_A);
+        await tick();
+        expect(adapter.seekAndPause).toHaveBeenCalledWith(120, expect.any(Function));
+        expect(finishRestore).toBeDefined();
+        expect(adapter.play).not.toHaveBeenCalled();
+        finishRestore!();
+        await tick();
+        expect(adapter.play).toHaveBeenCalledTimes(1);
+        mounted.unmount();
+    });
+
+    it('never plays for automatic selections including added and URI-targeted videos', async () => {
+        const { mounted, adapter } = await mountWithAdapterLoaded(AUTOPLAY_ON());
+        applySelection(mounted, VID_B, 'automatic');
+        await tick();
+        adapter.resolveLoad(YT_B);
+        await tick();
+        expect(adapter.play).not.toHaveBeenCalled();
+        const videos = [...mounted.props.videos, makeVideo(VID_C, YT_C)];
+        mounted.rerender({ videos });
+        applySelection(mounted, VID_C, 'automatic');
+        await tick();
+        adapter.resolveLoad(YT_C);
+        await tick();
+        expect(adapter.play).not.toHaveBeenCalled();
+        mounted.unmount();
+    });
+
+    it('does not play on the initial automatic selection', async () => {
+        const { mounted, adapter } = await mountWithAdapterLoaded(AUTOPLAY_ON());
+        expect(adapter.play).not.toHaveBeenCalled();
+        mounted.unmount();
+    });
+
+    it('does not play for the automatic fallback after deletion', async () => {
+        const { mounted, adapter } = await mountWithAdapterLoaded(AUTOPLAY_ON());
+        mounted.rerender({ videos: [makeVideo(VID_B, YT_B)] });
+        applySelection(mounted, VID_B, 'automatic');
+        await tick();
+        adapter.resolveLoad(YT_B);
+        await tick();
+        expect(adapter.play).not.toHaveBeenCalled();
+        mounted.unmount();
+    });
+
+    it('re-selecting the already active video does not call the setter or play', async () => {
+        const { mounted, adapter } = await mountWithAdapterLoaded(AUTOPLAY_ON());
+        const item = videoListItemProps(VID_A);
+        expect(item).not.toBeNull();
+        (item!.onSelect as (id: VideoId) => void)(VID_A);
+        await tick();
+        expect(mounted.props.setActiveVideoId).not.toHaveBeenCalled();
+        expect(adapter.play).not.toHaveBeenCalled();
+        mounted.unmount();
+    });
+
+    it('a later automatic selection cancels a pending manual autoplay', async () => {
+        const { mounted, adapter } = await mountWithAdapterLoaded(AUTOPLAY_ON(), [
+            makeVideo(VID_A, YT_A),
+            makeVideo(VID_B, YT_B),
+            makeVideo(VID_C, YT_C),
+        ]);
+        applySelection(mounted, VID_B, 'manual');
+        await tick();
+        applySelection(mounted, VID_C, 'automatic');
+        await tick();
+        expect(adapter.destroyed).toBe(true);
+        const adapter2 = lastAdapter();
+        expect(adapter2).not.toBe(adapter);
+        adapter2.simulateReady();
+        await tick();
+        adapter2.resolveLoad(YT_C);
+        await tick();
+        expect(adapter2.play).not.toHaveBeenCalled();
+        adapter.resolveLoad(YT_B);
+        await tick();
+        expect(adapter.play).not.toHaveBeenCalled();
+        mounted.unmount();
+    });
+
+    it('an automatic request for the same video cancels a pending manual autoplay', async () => {
+        const { mounted, adapter } = await mountWithAdapterLoaded(AUTOPLAY_ON());
+        applySelection(mounted, VID_B, 'manual');
+        await tick();
+        applySelection(mounted, VID_B, 'automatic');
+        await tick();
+        adapter.resolveLoad(YT_B);
+        await tick();
+        expect(adapter.play).not.toHaveBeenCalled();
+        mounted.unmount();
+    });
+
+    it('disabling the setting during a pending load cancels autoplay even when re-enabled', async () => {
+        const { mounted, adapter } = await mountWithAdapterLoaded(AUTOPLAY_ON());
+        applySelection(mounted, VID_B, 'manual');
+        await tick();
+        mounted.rerender({ settings: { ...mounted.props.settings, autoplayOnVideoSelect: false } });
+        mounted.rerender({ settings: { ...mounted.props.settings, autoplayOnVideoSelect: true } });
+        await tick();
+        adapter.resolveLoad(YT_B);
+        await tick();
+        expect(adapter.play).not.toHaveBeenCalled();
+        mounted.unmount();
+    });
+
+    it('enabling the setting after an automatic selection does not autoplay', async () => {
+        const { mounted, adapter } = await mountWithAdapterLoaded(makeSettings());
+        applySelection(mounted, VID_B, 'automatic');
+        await tick();
+        mounted.rerender({ settings: { ...mounted.props.settings, autoplayOnVideoSelect: true } });
+        await tick();
+        adapter.resolveLoad(YT_B);
+        await tick();
+        expect(adapter.play).not.toHaveBeenCalled();
+        mounted.unmount();
+    });
+
+    it('plays on the fresh not-ready adapter path after ready and load', async () => {
+        const mounted = mount(makeProps({ settings: AUTOPLAY_ON() }));
+        const adapter1 = lastAdapter();
+        applySelection(mounted, VID_B, 'manual');
+        await tick();
+        expect(adapter1.destroyed).toBe(true);
+        const adapter2 = lastAdapter();
+        expect(adapter2).not.toBe(adapter1);
+        adapter2.simulateReady();
+        await tick();
+        adapter2.resolveLoad(YT_B);
+        await tick();
+        expect(adapter2.play).toHaveBeenCalledTimes(1);
+        mounted.unmount();
+    });
+
+    it('a pending manual selection resolved after unmount does not play', async () => {
+        const { mounted, adapter } = await mountWithAdapterLoaded(AUTOPLAY_ON());
+        applySelection(mounted, VID_B, 'manual');
+        await tick();
+        mounted.unmount();
+        adapter.resolveLoad(YT_B);
+        await tick();
+        expect(adapter.play).not.toHaveBeenCalled();
+    });
+});
+
+function findByClass(node: unknown, marker: string): VNodeLike | null {
+    let found: VNodeLike | null = null;
+    walkVNodes(node, vnode => {
+        if (found) return;
+        const cls = vnode.props?.className;
+        if (typeof cls === 'string' && cls.includes(marker)) found = vnode;
+    });
+    return found;
+}
+
+function fireHandler(vnode: VNodeLike | null | undefined, name: string, event: unknown = {}) {
+    const handler = vnode?.props?.[name] as ((e: unknown) => void) | undefined;
+    handler?.(event);
+}
+
+describe('autoplay on video select - failure and setting edge cases', () => {
+    const AUTOPLAY_ON = () => makeSettings({ autoplayOnVideoSelect: true });
+
+    it('an embedding rejection alerts without duration mutation or autoplay', async () => {
+        const { mounted, adapter } = await mountWithAdapterLoaded(AUTOPLAY_ON());
+        adapter.duration = 900;
+        applySelection(mounted, VID_B, 'manual');
+        await tick();
+        adapter.rejectLoad(YT_B, new Error('150'));
+        await tick();
+        expect(MockAlertModal.opens).toBe(1);
+        expect(mounted.props.onUpdateVideos).not.toHaveBeenCalled();
+        expect(adapter.play).not.toHaveBeenCalled();
+        mounted.unmount();
+    });
+
+    it('a non-embedding load rejection reaches the error handler', async () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const { mounted, adapter } = await mountWithAdapterLoaded(AUTOPLAY_ON());
+        const failure = new Error('5');
+        applySelection(mounted, VID_B, 'manual');
+        await tick();
+        adapter.rejectLoad(YT_B, failure);
+        await tick();
+        expect(MockAlertModal.opens).toBe(0);
+        expect(adapter.play).not.toHaveBeenCalled();
+        expect(mounted.props.onUpdateVideos).not.toHaveBeenCalled();
+        expect(warn.mock.calls.some(call => call.includes(failure))).toBe(true);
+        warn.mockRestore();
+        mounted.unmount();
+    });
+
+    it('a rejected seekAndPause reaches the error handler instead of an unhandled rejection', async () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const { mounted, adapter } = await mountWithAdapterLoaded(AUTOPLAY_ON());
+        adapter.emitTime(120);
+        await switchTo(mounted, VID_B);
+        adapter.resolveLoad(YT_B);
+        await tick();
+        const failure = new Error('5');
+        adapter.seekAndPause.mockImplementationOnce(() => Promise.reject(failure));
+        applySelection(mounted, VID_A, 'manual');
+        await tick();
+        adapter.resolveLoad(YT_A);
+        await tick();
+        expect(adapter.play).not.toHaveBeenCalled();
+        expect(warn.mock.calls.some(call => call.includes(failure))).toBe(true);
+        warn.mockRestore();
+        mounted.unmount();
+    });
+
+    it('a rejected play reaches the error handler instead of an unhandled rejection', async () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const { mounted, adapter } = await mountWithAdapterLoaded(AUTOPLAY_ON());
+        const failure = new Error('5');
+        adapter.play.mockImplementationOnce(() => Promise.reject(failure));
+        applySelection(mounted, VID_B, 'manual');
+        await tick();
+        adapter.resolveLoad(YT_B);
+        await tick();
+        expect(adapter.play).toHaveBeenCalledTimes(1);
+        expect(warn.mock.calls.some(call => call.includes(failure))).toBe(true);
+        warn.mockRestore();
+        mounted.unmount();
+    });
+
+    it('a stale load completion writes no duration to the superseded video', async () => {
+        const { mounted, adapter } = await mountWithAdapterLoaded(AUTOPLAY_ON(), [
+            { id: VID_A, url: `https://www.youtube.com/watch?v=${YT_A}`, durationSec: 600 },
+            { id: VID_B, url: `https://www.youtube.com/watch?v=${YT_B}`, durationSec: 600 },
+            makeVideo(VID_C, YT_C),
+        ]);
+        adapter.duration = 900;
+        applySelection(mounted, VID_B, 'manual');
+        await tick();
+        mounted.rerender({ activeVideoId: VID_C });
+        await tick();
+        adapter.resolveLoad(YT_B);
+        await tick();
+        expect(mounted.props.onUpdateVideos).not.toHaveBeenCalled();
+        mounted.unmount();
+    });
+
+    it('manual selection while off then enabling mid-load does not play', async () => {
+        const { mounted, adapter } = await mountWithAdapterLoaded(makeSettings());
+        applySelection(mounted, VID_B, 'manual');
+        await tick();
+        mounted.rerender({ settings: { ...mounted.props.settings, autoplayOnVideoSelect: true } });
+        await tick();
+        adapter.resolveLoad(YT_B);
+        await tick();
+        expect(adapter.play).not.toHaveBeenCalled();
+        mounted.unmount();
+    });
+
+    it('disable and re-enable during a pending remembered seek cancels autoplay', async () => {
+        const { mounted, adapter } = await mountWithAdapterLoaded(AUTOPLAY_ON());
+        adapter.emitTime(120);
+        await switchTo(mounted, VID_B);
+        adapter.resolveLoad(YT_B);
+        await tick();
+        let finishRestore: (() => void) | undefined;
+        adapter.seekAndPause.mockImplementationOnce(async (time: number) => {
+            await new Promise<void>(resolve => { finishRestore = resolve; });
+            adapter.currentTime = time;
+            adapter.playerState = 2;
+        });
+        applySelection(mounted, VID_A, 'manual');
+        await tick();
+        adapter.resolveLoad(YT_A);
+        await tick();
+        expect(adapter.seekAndPause).toHaveBeenCalledWith(120, expect.any(Function));
+        mounted.rerender({ settings: { ...mounted.props.settings, autoplayOnVideoSelect: false } });
+        mounted.rerender({ settings: { ...mounted.props.settings, autoplayOnVideoSelect: true } });
+        await tick();
+        finishRestore!();
+        await tick();
+        expect(adapter.play).not.toHaveBeenCalled();
+        mounted.unmount();
+    });
+
+    it('manual selection autoplays in read-only viewing mode', async () => {
+        const mounted = mount(makeProps({ settings: AUTOPLAY_ON(), readOnly: true }));
+        expect(mounted.props.readOnly).toBe(true);
+        const adapter = lastAdapter();
+        adapter.simulateReady();
+        await tick();
+        adapter.resolveLoad(adapter.videoId);
+        await tick();
+        selectFromList(mounted, VID_B);
+        await tick();
+        adapter.resolveLoad(YT_B);
+        await tick();
+        expect(adapter.play).toHaveBeenCalledTimes(1);
+        mounted.unmount();
+    });
+
+    it('manual selection with memory disabled plays without any restore seek', async () => {
+        const { mounted, adapter } = await mountWithAdapterLoaded(
+            makeSettings({ autoplayOnVideoSelect: true, rememberPlaybackPosition: false }),
+        );
+        selectFromList(mounted, VID_B);
+        await tick();
+        adapter.resolveLoad(YT_B);
+        await tick();
+        expect(adapter.seekAndPause).not.toHaveBeenCalled();
+        expect(adapter.play).toHaveBeenCalledTimes(1);
+        mounted.unmount();
+    });
+});
+
+describe('video additions select automatically, never manually', () => {
+    it('the add-video form calls the setter with only the id', async () => {
+        const { requestUrl } = await import('obsidian');
+        vi.mocked(requestUrl).mockResolvedValue({
+            status: 200,
+            json: { title: 'new vid', thumbnail_url: '' },
+        } as never);
+        const { mounted, adapter } = await mountWithAdapterLoaded(
+            makeSettings({ autoplayOnVideoSelect: true }),
+        );
+        const input = findByClass(lastTree, 'youtnote-plugin__add-video-input');
+        fireHandler(input, 'oninput', { target: { value: `https://www.youtube.com/watch?v=${YT_C}` } });
+        fireHandler(input, 'onInput', { target: { value: `https://www.youtube.com/watch?v=${YT_C}` } });
+        fireHandler(input, 'onChange', { target: { value: `https://www.youtube.com/watch?v=${YT_C}` } });
+        mounted.rerender({});
+        const form = findByClass(lastTree, 'youtnote-plugin__add-video-form');
+        fireHandler(form, 'onSubmit', { preventDefault: () => {} });
+        await tick(20);
+        mounted.rerender({});
+        const spy = mounted.props.setActiveVideoId as ReturnType<typeof vi.fn>;
+        const addCall = spy.mock.calls[spy.mock.calls.length - 1] as [VideoId] | undefined;
+        expect(addCall).toBeDefined();
+        expect(addCall).toHaveLength(1);
+        const updatedVideos = (mounted.props.onUpdateVideos as ReturnType<typeof vi.fn>).mock
+            .calls[0][0] as Video[];
+        const newVideo = updatedVideos.find(v => v.id === addCall![0]);
+        expect(newVideo).toBeDefined();
+        const videos = [...mounted.props.videos, newVideo!];
+        mounted.rerender({ videos });
+        applySelection(mounted, addCall![0], 'automatic');
+        await tick();
+        adapter.resolveLoad(YT_C);
+        await tick();
+        expect(adapter.play).not.toHaveBeenCalled();
+        mounted.unmount();
+    });
+
+    it('the duplicate-add path schedules an automatic selection', async () => {
+        const { mounted, adapter } = await mountWithAdapterLoaded(
+            makeSettings({ autoplayOnVideoSelect: true }),
+        );
+        const input = findByClass(lastTree, 'youtnote-plugin__add-video-input');
+        fireHandler(input, 'oninput', { target: { value: `https://www.youtube.com/watch?v=${YT_A}` } });
+        fireHandler(input, 'onInput', { target: { value: `https://www.youtube.com/watch?v=${YT_A}` } });
+        fireHandler(input, 'onChange', { target: { value: `https://www.youtube.com/watch?v=${YT_A}` } });
+        mounted.rerender({});
+        const form = findByClass(lastTree, 'youtnote-plugin__add-video-form');
+        fireHandler(form, 'onSubmit', { preventDefault: () => {} });
+        await tick(20);
+        const timerCalls = (window.setTimeout as unknown as ReturnType<typeof vi.fn>).mock.calls;
+        const selectTimer = timerCalls.find(call => call[1] === 100);
+        expect(selectTimer).toBeDefined();
+        (selectTimer![0] as () => void)();
+        const spy = mounted.props.setActiveVideoId as ReturnType<typeof vi.fn>;
+        const selectCall = spy.mock.calls[spy.mock.calls.length - 1];
+        expect(selectCall).toEqual([VID_A]);
+        expect(adapter.play).not.toHaveBeenCalled();
+        mounted.unmount();
     });
 });

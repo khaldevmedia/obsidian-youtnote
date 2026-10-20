@@ -2793,3 +2793,30 @@ describe('YoutnoteView read-only preview identity after dismissing the popup', (
         expect(vault.modify).not.toHaveBeenCalled();
     });
 });
+
+describe('video selection provenance', () => {
+    it('records an automatic request by default and a manual request when sourced', () => {
+        const { view } = makeFixture();
+        view.handleSetActiveVideoId('video-1' as VideoId);
+        expect(view.videoSelectionRequest).toEqual({ id: 'video-1', source: 'automatic', sequence: 1 });
+        expect(view.activeVideoId).toBe('video-1');
+
+        view.handleSetActiveVideoId('video-2' as VideoId, 'manual');
+        expect(view.videoSelectionRequest).toEqual({ id: 'video-2', source: 'manual', sequence: 2 });
+        expect(view.activeVideoId).toBe('video-2');
+    });
+
+    it('records a new request on every call, even for the same id', () => {
+        const { view } = makeFixture();
+        view.handleSetActiveVideoId('video-1' as VideoId, 'manual');
+        view.handleSetActiveVideoId('video-1' as VideoId);
+        expect(view.videoSelectionRequest).toEqual({ id: 'video-1', source: 'automatic', sequence: 2 });
+    });
+
+    it('clears the recorded request when the view is cleared', () => {
+        const { view } = makeFixture();
+        view.handleSetActiveVideoId('video-1' as VideoId, 'manual');
+        view.clear();
+        expect(view.videoSelectionRequest).toBeNull();
+    });
+});

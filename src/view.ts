@@ -5,6 +5,7 @@ import { YoutubePluginView } from './ui/YoutnoteView';
 import { AlertModal, ExportOptionsModal, promptLegacyConversionDecision } from './ui/MessageBoxes';
 import type { LegacyConversionDecision } from './ui/MessageBoxes';
 import { Video, Note, VideoId, ExportOptions } from './types';
+import type { VideoSelectionRequest, VideoSelectionSource } from './types';
 import type { AIGenerationDialogOptions } from './types';
 import {
     CURRENT_FORMAT_VERSION,
@@ -64,6 +65,8 @@ export class YoutnoteView extends TextFileView {
     videos: Video[] = [];
     notes: Note[] = [];
     activeVideoId: VideoId | null = null;
+    videoSelectionRequest: VideoSelectionRequest | null = null;
+    private selectionSequence = 0;
     private document: YoutnoteDocument | null = null;
     private writeMode: YoutnoteWriteMode = 'blocked';
     private latestSource = '';
@@ -119,6 +122,7 @@ export class YoutnoteView extends TextFileView {
         this.writeMode = 'blocked';
         this.loadedFile = null;
         this.file = file;
+        this.videoSelectionRequest = null;
 
         if (!(await this.plugin.isYoutnoteFile(file))) {
             // Not a Youtnote, switch this leaf back to the regular markdown view
@@ -275,6 +279,7 @@ export class YoutnoteView extends TextFileView {
         if (!this.activeVideoId && this.videos.length > 0) {
             this.activeVideoId = this.videos[0].id;
         }
+        this.videoSelectionRequest = null;
         this.render();
     }
 
@@ -591,6 +596,7 @@ export class YoutnoteView extends TextFileView {
         if (!this.activeVideoId && this.videos.length > 0) {
             this.activeVideoId = this.videos[0].id;
         }
+        this.videoSelectionRequest = null;
 
         this.render();
     }
@@ -604,6 +610,7 @@ export class YoutnoteView extends TextFileView {
         this.videos = [];
         this.notes = [];
         this.activeVideoId = null;
+        this.videoSelectionRequest = null;
         this.document = null;
         this.render();
     }
@@ -659,7 +666,8 @@ export class YoutnoteView extends TextFileView {
         this.requestSave();
     };
 
-    handleSetActiveVideoId = (id: VideoId | null) => {
+    handleSetActiveVideoId = (id: VideoId | null, source: VideoSelectionSource = 'automatic') => {
+        this.videoSelectionRequest = { id, source, sequence: ++this.selectionSequence };
         this.activeVideoId = id;
         this.render();
     };
@@ -801,6 +809,7 @@ export class YoutnoteView extends TextFileView {
                 notes: this.notes,
                 activeVideoId: this.activeVideoId,
                 videoTaskState: this.plugin.getVideoTaskState(this.file, activeYoutubeId),
+                videoSelectionRequest: this.videoSelectionRequest,
                 setActiveVideoId: this.handleSetActiveVideoId,
                 onUpdateVideos: this.handleUpdateVideos,
                 onUpdateNotes: this.handleUpdateNotes,

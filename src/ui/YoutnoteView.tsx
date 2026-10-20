@@ -5,6 +5,7 @@ import Sortable, { SortableEvent } from 'sortablejs';
 import { YouTubeIframeAdapter } from '../PlayerAdapter';
 import { PlaybackPositionMemory, seekToSelection } from '../playback';
 import { VideoId, NoteId, Video, Note, TranscriptEntry } from '../types';
+import type { VideoSelectionRequest } from '../types';
 import { VideoListItem } from './VideoListItem';
 import { NoteListItem } from './NoteListItem';
 import { TranscriptListItem } from './TranscriptListItem';
@@ -70,7 +71,8 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
     settings, 
     videos, 
     notes, 
-    activeVideoId, 
+    activeVideoId,
+    videoSelectionRequest,
     setActiveVideoId,
     onUpdateVideos,
     onUpdateNotes,
@@ -158,6 +160,16 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
     const videoLoadRequestRef = useRef(0);
     const playbackMemoryRef = useRef(new PlaybackPositionMemory());
     const loadedPlayerRef = useRef<{ adapter: YouTubeIframeAdapter; ytId: string } | null>(null);
+    const latestSelectionRequestRef = useRef<VideoSelectionRequest | null>(null);
+    latestSelectionRequestRef.current = videoSelectionRequest;
+    const autoplayEnabledRef = useRef(settings.autoplayOnVideoSelect);
+    const autoplayEpochRef = useRef(0);
+    if (autoplayEnabledRef.current !== settings.autoplayOnVideoSelect) {
+        autoplayEnabledRef.current = settings.autoplayOnVideoSelect;
+        if (!settings.autoplayOnVideoSelect) {
+            autoplayEpochRef.current++;
+        }
+    }
 
     // State for new video input
     const [newVideoUrl, setNewVideoUrl] = useState('');
@@ -353,6 +365,14 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
         const memory = playbackMemoryRef.current;
         memory.stopTracking();
 
+        const selectionRequest = latestSelectionRequestRef.current;
+        const autoplayRequest = (
+            selectionRequest !== null
+            && selectionRequest.source === 'manual'
+            && selectionRequest.id === activeVideoId
+            && autoplayEnabledRef.current
+        ) ? { request: selectionRequest, epoch: autoplayEpochRef.current } : null;
+
         const clearPlayerTimeout = () => {
             if (playerTimeoutRef.current) {
                 window.clearTimeout(playerTimeoutRef.current);
@@ -393,6 +413,15 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
             }
             if (!isLatestRequest()) return;
             memory.startTracking(adapter, targetYtId);
+            const shouldAutoplay = autoplayRequest !== null
+                && latestSelectionRequestRef.current === autoplayRequest.request
+                && autoplayEnabledRef.current
+                && autoplayEpochRef.current === autoplayRequest.epoch
+                && playerAdapterRef.current === adapter
+                && adapter.isReady();
+            if (shouldAutoplay) {
+                await adapter.play();
+            }
         };
 
         const currentIframe = iframeRef.current;
@@ -427,7 +456,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
             if (readOnly) return;
             try {
                 const duration = await adapter.getDuration();
-                if (!guard()) return;
+                if (!guard() || !isLatestRequest()) return;
                 // Read from the view's videos (source of truth) instead of videosRef.current
                 // which can be stale if an external caller (e.g. URI scheme) updated videos
                 const latestVideos = view.videos;
@@ -459,8 +488,10 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
             existingAdapter.loadVideo(ytId).then(() => {
                 if (!isLatestRequest()) return;
                 clearPlayerTimeout();
-                void restoreAndTrack(existingAdapter, ytId);
-                void handleDurationUpdate(existingAdapter, currentActiveVideo.id).then(() => {
+                return restoreAndTrack(existingAdapter, ytId);
+            }).then(() => {
+                if (!isLatestRequest()) return;
+                return handleDurationUpdate(existingAdapter, currentActiveVideo.id).then(() => {
                     if (isLatestRequest()) {
                         setIsPlayerReady(true);
                     }
@@ -492,8 +523,10 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
                 adapter.loadVideo(ytId).then(() => {
                     if (!isLatestRequest()) return;
                     clearPlayerTimeout();
-                    void restoreAndTrack(adapter, ytId);
-                    void handleDurationUpdate(adapter, currentActiveVideo.id).then(() => {
+                    return restoreAndTrack(adapter, ytId);
+                }).then(() => {
+                    if (!isLatestRequest()) return;
+                    return handleDurationUpdate(adapter, currentActiveVideo.id).then(() => {
                         if (isLatestRequest()) {
                             setIsPlayerReady(true);
                         }
@@ -582,6 +615,11 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
     const seekToTimestamp = useCallback(async (timestampSec: number, selection: 'note' | 'caption') => {
         await seekToSelection(playerAdapterRef.current, timestampSec, selection, settings);
     }, [settings.autoplayOnNoteSelect, settings.autoplayOnCaptionSelect]);
+
+    const handleVideoSelect = useCallback((id: VideoId) => {
+        if (id === activeVideoId) return;
+        setActiveVideoId(id, 'manual');
+    }, [activeVideoId, setActiveVideoId]);
 
     const handleNoteClick = async (e: React.MouseEvent, noteId: NoteId, timestampSec: number) => {
         // Prevent clicking if we're clicking an action button inside the note
@@ -1402,7 +1440,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
                             video={v}
                             isActive={activeVideoId === v.id}
                             readOnly={readOnly}
-                            onSelect={setActiveVideoId}
+                            onSelect={handleVideoSelect}
                             onDelete={deleteVideo}
                         />
                     ))}
