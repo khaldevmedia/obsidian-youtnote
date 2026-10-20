@@ -1,7 +1,7 @@
 {
     "id": "youtnote",
     "name": "Youtnote",
-    "version": "1.4.0",
+    "version": "2.0.0",
     "minAppVersion": "1.11.4",
     "description": "Take timestamped Markdown notes across multiple embedded YouTube videos, download transcripts, and generate notes by AI.",
     "author": "Khaldevmedia",

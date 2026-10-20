@@ -9,12 +9,12 @@ The versions above refer to the **Youtnote plugin**, not the Obsidian applicatio
 
 ## Why a new format was needed
 
-The legacy format used Markdown links as internal markers for videos and timestamped notes. Youtnote `1.3.0`, the last release to use that format, does not support transcripts or AI-generated notes. The `1.4.0` release introduces those features and format v2, with clearer rules for separating and preserving the new content.
+The legacy format used Markdown links as internal markers for videos and timestamped notes. Youtnote `1.3.0`, the last release to use that format, does not support transcripts or AI-generated notes. The `2.0.0` release introduces those features and format v2, with clearer rules for separating and preserving the new content.
 
 Format v2 improves storage in four ways:
 
 - **Clear boundaries:** the whole plugin-managed body sits inside a `youtnote:file` root wrapper. Each video has its own block, with a `youtnote:source` section holding the title and raw YouTube URL in separate fields, a `youtnote:notes` section with each note in its own marker pair, and an optional `youtnote:transcript` section. The plugin does not have to infer all of that structure from ordinary Markdown links.
-- **A cleaner link graph:** format v2 replaces the legacy timestamp and general-note Markdown-link markers with HTML comments, removing the synthetic links those markers created in Obsidian's Graph view. Transcript captions, introduced in Youtnote `1.4.0` alongside format v2, use HTML-comment markers from the start. Normal links you intentionally add to your notes still appear in Obsidian's Graph view.
+- **A cleaner link graph:** format v2 replaces the legacy timestamp and general-note Markdown-link markers with HTML comments, removing the synthetic links those markers created in Obsidian's Graph view. Transcript captions, introduced in Youtnote `2.0.0` alongside format v2, use HTML-comment markers from the start. Normal links you intentionally add to your notes still appear in Obsidian's Graph view.
 - **Explicit versioning:** the `youtnote-format-version` property identifies the format. The updated plugin refuses unsupported newer versions rather than partially parsing and rewriting them.
 - **Safer future additions:** unrelated frontmatter and unknown file-level or video-level sections are preserved. This allows compatible additions without throwing away content that an older v2 reader does not understand.
 
