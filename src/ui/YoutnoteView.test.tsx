@@ -709,7 +709,7 @@ describe('transcript back-to-top button', () => {
         const [btn] = collectByClass(getTree(), SCROLL_TOP_BTN);
         armScrollTopButton(btn);
         clickScrollTopButton(btn);
-        expect(container.scrollTo).toHaveBeenCalledWith({ top: 340, behavior: 'instant' });
+        expect(container.scrollTo).toHaveBeenCalledWith({ top: 320, behavior: 'instant' });
     });
 
     it('click scrolls to the captions header without a sticky player', () => {
@@ -721,7 +721,19 @@ describe('transcript back-to-top button', () => {
         const [btn] = collectByClass(getTree(), SCROLL_TOP_BTN);
         armScrollTopButton(btn);
         clickScrollTopButton(btn);
-        expect(container.scrollTo).toHaveBeenCalledWith({ top: 440, behavior: 'instant' });
+        expect(container.scrollTo).toHaveBeenCalledWith({ top: 420, behavior: 'instant' });
+    });
+
+    it('clamps the scroll target at zero when the header is barely offscreen', () => {
+        const { getTree, rerender } = transcriptSetup();
+        const container = makeContainerFake({ scrollTop: 40 });
+        attachFakes(getTree(), container, makeHeaderFake({ top: -60, bottom: -20, height: 40 }));
+        fireScroll(getTree());
+        rerender();
+        const [btn] = collectByClass(getTree(), SCROLL_TOP_BTN);
+        armScrollTopButton(btn);
+        clickScrollTopButton(btn);
+        expect(container.scrollTo).toHaveBeenCalledWith({ top: 0, behavior: 'instant' });
     });
 
     it('scrolls immediately regardless of motion preference', () => {
@@ -733,7 +745,7 @@ describe('transcript back-to-top button', () => {
         const [btn] = collectByClass(getTree(), SCROLL_TOP_BTN);
         armScrollTopButton(btn);
         clickScrollTopButton(btn);
-        expect(container.scrollTo).toHaveBeenCalledWith({ top: 440, behavior: 'instant' });
+        expect(container.scrollTo).toHaveBeenCalledWith({ top: 420, behavior: 'instant' });
     });
 
     it('click disables caption following and does not mutate notes or playback', () => {
@@ -812,7 +824,7 @@ describe('transcript back-to-top button', () => {
         const [btn] = collectByClass(getTree(), SCROLL_TOP_BTN);
         armScrollTopButton(btn);
         clickScrollTopButton(btn, { pointerType: 'touch' });
-        expect(container.scrollTo).toHaveBeenCalledWith({ top: 440, behavior: 'instant' });
+        expect(container.scrollTo).toHaveBeenCalledWith({ top: 420, behavior: 'instant' });
     });
 
     it('ignores the click when the press is canceled after starting on the button', () => {
@@ -851,7 +863,7 @@ describe('transcript back-to-top button', () => {
         armScrollTopButton(btn);
         (btn.props!.onPointerLeave as (e: unknown) => void)({ buttons: 0 });
         clickScrollTopButton(btn, { pointerType: 'touch' });
-        expect(container.scrollTo).toHaveBeenCalledWith({ top: 440, behavior: 'instant' });
+        expect(container.scrollTo).toHaveBeenCalledWith({ top: 420, behavior: 'instant' });
     });
 
     it('does not arm on non-primary or non-left pointer presses', () => {
@@ -877,7 +889,7 @@ describe('transcript back-to-top button', () => {
         rerender();
         const [btn] = collectByClass(getTree(), SCROLL_TOP_BTN);
         clickScrollTopButton(btn, { detail: 0 });
-        expect(container.scrollTo).toHaveBeenCalledWith({ top: 440, behavior: 'instant' });
+        expect(container.scrollTo).toHaveBeenCalledWith({ top: 420, behavior: 'instant' });
     });
 
     it('rejects a pointer-typed click even when detail is zero', () => {

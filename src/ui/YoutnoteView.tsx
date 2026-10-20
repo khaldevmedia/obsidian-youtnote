@@ -1197,7 +1197,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
         const stickyObstruction = settings.pinOnPhone
             ? container.querySelector('.youtnote-plugin__player-container')?.getBoundingClientRect().height ?? 0
             : 0;
-        const top = Math.max(0, container.scrollTop + headerRect.top - containerRect.top - stickyObstruction);
+        const top = Math.max(0, container.scrollTop + headerRect.top - containerRect.top - stickyObstruction - 20);
         container.scrollTo({ top, behavior: 'instant' });
         setShowTranscriptScrollTop(false);
     }, [handleTranscriptManualScroll, settings.pinOnPhone, transcriptScrollTopButton.acceptClick]);
