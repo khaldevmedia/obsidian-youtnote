@@ -48,7 +48,17 @@ vi.mock('../PlayerAdapter', () => ({
     YouTubeIframeAdapter: class {},
 }));
 
-vi.mock('../playback', () => ({ seekToSelection: vi.fn() }));
+vi.mock('../playback', () => ({
+    seekToSelection: vi.fn(),
+    PlaybackPositionMemory: class {
+        get version() { return 0; }
+        isEnabled() { return false; }
+        setEnabled() {}
+        get() { return undefined; }
+        startTracking() {}
+        stopTracking() {}
+    },
+}));
 vi.mock('./VideoListItem', () => ({ VideoListItem: () => null }));
 vi.mock('./NoteListItem', () => ({ NoteListItem: () => null }));
 vi.mock('./TranscriptListItem', () => ({ TranscriptListItem: () => null }));

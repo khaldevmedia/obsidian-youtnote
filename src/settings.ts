@@ -17,6 +17,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
 	showNoteStats: true,
 	switchToNotesAfterTranscriptNote: false,
 	autoScrollTranscript: true,
+	rememberPlaybackPosition: false,
 	exportIncludeNotes: true,
 	exportIncludeTranscripts: true,
 	pinOnPhone: false,
@@ -89,6 +90,7 @@ export function mergePluginSettings(raw: unknown): PluginSettings {
 	merged.autoplayOnCaptionSelect = typeof source.autoplayOnCaptionSelect === 'boolean'
 		? source.autoplayOnCaptionSelect
 		: source.autoplayOnNoteSelect === true;
+	merged.rememberPlaybackPosition = source.rememberPlaybackPosition === true;
 	merged.ai = mergeAISettings(source.ai);
 	return merged;
 }
@@ -146,7 +148,7 @@ export async function refreshAIModelList(
 
 type ToggleKey = keyof Pick<
 	PluginSettings,
-	'pinOnPhone' | 'autoplayOnNoteSelect' | 'autoplayOnCaptionSelect' | 'singleExpandMode' | 'persistExpandedState' | 'openExportedFile' | 'showNoteStats' | 'autoScrollTranscript' | 'switchToNotesAfterTranscriptNote' | 'uriSchemeEnabled'
+	'pinOnPhone' | 'autoplayOnNoteSelect' | 'autoplayOnCaptionSelect' | 'singleExpandMode' | 'persistExpandedState' | 'openExportedFile' | 'showNoteStats' | 'autoScrollTranscript' | 'switchToNotesAfterTranscriptNote' | 'rememberPlaybackPosition' | 'uriSchemeEnabled'
 >;
 
 type Desc = string | (() => string | DocumentFragment);
@@ -260,6 +262,12 @@ const SETTING_DEFINITIONS: SettingGroupDef[] = [
 				name: 'Switch to notes after creating a note from transcript',
 				desc: 'When creating a note from a transcript timestamp, go back to the note list and select the new note. When off, the note is added without leaving the transcript view.',
 				key: 'switchToNotesAfterTranscriptNote',
+			},
+			{
+				kind: 'toggle',
+				name: 'Remember playback position',
+				desc: 'Remember each video’s playback position when switching videos in open file.',
+				key: 'rememberPlaybackPosition',
 			},
 			{
 				kind: 'toggle',

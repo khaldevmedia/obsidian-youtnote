@@ -3,7 +3,7 @@ import classNames from 'classnames';
 import { requestUrl, setIcon, Platform } from 'obsidian';
 import Sortable, { SortableEvent } from 'sortablejs';
 import { YouTubeIframeAdapter } from '../PlayerAdapter';
-import { seekToSelection } from '../playback';
+import { PlaybackPositionMemory, seekToSelection } from '../playback';
 import { VideoId, NoteId, Video, Note, TranscriptEntry } from '../types';
 import { VideoListItem } from './VideoListItem';
 import { NoteListItem } from './NoteListItem';
@@ -156,6 +156,8 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
     const [isPlayerReady, setIsPlayerReady] = useState(true);
     const playerTimeoutRef = useRef<ReturnType<typeof activeWindow.setTimeout> | null>(null);
     const videoLoadRequestRef = useRef(0);
+    const playbackMemoryRef = useRef(new PlaybackPositionMemory());
+    const loadedPlayerRef = useRef<{ adapter: YouTubeIframeAdapter; ytId: string } | null>(null);
 
     // State for new video input
     const [newVideoUrl, setNewVideoUrl] = useState('');
@@ -348,6 +350,8 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
     useEffect(() => {
         const requestId = ++videoLoadRequestRef.current;
         const isLatestRequest = () => videoLoadRequestRef.current === requestId;
+        const memory = playbackMemoryRef.current;
+        memory.stopTracking();
 
         const clearPlayerTimeout = () => {
             if (playerTimeoutRef.current) {
@@ -366,6 +370,31 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
             }, 10000);
         };
 
+        const cleanupPlayerEffect = () => {
+            videoLoadRequestRef.current++;
+            clearPlayerTimeout();
+            memory.stopTracking();
+            loadedPlayerRef.current = null;
+        };
+
+        const restoreAndTrack = async (adapter: YouTubeIframeAdapter, targetYtId: string) => {
+            if (!isLatestRequest()) return;
+            loadedPlayerRef.current = { adapter, ytId: targetYtId };
+            const session = memory.version;
+            let saved = memory.isEnabled() ? memory.get(targetYtId) : undefined;
+            if (saved !== undefined && saved > 0) {
+                const duration = await adapter.getDuration();
+                if (!isLatestRequest()) return;
+                if (duration > 0) saved = Math.min(saved, duration);
+                if (saved > 0) {
+                    await adapter.seekAndPause(saved, () =>
+                        isLatestRequest() && memory.isEnabled() && memory.version === session);
+                }
+            }
+            if (!isLatestRequest()) return;
+            memory.startTracking(adapter, targetYtId);
+        };
+
         const currentIframe = iframeRef.current;
         const currentActiveVideo = videosRef.current.find(v => v.id === activeVideoId);
 
@@ -376,9 +405,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
                 // video selection rather than destroying and recreating.
                 void playerAdapterRef.current.pause();
             }
-            return () => {
-                clearPlayerTimeout();
-            };
+            return cleanupPlayerEffect;
         }
 
         if (adapterIframeRef.current !== currentIframe && playerAdapterRef.current) {
@@ -390,9 +417,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
         const ytId = extractYouTubeId(currentActiveVideo.url);
         if (!ytId) {
             setIsPlayerReady(true);
-            return () => {
-                clearPlayerTimeout();
-            };
+            return cleanupPlayerEffect;
         }
 
         const existingAdapter = playerAdapterRef.current;
@@ -420,7 +445,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
 
         let embeddingErrorShown = false;
         const showEmbeddingError = () => {
-            if (embeddingErrorShown) return;
+            if (embeddingErrorShown || !isLatestRequest()) return;
             embeddingErrorShown = true;
             clearPlayerTimeout();
             new AlertModal(app, EMBEDDING_BLOCKED_TITLE, EMBEDDING_BLOCKED_MESSAGE).open();
@@ -434,6 +459,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
             existingAdapter.loadVideo(ytId).then(() => {
                 if (!isLatestRequest()) return;
                 clearPlayerTimeout();
+                void restoreAndTrack(existingAdapter, ytId);
                 void handleDurationUpdate(existingAdapter, currentActiveVideo.id).then(() => {
                     if (isLatestRequest()) {
                         setIsPlayerReady(true);
@@ -466,6 +492,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
                 adapter.loadVideo(ytId).then(() => {
                     if (!isLatestRequest()) return;
                     clearPlayerTimeout();
+                    void restoreAndTrack(adapter, ytId);
                     void handleDurationUpdate(adapter, currentActiveVideo.id).then(() => {
                         if (isLatestRequest()) {
                             setIsPlayerReady(true);
@@ -494,10 +521,18 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
             startPlayerLoadTimeout();
         }
 
-        return () => {
-            clearPlayerTimeout();
-        };
+        return cleanupPlayerEffect;
     }, [activeVideoId, activeVideoUrl]);
+
+    useEffect(() => {
+        const memory = playbackMemoryRef.current;
+        memory.setEnabled(settings.rememberPlaybackPosition);
+        if (!settings.rememberPlaybackPosition) return;
+        const loaded = loadedPlayerRef.current;
+        if (loaded && loaded.adapter === playerAdapterRef.current && loaded.adapter.isReady()) {
+            memory.startTracking(loaded.adapter, loaded.ytId);
+        }
+    }, [settings.rememberPlaybackPosition]);
 
     useEffect(() => {
         return () => {

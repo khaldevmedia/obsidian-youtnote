@@ -8,6 +8,18 @@ interface NoticeRecord {
 
 const noticeRecords: NoticeRecord[] = [];
 
+interface ToggleRecord {
+    value: unknown;
+    onChange: ((value: boolean) => Promise<void>) | undefined;
+}
+
+interface SettingRecord {
+    name?: unknown;
+    toggle?: ToggleRecord;
+}
+
+const settingRecords: SettingRecord[] = [];
+
 vi.mock('obsidian', () => {
     class FakeNotice {
         messageEl = {
@@ -19,12 +31,62 @@ vi.mock('obsidian', () => {
             noticeRecords.push({ message: String(message), timeout, classes: [] });
         }
     }
+    class PluginSettingTab {
+        containerEl = {
+            empty: (): void => {},
+            createEl: (): object => ({}),
+            querySelector: (): null => null,
+        };
+    }
+    class Setting {
+        record: SettingRecord = {};
+        constructor(_el: unknown) {
+            settingRecords.push(this.record);
+        }
+        setName(name: unknown): this {
+            this.record.name = name;
+            return this;
+        }
+        setDesc(): this { return this; }
+        setHeading(): this { return this; }
+        setClass(): this { return this; }
+        addToggle(callback: (toggle: { setValue(v: unknown): unknown; onChange(cb: (v: boolean) => Promise<void>): unknown }) => void): this {
+            const record: ToggleRecord = { value: undefined, onChange: undefined };
+            callback({
+                setValue(v: unknown) { record.value = v; return this; },
+                onChange(cb: (v: boolean) => Promise<void>) { record.onChange = cb; return this; },
+            });
+            this.record.toggle = record;
+            return this;
+        }
+        addDropdown(callback: (dropdown: { addOption(v: unknown): unknown; setValue(v: unknown): unknown; onChange(cb: (v: string) => void): unknown }) => void): this {
+            callback({ addOption() { return this; }, setValue() { return this; }, onChange() { return this; } });
+            return this;
+        }
+        addComponent(callback: (component: { setValue(v: unknown): unknown; onChange(cb: (v: string) => void): unknown }) => void): this {
+            callback({ setValue() { return this; }, onChange() { return this; } });
+            return this;
+        }
+        addButton(callback: (button: { setButtonText(v: string): unknown; setDisabled(v: boolean): unknown; onClick(cb: () => Promise<void>): unknown }) => void): this {
+            callback({ setButtonText() { return this; }, setDisabled() { return this; }, onClick() { return this; } });
+            return this;
+        }
+        addText(callback: (text: { setPlaceholder(v: string): unknown; setValue(v: string): unknown; onChange(cb: (v: string) => void): unknown; inputEl: { type: string; min: string; addEventListener(): void; setAttribute(): void } }) => void): this {
+            callback({
+                setPlaceholder() { return this; },
+                setValue() { return this; },
+                onChange() { return this; },
+                inputEl: { type: '', min: '', addEventListener() {}, setAttribute() {} },
+            });
+            return this;
+        }
+    }
     return {
         App: class App {},
         Notice: FakeNotice,
-        PluginSettingTab: class PluginSettingTab {},
+        PluginSettingTab,
         SecretComponent: class SecretComponent {},
-        Setting: class Setting {},
+        Setting,
     };
 });
 
@@ -210,6 +272,95 @@ describe('caption autoplay settings controls', () => {
         expect(plugin.settings.autoplayOnCaptionSelect).toBe(false);
         expect(saveDataState).toHaveBeenCalledTimes(2);
         expect(refreshAllViews).toHaveBeenCalledTimes(2);
+    });
+});
+
+describe('rememberPlaybackPosition setting', () => {
+    const stubFragment = () => {
+        vi.stubGlobal('createFragment', (callback: (frag: {
+            appendText(text: string): void;
+            createEl(tag: string): unknown;
+        }) => void) => {
+            callback({ appendText: vi.fn(), createEl: () => ({}) });
+            return {};
+        });
+    };
+
+    it('defaults to false when missing and only enables on literal true', () => {
+        expect(mergePluginSettings(undefined).rememberPlaybackPosition).toBe(false);
+        expect(mergePluginSettings({}).rememberPlaybackPosition).toBe(false);
+        expect(mergePluginSettings({ rememberPlaybackPosition: false }).rememberPlaybackPosition).toBe(false);
+        expect(mergePluginSettings({ rememberPlaybackPosition: true }).rememberPlaybackPosition).toBe(true);
+        for (const invalid of ['yes', 1, {}, [], null]) {
+            expect(mergePluginSettings({ rememberPlaybackPosition: invalid }).rememberPlaybackPosition).toBe(false);
+        }
+    });
+
+    it('is exposed as a toggle bound to rememberPlaybackPosition in the declarative definitions', () => {
+        stubFragment();
+        try {
+            const plugin = { settings: mergePluginSettings({ rememberPlaybackPosition: true }) };
+            const tab = new YoutnoteSettingTab({} as never, plugin as never);
+            const toggles = tab.getSettingDefinitions()
+                .flatMap(group => group.items)
+                .flatMap(item => ('control' in item && item.control.type === 'toggle'
+                    ? [item.control.key]
+                    : []));
+            expect(toggles).toContain('rememberPlaybackPosition');
+            expect(tab.getControlValue('rememberPlaybackPosition')).toBe(true);
+        } finally {
+            vi.unstubAllGlobals();
+        }
+    });
+
+    it('setControlValue toggles the stored value and persists once', async () => {
+        const saveDataState = vi.fn(() => Promise.resolve());
+        const refreshAllViews = vi.fn();
+        const plugin = {
+            settings: mergePluginSettings({ rememberPlaybackPosition: false }),
+            saveDataState,
+            refreshAllViews,
+        };
+        const tab = new YoutnoteSettingTab({} as never, plugin as never);
+        expect(tab.getControlValue('rememberPlaybackPosition')).toBe(false);
+        await tab.setControlValue('rememberPlaybackPosition', true);
+        expect(plugin.settings.rememberPlaybackPosition).toBe(true);
+        expect(tab.getControlValue('rememberPlaybackPosition')).toBe(true);
+        expect(saveDataState).toHaveBeenCalledTimes(1);
+        expect(refreshAllViews).toHaveBeenCalledTimes(1);
+    });
+
+    it('legacy display() renders a toggle bound to the same settings key', async () => {
+        stubFragment();
+        try {
+            settingRecords.length = 0;
+            const saveDataState = vi.fn(() => Promise.resolve());
+            const refreshAllViews = vi.fn();
+            const plugin = {
+                settings: mergePluginSettings({ rememberPlaybackPosition: true }),
+                saveDataState,
+                refreshAllViews,
+            };
+            const tab = new YoutnoteSettingTab({} as never, plugin as never);
+            tab.display();
+
+            const toggleOrderInFirstGroup = tab.getSettingDefinitions()[0].items
+                .flatMap(item => ('control' in item && item.control.type === 'toggle'
+                    ? [item.control.key]
+                    : []));
+            const ordinal = toggleOrderInFirstGroup.indexOf('rememberPlaybackPosition');
+            expect(ordinal).toBeGreaterThanOrEqual(0);
+
+            const toggles = settingRecords.filter(record => record.toggle !== undefined);
+            const target = toggles[ordinal].toggle!;
+            expect(target.value).toBe(true);
+            await target.onChange!(false);
+            expect(plugin.settings.rememberPlaybackPosition).toBe(false);
+            expect(saveDataState).toHaveBeenCalledTimes(1);
+            expect(refreshAllViews).toHaveBeenCalledTimes(1);
+        } finally {
+            vi.unstubAllGlobals();
+        }
     });
 });
 

@@ -304,6 +304,7 @@ describe('YoutnotePlugin AI task workflow', () => {
             showNoteStats: true,
             switchToNotesAfterTranscriptNote: false,
             autoScrollTranscript: true,
+            rememberPlaybackPosition: false,
             exportIncludeNotes: true,
             exportIncludeTranscripts: true,
             uriSchemeEnabled: false,

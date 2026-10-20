@@ -101,6 +101,7 @@ export interface PluginSettings {
 	showNoteStats: boolean;
 	switchToNotesAfterTranscriptNote: boolean;
 	autoScrollTranscript: boolean;
+	rememberPlaybackPosition: boolean;
 	exportIncludeNotes: boolean;
 	exportIncludeTranscripts: boolean;
 	uriSchemeEnabled: boolean;
@@ -259,7 +260,7 @@ export interface YoutubePluginViewProps {
 }
 
 export interface PlayerAdapter {
-    seek(timestampSec: number): Promise<void>;
+    seek(timestampSec: number, isValid?: () => boolean): Promise<void>;
     subscribeToTimeUpdates(listener: (currentTimeSec: number) => void): () => void;
     getCurrentTime(): Promise<number>;
     getDuration(): Promise<number>;
