@@ -48,6 +48,7 @@ declare module 'obsidian' {
     interface App {
         commands: { executeCommandById(id: string): void };
         mobileToolbar?: { update(): void };
+        mobileNavbar?: { onScroll?: (containerEl: HTMLElement, scrollTop: number) => void };
         loadLocalStorage(key: string): string | null;
         saveLocalStorage(key: string, value: string): void;
         embedRegistry?: {

@@ -1247,6 +1247,14 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
         );
     }, [isMobile, showTranscript, hasTranscript, filteredTranscript.length, isFetchingTranscript, settings.pinOnPhone]);
 
+    const handleContainerScroll = useCallback(() => {
+        const container = containerRef.current;
+        if (Platform.isPhone && container) {
+            app.mobileNavbar?.onScroll?.(container, container.scrollTop);
+        }
+        updateTranscriptScrollTopVisibility();
+    }, [app, updateTranscriptScrollTopVisibility]);
+
     useEffect(() => {
         updateTranscriptScrollTopVisibility();
         const container = containerRef.current;
@@ -1381,31 +1389,34 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
         <div className="youtnote-plugin__note-stats">Total words: <span className="youtnote-plugin__note-stats-words">{activeVideoStats.words}</span>{' • '}Total characters: <span className="youtnote-plugin__note-stats-characters">{activeVideoStats.characters}</span></div>
     ) : null;
 
+    const readOnlyBanner = readOnly && canConvert ? (
+        <div className="youtnote-plugin__readonly-banner" role="status">
+            <span className="youtnote-plugin__readonly-banner-text">
+                Read-only: this file still uses the legacy format. Convert to v2 to edit.
+            </span>
+            <button
+                className="youtnote-plugin__readonly-banner-convert-button mod-cta"
+                onClick={onRequestConversion}
+                disabled={conversionPending}
+            >
+                See options
+            </button>
+        </div>
+    ) : null;
+
     return (
         <>
-            {readOnly && canConvert && (
-                <div className="youtnote-plugin__readonly-banner" role="status">
-                    <span className="youtnote-plugin__readonly-banner-text">
-                        Read-only: this file still uses the legacy format. Convert to v2 to edit.
-                    </span>
-                    <button
-                        className="youtnote-plugin__readonly-banner-convert-button mod-cta"
-                        onClick={onRequestConversion}
-                        disabled={conversionPending}
-                    >
-                        See options
-                    </button>
-                </div>
-            )}
+            {!Platform.isPhone && readOnlyBanner}
             <div
                 ref={containerRef}
-                onScroll={updateTranscriptScrollTopVisibility}
+                onScroll={handleContainerScroll}
                 className={classNames('youtnote-plugin__plugin-container', {
                     'youtnote-plugin__iframe-sticky': isStickyEnabled,
                     'youtnote-plugin__is-resizing': isResizing,
                     'youtnote-plugin__disabled': !isPlayerReady,
                 })}
             >
+            {Platform.isPhone && readOnlyBanner}
             {/* On mobile, player is hoisted out of video-pane as a stable direct flex child
                of plugin-container. This keeps its tree position constant so toggling
                isStickyEnabled never causes the iframe to remount/reload. It also makes

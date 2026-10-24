@@ -129,10 +129,13 @@ function makeProps(overrides: {
     readOnly?: boolean;
     showNoteStats?: boolean;
     settings?: Record<string, unknown>;
+    app?: Record<string, unknown> | undefined;
+    canConvert?: boolean;
+    conversionPending?: boolean;
 } = {}) {
     const onUpdateNotes = vi.fn();
     const props = {
-        app: {},
+        app: overrides.app ?? {},
         view: { getMutationGuard: () => () => true, videos: overrides.videos ?? [makeVideo()] },
         settings: { showNoteStats: overrides.showNoteStats ?? false, ...(overrides.settings ?? {}) },
         videos: overrides.videos ?? [makeVideo()],
@@ -149,8 +152,8 @@ function makeProps(overrides: {
         onCancelVideoTasks: vi.fn(),
         onOpenAISettings: vi.fn(),
         readOnly: overrides.readOnly ?? false,
-        canConvert: false,
-        conversionPending: false,
+        canConvert: overrides.canConvert ?? false,
+        conversionPending: overrides.conversionPending ?? false,
         onRequestConversion: vi.fn(),
     };
     return { props, onUpdateNotes };
@@ -225,6 +228,8 @@ function resetTestState() {
     hooks.refs.length = 0;
     hooks.refCursor = 0;
     Platform.isMobile = false;
+    Platform.isPhone = false;
+    Platform.isTablet = false;
 }
 
 describe('merge duplicate notes button visibility', () => {
@@ -1202,5 +1207,265 @@ describe('transcript back-to-top hidden during caption editing', () => {
         rerender();
         const [syncAfter] = collectByClass(getTree(), FLOAT_SYNC);
         expect(syncAfter.props!['aria-pressed']).toBe(true);
+    });
+});
+
+describe('mobile navbar scroll forwarding', () => {
+    beforeEach(resetTestState);
+
+    const CONTAINER = 'youtnote-plugin__plugin-container';
+    const HEADER = 'youtnote-plugin__note-list-header';
+    const ACTIONS = 'youtnote-plugin__note-list-action-btns-container';
+    const SCROLL_TOP_BTN = 'youtnote-plugin__transcript-scroll-top-btn';
+
+    function makeContainerFake(opts: { scrollTop?: number } = {}) {
+        return {
+            scrollTop: opts.scrollTop ?? 0,
+            querySelector: () => null,
+            ownerDocument: {
+                defaultView: {
+                    matchMedia: () => ({ matches: false }),
+                    addEventListener: vi.fn(),
+                    removeEventListener: vi.fn(),
+                },
+            },
+            getBoundingClientRect: () => ({ top: 0, bottom: 800, height: 800 }),
+        };
+    }
+
+    function makeHeaderFake() {
+        return { getBoundingClientRect: () => ({ top: -60, bottom: -20, height: 40 }) };
+    }
+
+    function attachContainer(tree: unknown, container: unknown) {
+        const [containerEl] = collectByClass(tree, CONTAINER);
+        expect(containerEl).toBeDefined();
+        (containerEl.ref as { current: unknown }).current = container;
+        return containerEl;
+    }
+
+    function attachHeader(tree: unknown) {
+        const [headerEl] = collectByClass(tree, HEADER);
+        expect(headerEl).toBeDefined();
+        (headerEl.ref as { current: unknown }).current = makeHeaderFake();
+    }
+
+    function enterTranscript(tree: unknown) {
+        const [actions] = collectByClass(tree, ACTIONS);
+        expect(actions).toBeDefined();
+        const buttons: VNodeLike[] = [];
+        const walk = (n: unknown) => {
+            if (Array.isArray(n)) return n.forEach(walk);
+            if (!n || typeof n !== 'object') return;
+            const v = n as VNodeLike;
+            if (v.type === 'button') buttons.push(v);
+            if (v.props?.children !== undefined) walk(v.props.children);
+        };
+        walk(actions.props!.children);
+        expect(buttons.length).toBeGreaterThan(0);
+        (buttons[0].props!.onClick as () => void)();
+    }
+
+    function transcriptSetup(app?: Record<string, unknown>) {
+        const { props } = makeProps({
+            app,
+            videos: [{ ...makeVideo(), transcript: [{ startMs: 0, text: 'cap-0' }, { startMs: 1000, text: 'cap-1' }] }],
+            notes: [],
+            settings: { autoScrollTranscript: true },
+        });
+        let tree = renderView(props);
+        enterTranscript(tree);
+        tree = renderView(props);
+        return { props, getTree: () => tree, rerender: () => (tree = renderView(props)) };
+    }
+
+    it('forwards the container and scroll positions to the navbar on phone', () => {
+        Platform.isMobile = true;
+        Platform.isPhone = true;
+        const receivers: unknown[] = [];
+        const navbar = {
+            onScroll: vi.fn(function (this: unknown) {
+                receivers.push(this);
+            }),
+        };
+        const { props } = makeProps({ app: { mobileNavbar: navbar }, notes: [] });
+        const tree = renderView(props);
+        const container = makeContainerFake();
+        const containerEl = attachContainer(tree, container);
+        const onScroll = containerEl.props!.onScroll as () => void;
+        container.scrollTop = 240;
+        onScroll();
+        container.scrollTop = 120;
+        onScroll();
+        container.scrollTop = 0;
+        onScroll();
+        expect(navbar.onScroll).toHaveBeenCalledTimes(3);
+        expect(navbar.onScroll).toHaveBeenNthCalledWith(1, container, 240);
+        expect(navbar.onScroll).toHaveBeenNthCalledWith(2, container, 120);
+        expect(navbar.onScroll).toHaveBeenNthCalledWith(3, container, 0);
+        expect(receivers).toEqual([navbar, navbar, navbar]);
+    });
+
+    it('still forwards while driving the back-to-top button in transcript mode', () => {
+        Platform.isMobile = true;
+        Platform.isPhone = true;
+        const navbar = { onScroll: vi.fn() };
+        const { getTree, rerender } = transcriptSetup({ mobileNavbar: navbar });
+        const container = makeContainerFake({ scrollTop: 400 });
+        const containerEl = attachContainer(getTree(), container);
+        attachHeader(getTree());
+        (containerEl.props!.onScroll as () => void)();
+        expect(navbar.onScroll).toHaveBeenCalledWith(container, 400);
+        rerender();
+        expect(collectByClass(getTree(), SCROLL_TOP_BTN)).toHaveLength(1);
+    });
+
+    it('does not forward on tablet even with a navbar present', () => {
+        Platform.isMobile = true;
+        Platform.isTablet = true;
+        const navbar = { onScroll: vi.fn() };
+        const { props } = makeProps({ app: { mobileNavbar: navbar }, notes: [] });
+        const tree = renderView(props);
+        const containerEl = attachContainer(tree, makeContainerFake({ scrollTop: 300 }));
+        (containerEl.props!.onScroll as () => void)();
+        expect(navbar.onScroll).not.toHaveBeenCalled();
+    });
+
+    it('does not forward on desktop even with a navbar present', () => {
+        const navbar = { onScroll: vi.fn() };
+        const { props } = makeProps({ app: { mobileNavbar: navbar }, notes: [] });
+        const tree = renderView(props);
+        const containerEl = attachContainer(tree, makeContainerFake({ scrollTop: 300 }));
+        (containerEl.props!.onScroll as () => void)();
+        expect(navbar.onScroll).not.toHaveBeenCalled();
+    });
+
+    it('keeps back-to-top behavior when the navbar API is absent', () => {
+        Platform.isMobile = true;
+        Platform.isPhone = true;
+        const { getTree, rerender } = transcriptSetup();
+        const containerEl = attachContainer(getTree(), makeContainerFake({ scrollTop: 400 }));
+        attachHeader(getTree());
+        (containerEl.props!.onScroll as () => void)();
+        rerender();
+        expect(collectByClass(getTree(), SCROLL_TOP_BTN)).toHaveLength(1);
+    });
+
+    it('keeps back-to-top behavior when the navbar lacks an onScroll method', () => {
+        Platform.isMobile = true;
+        Platform.isPhone = true;
+        const { getTree, rerender } = transcriptSetup({ mobileNavbar: {} });
+        const containerEl = attachContainer(getTree(), makeContainerFake({ scrollTop: 400 }));
+        attachHeader(getTree());
+        (containerEl.props!.onScroll as () => void)();
+        rerender();
+        expect(collectByClass(getTree(), SCROLL_TOP_BTN)).toHaveLength(1);
+    });
+
+    it('does not forward and does not throw when the container ref is empty', () => {
+        Platform.isMobile = true;
+        Platform.isPhone = true;
+        const navbar = { onScroll: vi.fn() };
+        const { props } = makeProps({ app: { mobileNavbar: navbar }, notes: [] });
+        const tree = renderView(props);
+        const [containerEl] = collectByClass(tree, CONTAINER);
+        expect(() => (containerEl.props!.onScroll as () => void)()).not.toThrow();
+        expect(navbar.onScroll).not.toHaveBeenCalled();
+    });
+});
+
+describe('read-only conversion banner placement', () => {
+    beforeEach(resetTestState);
+
+    const CONTAINER = 'youtnote-plugin__plugin-container';
+    const BANNER = 'youtnote-plugin__readonly-banner';
+    const BANNER_BTN = 'youtnote-plugin__readonly-banner-convert-button';
+    const PLAYER = 'youtnote-plugin__player-container';
+    const IFRAME = 'youtnote-plugin__iframe';
+
+    function childIndexWithClass(node: VNodeLike, cls: string): number {
+        const children = node.props?.children;
+        const list = Array.isArray(children) ? children : [children];
+        return list.findIndex(
+            child => !!child && typeof child === 'object' &&
+                typeof (child as VNodeLike).props?.className === 'string' &&
+                ((child as VNodeLike).props!.className as string).split(/\s+/).includes(cls)
+        );
+    }
+
+    it('renders inside the main scroller before the player on phone', () => {
+        Platform.isMobile = true;
+        Platform.isPhone = true;
+        const { props } = makeProps({ readOnly: true, canConvert: true, notes: [] });
+        const tree = renderView(props);
+        expect(collectByClass(tree, BANNER)).toHaveLength(1);
+        const [containerEl] = collectByClass(tree, CONTAINER);
+        expect(directChildrenWithClass(containerEl, BANNER)).toHaveLength(1);
+        const bannerIdx = childIndexWithClass(containerEl, BANNER);
+        const playerIdx = childIndexWithClass(containerEl, PLAYER);
+        expect(bannerIdx).toBeGreaterThanOrEqual(0);
+        expect(playerIdx).toBeGreaterThanOrEqual(0);
+        expect(bannerIdx).toBeLessThan(playerIdx);
+    });
+
+    it('delegates the conversion action once from the enabled button and disables while pending', () => {
+        Platform.isMobile = true;
+        Platform.isPhone = true;
+        const { props } = makeProps({ readOnly: true, canConvert: true, conversionPending: true, notes: [] });
+        let tree = renderView(props);
+        let [btn] = collectByClass(tree, BANNER_BTN);
+        expect(btn).toBeDefined();
+        expect(btn.props!.disabled).toBe(true);
+        props.conversionPending = false;
+        tree = renderView(props);
+        [btn] = collectByClass(tree, BANNER_BTN);
+        expect(btn.props!.disabled).toBe(false);
+        (btn.props!.onClick as () => void)();
+        expect(props.onRequestConversion).toHaveBeenCalledTimes(1);
+    });
+
+    it('renders no banner when editable or not convertible', () => {
+        Platform.isMobile = true;
+        Platform.isPhone = true;
+        const { props: editable } = makeProps({ readOnly: false, canConvert: true, notes: [] });
+        expect(collectByClass(renderView(editable), BANNER)).toHaveLength(0);
+        const { props: nonConvertible } = makeProps({ readOnly: true, canConvert: false, notes: [] });
+        expect(collectByClass(renderView(nonConvertible), BANNER)).toHaveLength(0);
+    });
+
+    it('stays outside the scroller on tablet', () => {
+        Platform.isMobile = true;
+        Platform.isTablet = true;
+        const { props } = makeProps({ readOnly: true, canConvert: true, notes: [] });
+        const tree = renderView(props);
+        expect(collectByClass(tree, BANNER)).toHaveLength(1);
+        const [containerEl] = collectByClass(tree, CONTAINER);
+        expect(collectByClass(containerEl, BANNER)).toHaveLength(0);
+    });
+
+    it('stays outside the scroller on desktop', () => {
+        const { props } = makeProps({ readOnly: true, canConvert: true, notes: [] });
+        const tree = renderView(props);
+        expect(collectByClass(tree, BANNER)).toHaveLength(1);
+        const [containerEl] = collectByClass(tree, CONTAINER);
+        expect(collectByClass(containerEl, BANNER)).toHaveLength(0);
+    });
+
+    it('keeps the player a direct scroller child whether sticky is on or off', () => {
+        Platform.isMobile = true;
+        Platform.isPhone = true;
+        const { props } = makeProps({ notes: [], settings: { pinOnPhone: true } });
+        let tree = renderView(props);
+        let [containerEl] = collectByClass(tree, CONTAINER);
+        let [playerEl] = collectByClass(tree, PLAYER);
+        const stickyPlayerIdx = childIndexWithClass(containerEl, PLAYER);
+        expect(stickyPlayerIdx).toBeGreaterThanOrEqual(0);
+        expect(directChildrenWithClass(playerEl, IFRAME)).toHaveLength(1);
+        (props.settings as Record<string, unknown>).pinOnPhone = false;
+        tree = renderView(props);
+        [containerEl] = collectByClass(tree, CONTAINER);
+        [playerEl] = collectByClass(tree, PLAYER);
+        expect(childIndexWithClass(containerEl, PLAYER)).toBe(stickyPlayerIdx);
+        expect(directChildrenWithClass(playerEl, IFRAME)).toHaveLength(1);
     });
 });

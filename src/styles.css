@@ -48,6 +48,16 @@ to avoid conflicts with other plugins */
     }
 }
 
+.is-phone .mod-root .workspace-leaf-content[data-type='youtnote-view'] > .view-content {
+    margin-top: 0;
+}
+
+.is-phone .mod-root .workspace-leaf-content[data-type='youtnote-view'] > .view-content > .youtnote-plugin__plugin-container::before {
+    content: '';
+    height: var(--view-top-spacing);
+    flex-shrink: 0;
+}
+
 .youtnote-plugin__plugin-container {
     contain: content;
     display: flex;
@@ -81,6 +91,10 @@ to avoid conflicts with other plugins */
 .youtnote-plugin__plugin-container.youtnote-plugin__disabled .youtnote-plugin__loading-container {
     pointer-events: auto;
     cursor: var(--cursor);
+}
+
+.youtnote-plugin__plugin-container.youtnote-plugin__disabled > .youtnote-plugin__readonly-banner {
+    pointer-events: auto;
 }
 
 .youtnote-plugin__plugin-container.youtnote-plugin__is-resizing {
