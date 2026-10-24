@@ -87,6 +87,13 @@ vi.mock('./NoteListItem', () => ({ NoteListItem: () => null }));
 vi.mock('./TranscriptListItem', () => ({ TranscriptListItem: () => null }));
 vi.mock('../ai/registry', () => ({ getAINoteGenerationSetupError: () => null }));
 vi.mock('../notices', () => ({ showYoutnoteNotice: vi.fn() }));
+vi.mock('./PlaylistImportModal', () => ({
+    PlaylistImportModal: class {
+        readonly result = Promise.resolve(null);
+        open() {}
+        close() {}
+    },
+}));
 
 vi.mock('./MessageBoxes', () => {
     class FakeAlertModal {

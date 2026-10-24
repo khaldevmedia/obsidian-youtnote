@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
     extractYouTubeId,
+    extractYouTubePlaylistId,
     normalizeYouTubeUrl,
     hasYoutnoteFrontmatter,
     isSafeExternalUrl,
@@ -26,6 +27,64 @@ describe('YouTube URL utilities', () => {
         expect(normalizeYouTubeUrl('https://youtu.be/aircAruvnKk')).toBe(
             'https://www.youtube.com/watch?v=aircAruvnKk'
         );
+    });
+
+    it('normalizes watch urls carrying a list param to the single video', () => {
+        expect(normalizeYouTubeUrl('https://www.youtube.com/watch?v=aircAruvnKk&list=PLabc123_-X')).toBe(
+            'https://www.youtube.com/watch?v=aircAruvnKk'
+        );
+    });
+});
+
+describe('YouTube playlist URL extraction', () => {
+    it('extracts the list param from canonical playlist urls', () => {
+        expect(extractYouTubePlaylistId('https://www.youtube.com/playlist?list=PLVbEymL-83SyVXXqT7fYX5sEvELvyGjL7'))
+            .toBe('PLVbEymL-83SyVXXqT7fYX5sEvELvyGjL7');
+        expect(extractYouTubePlaylistId('https://m.youtube.com/playlist?list=PLabc123_-X'))
+            .toBe('PLabc123_-X');
+        expect(extractYouTubePlaylistId('youtube.com/playlist?list=PLabc123_-X'))
+            .toBe('PLabc123_-X');
+    });
+
+    it('extracts the list param from urls that also resolve to a video', () => {
+        expect(extractYouTubePlaylistId('https://www.youtube.com/watch?v=aircAruvnKk&list=PLabc123_-X'))
+            .toBe('PLabc123_-X');
+        expect(extractYouTubePlaylistId('https://youtu.be/aircAruvnKk?list=PLabc123_-X'))
+            .toBe('PLabc123_-X');
+        expect(extractYouTubePlaylistId('https://www.youtube.com/shorts/aircAruvnKk?list=RDxyz_123'))
+            .toBe('RDxyz_123');
+        expect(extractYouTubePlaylistId('https://music.youtube.com/watch?v=aircAruvnKk&list=OLAK5uy_abc'))
+            .toBe('OLAK5uy_abc');
+    });
+
+    it('returns raw list ids unmodified so callers can classify them', () => {
+        expect(extractYouTubePlaylistId('https://www.youtube.com/playlist?list=RDxyz_123'))
+            .toBe('RDxyz_123');
+        expect(extractYouTubePlaylistId('https://www.youtube.com/watch?v=aircAruvnKk&list=WL'))
+            .toBe('WL');
+        expect(extractYouTubePlaylistId('https://www.youtube.com/playlist?list=UUuploader12'))
+            .toBe('UUuploader12');
+    });
+
+    it('rejects foreign hosts and non-http(s) urls', () => {
+        expect(extractYouTubePlaylistId('https://evil.example/playlist?list=PLabc123_-X')).toBeNull();
+        expect(extractYouTubePlaylistId('https://youtube.com.evil.example/playlist?list=PLabc123_-X')).toBeNull();
+        expect(extractYouTubePlaylistId('ftp://youtube.com/playlist?list=PLabc123_-X')).toBeNull();
+        expect(extractYouTubePlaylistId('javascript:playlist?list=PLabc123_-X')).toBeNull();
+    });
+
+    it('rejects missing or malformed list params', () => {
+        expect(extractYouTubePlaylistId('https://www.youtube.com/playlist')).toBeNull();
+        expect(extractYouTubePlaylistId('https://www.youtube.com/playlist?list=')).toBeNull();
+        expect(extractYouTubePlaylistId('https://www.youtube.com/playlist?list=X')).toBeNull();
+        expect(extractYouTubePlaylistId('https://www.youtube.com/playlist?list=!!!invalid!!!')).toBeNull();
+        expect(extractYouTubePlaylistId(`https://www.youtube.com/playlist?list=${'A'.repeat(151)}`)).toBeNull();
+        expect(extractYouTubePlaylistId('https://www.youtube.com/watch?list=PLabc123_-X')).toBeNull();
+        expect(extractYouTubePlaylistId('https://youtu.be/?list=PLabc123_-X')).toBeNull();
+        expect(extractYouTubePlaylistId('https://www.youtube.com/watch?v=aircAruvnKk')).toBeNull();
+        expect(extractYouTubePlaylistId('https://www.youtube.com/feed/subscriptions?list=PLabc123_-X')).toBeNull();
+        expect(extractYouTubePlaylistId('')).toBeNull();
+        expect(extractYouTubePlaylistId('PLabc123_-X')).toBeNull();
     });
 });
 

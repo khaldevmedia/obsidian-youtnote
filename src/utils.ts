@@ -57,9 +57,14 @@ const YOUTUBE_HOSTS = new Set([
 ]);
 
 const YOUTUBE_ID_REGEX = /^[A-Za-z0-9_-]{11}$/;
+const YOUTUBE_PLAYLIST_ID_REGEX = /^[A-Za-z0-9_-]{2,150}$/;
 
 function isValidYouTubeId(value: string): boolean {
     return YOUTUBE_ID_REGEX.test(value);
+}
+
+function isValidYouTubePlaylistId(value: string): boolean {
+    return YOUTUBE_PLAYLIST_ID_REGEX.test(value);
 }
 
 function parseUrl(value: string): URL | null {
@@ -115,6 +120,32 @@ export function extractYouTubeId(url: string): string | null {
     }
 
     return isValidYouTubeId(candidate) ? candidate : null;
+}
+
+export function extractYouTubePlaylistId(url: string): string | null {
+    const trimmed = url.trim();
+    if (!trimmed) return null;
+
+    const parsed = parseUrl(trimmed);
+    if (!parsed || (parsed.protocol !== 'http:' && parsed.protocol !== 'https:')) {
+        return null;
+    }
+
+    const host = parsed.hostname.toLowerCase();
+    if (!YOUTUBE_HOSTS.has(host)) {
+        return null;
+    }
+
+    const listParam = parsed.searchParams.get('list');
+    if (!listParam || !isValidYouTubePlaylistId(listParam)) {
+        return null;
+    }
+
+    if (parsed.pathname === '/playlist') {
+        return listParam;
+    }
+
+    return extractYouTubeId(trimmed) !== null ? listParam : null;
 }
 
 /**

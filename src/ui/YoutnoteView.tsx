@@ -21,12 +21,15 @@ import {
 import {
     compareNotes,
     extractYouTubeId,
+    extractYouTubePlaylistId,
     normalizeYouTubeUrl,
     parseTimestampInput,
     calculateTotalWords,
     calculateTotalCharacters,
     formatSecondsToDisplay
 } from '../utils';
+import { PlaylistImportModal } from './PlaylistImportModal';
+import type { PlaylistEntry } from '../playlist';
 
 
 
@@ -174,6 +177,9 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
     // State for new video input
     const [newVideoUrl, setNewVideoUrl] = useState('');
     const [isFetchingMetadata, setIsFetchingMetadata] = useState(false);
+    const addVideoBusyRef = useRef(false);
+    const playlistImportModalRef = useRef<PlaylistImportModal | null>(null);
+    const mountedRef = useRef(true);
 
     // State for transcript view
     const [showTranscript, setShowTranscript] = useState(false);
@@ -255,8 +261,19 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
             setEditingTimestampId(null);
             setTimestampError(null);
             setEditingTranscriptIndex(null);
+            setIsFetchingMetadata(false);
+            playlistImportModalRef.current?.close();
         }
     }, [readOnly]);
+
+    useEffect(() => {
+        mountedRef.current = true;
+        return () => {
+            mountedRef.current = false;
+            playlistImportModalRef.current?.close();
+            playlistImportModalRef.current = null;
+        };
+    }, []);
     
     // Handle singleExpandMode changes - collapse extra notes when switching to single mode
     useEffect(() => {
@@ -748,17 +765,38 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
         setEditNoteBody('');
     };
 
-    const handleAddVideoSubmit = async (e: React.SubmitEvent<HTMLFormElement>) => {
-        e.preventDefault();
-        const guard = renderMutationGuard;
-        if (readOnly || !newVideoUrl || isFetchingMetadata) return;
+    const scrollVideoListToEnd = (guard: () => boolean) => {
+        window.setTimeout(() => {
+            if (!guard()) {
+                return;
+            }
+            if (videoListRef.current) {
+                videoListRef.current.scrollTop = videoListRef.current.scrollHeight;
+            }
+        }, 100);
+    };
 
-        const ytId = extractYouTubeId(newVideoUrl);
-        if (!ytId) {
-            new AlertModal(app, "Invalid URL", "The URL you provided is not a valid YouTube URL.").open();
-            return;
-        }
+    const showDuplicateVideoAlert = (existingVideo: Video, guard: () => boolean) => {
+        new AlertModal(app, "Video duplication", "This video already exists in your list.").open();
+        // Select the existing video after alert is dismissed
+        window.setTimeout(() => {
+            if (!guard()) {
+                return;
+            }
+            setActiveVideoId(existingVideo.id);
+            // Scroll to the existing video
+            if (videoListRef.current) {
+                const videoElements = videoListRef.current.querySelectorAll('.youtnote-plugin__video-item');
+                const existingIndex = videos.findIndex(v => v.id === existingVideo.id);
+                if (existingIndex !== -1 && videoElements[existingIndex]) {
+                    videoElements[existingIndex].scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                }
+            }
+        }, 100);
+        setNewVideoUrl('');
+    };
 
+    const addSingleVideo = async (ytId: string, guard: () => boolean) => {
         // Normalize URL to consistent format (strips playlist params, converts shorts/youtu.be)
         const normalizedUrl = normalizeYouTubeUrl(newVideoUrl);
         if (!normalizedUrl) {
@@ -767,32 +805,18 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
         }
 
         // Check if a video with the same YouTube ID already exists
-        const existingVideo = videos.find(v => extractYouTubeId(v.url) === ytId);
+        const existingVideo = view.videos.find(v => extractYouTubeId(v.url) === ytId);
         if (existingVideo) {
-            new AlertModal(app, "Video duplication", "This video already exists in your list.").open();
-            // Select the existing video after alert is dismissed
-            window.setTimeout(() => {
-                setActiveVideoId(existingVideo.id);
-                // Scroll to the existing video
-                if (videoListRef.current) {
-                    const videoElements = videoListRef.current.querySelectorAll('.youtnote-plugin__video-item');
-                    const existingIndex = videos.findIndex(v => v.id === existingVideo.id);
-                    if (existingIndex !== -1 && videoElements[existingIndex]) {
-                        videoElements[existingIndex].scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-                    }
-                }
-            }, 100);
-            setNewVideoUrl('');
+            showDuplicateVideoAlert(existingVideo, guard);
             return;
         }
 
-        setIsFetchingMetadata(true);
         try {
             // Fetch metadata using YouTube's oEmbed endpoint (no API key required)
             // This also validates that the video exists
             const oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(normalizedUrl)}&format=json`;
             const response = await requestUrl({ url: oembedUrl });
-            
+
             if (response.status !== 200) {
                 throw new Error("Video not found or unavailable");
             }
@@ -801,31 +825,127 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
             const data = response.json as OEmbedData;
             if (!guard()) return;
 
-            const ytId = extractYouTubeId(normalizedUrl);
+            const latestVideos = view.videos;
+            const concurrentExisting = latestVideos.find(v => extractYouTubeId(v.url) === ytId);
+            if (concurrentExisting) {
+                showDuplicateVideoAlert(concurrentExisting, guard);
+                return;
+            }
+
             const newVideo: Video = {
                 id: crypto.randomUUID() as VideoId,
                 url: normalizedUrl,
-                title: data.title || `YouTube Video (${ytId ?? ''})`,
-                thumbnail: data.thumbnail_url || `https://img.youtube.com/vi/${ytId ?? ''}/default.jpg`,
+                title: data.title || `YouTube Video (${ytId})`,
+                thumbnail: data.thumbnail_url || `https://img.youtube.com/vi/${ytId}/default.jpg`,
                 durationSec: 0 // oEmbed doesn't provide duration, we'd need YouTube Data API for that
             };
-            onUpdateVideos([...videos, newVideo]);
+            onUpdateVideos([...latestVideos, newVideo]);
             setNewVideoUrl('');
-            
+
             // Set the newly added video as active
             setActiveVideoId(newVideo.id);
-            
+
             // Auto-scroll to the newly added video
-            window.setTimeout(() => {
-                if (videoListRef.current) {
-                    videoListRef.current.scrollTop = videoListRef.current.scrollHeight;
-                }
-            }, 100);
+            scrollVideoListToEnd(guard);
         } catch (error) {
+            if (!guard()) {
+                return;
+            }
             console.error("Error fetching YouTube metadata:", error);
             new AlertModal(app, "Unable to add video", "The video may not exist, be private, be unavailable or be with invalid ID.").open();
+        }
+    };
+
+    const commitPlaylistEntries = (entries: PlaylistEntry[], guard: () => boolean) => {
+        const latestVideos = view.videos;
+        const seen = new Set<string>();
+        for (const video of latestVideos) {
+            const ytId = extractYouTubeId(video.url);
+            if (ytId) {
+                seen.add(ytId);
+            }
+        }
+        const additions: Video[] = [];
+        for (const entry of entries) {
+            if (!entry.available || entry.youtubeId === null) {
+                continue;
+            }
+            const youtubeId = extractYouTubeId(entry.youtubeId);
+            if (youtubeId === null || seen.has(youtubeId)) {
+                continue;
+            }
+            seen.add(youtubeId);
+            additions.push({
+                id: crypto.randomUUID() as VideoId,
+                url: `https://www.youtube.com/watch?v=${youtubeId}`,
+                title: entry.title || `YouTube Video (${youtubeId})`,
+                thumbnail: entry.thumbnail ?? `https://img.youtube.com/vi/${youtubeId}/default.jpg`,
+                durationSec: entry.durationSec ?? 0,
+            });
+        }
+        if (additions.length === 0) {
+            return;
+        }
+        onUpdateVideos([...latestVideos, ...additions]);
+        setNewVideoUrl('');
+        setActiveVideoId(additions[0].id);
+        scrollVideoListToEnd(guard);
+    };
+
+    const handleAddVideoSubmit = async (e: React.SubmitEvent<HTMLFormElement>) => {
+        e.preventDefault();
+        const guard = renderMutationGuard;
+        const liveGuard = () => mountedRef.current && guard();
+        if (readOnly || !newVideoUrl || isFetchingMetadata || addVideoBusyRef.current || !guard()) return;
+
+        const ytId = extractYouTubeId(newVideoUrl);
+        const playlistId = extractYouTubePlaylistId(newVideoUrl);
+        if (!ytId && !playlistId) {
+            new AlertModal(app, "Invalid URL", "The URL you provided is not a valid YouTube URL.").open();
+            return;
+        }
+
+        addVideoBusyRef.current = true;
+        setIsFetchingMetadata(true);
+        try {
+            if (playlistId) {
+                const existingVideoIds = () => {
+                    const ids = new Set<string>();
+                    for (const video of view.videos) {
+                        const videoYtId = extractYouTubeId(video.url);
+                        if (videoYtId) {
+                            ids.add(videoYtId);
+                        }
+                    }
+                    return ids;
+                };
+                const modal = new PlaylistImportModal(app, playlistId, {
+                    videoId: ytId ?? undefined,
+                    getExistingVideoIds: existingVideoIds,
+                    isValid: () => liveGuard() && !readOnly,
+                });
+                playlistImportModalRef.current = modal;
+                modal.open();
+                const outcome = await modal.result;
+                playlistImportModalRef.current = null;
+                if (outcome === null || !liveGuard() || readOnly) return;
+                if (outcome === 'video') {
+                    if (ytId) {
+                        await addSingleVideo(ytId, liveGuard);
+                    }
+                } else {
+                    commitPlaylistEntries(outcome, liveGuard);
+                }
+                return;
+            }
+            if (ytId) {
+                await addSingleVideo(ytId, liveGuard);
+            }
         } finally {
-            setIsFetchingMetadata(false);
+            addVideoBusyRef.current = false;
+            if (mountedRef.current) {
+                setIsFetchingMetadata(false);
+            }
         }
     };
 
