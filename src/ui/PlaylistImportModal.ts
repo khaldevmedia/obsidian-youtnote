@@ -303,10 +303,10 @@ export class PlaylistImportModal extends Modal {
     private renderUnsupported(contentEl: HTMLElement): void {
         const messageEl = contentEl.createDiv({ cls: 'youtnote-plugin__base-modal-message' });
         messageEl.setText(this.playlistKind === 'mix'
-            ? 'YouTube Mix playlists are generated automatically and cannot be imported.'
+            ? 'YouTube Mix playlists are generated automatically by YouTube\'s recommendation system and cannot be imported.'
             : 'This playlist is tied to a YouTube account and cannot be imported without signing in.');
         const buttonsEl = contentEl.createDiv({ cls: 'youtnote-plugin__base-modal-buttons' });
-        this.addButton(buttonsEl, 'Cancel', 'secondary', 'cancel', () => this.close());
+        this.addButton(buttonsEl, 'OK', 'secondary', 'cancel', () => this.close());
         if (this.options.videoId) {
             this.addButton(buttonsEl, 'Add video only', 'primary', 'choose-video', () => this.resolveVideoChoice());
         }
