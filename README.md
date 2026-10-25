@@ -55,6 +55,7 @@ For more details on this issue, please **[read here](docs/error-153-ios.md)**.
 
 ## Features
 - **Multi-video timeline**: Track any number of YouTube videos inside the same file, reorder them with drag & drop, and jump between them instantly.
+- **Playlist import**: Choose videos from a YouTube playlist and drag them into your preferred order before adding them.
 - **Timestamped note cards**: Click any note to seek the YouTube iframe to that second (with optional autoplay) or edit timestamps inline with validation.
 - **Native Obsidian Live Preview editor**: The note editor embeds Obsidian's own CM6 Live Preview, so hotkeys, themes, and plugins work exactly as you expect.
 - **Sticky player on phones**: Keep the video visible while scrolling through long note stacks thanks to the "pin on phone" option.
@@ -83,7 +84,7 @@ For more details on this issue, please **[read here](docs/error-153-ios.md)**.
 
 ## Usage
 1. **Create a Youtnote file** via the ribbon icon or the `New youtnote` command. A file with `youtnote: true` frontmatter opens in the custom view.
-2. **Add videos** with the YouTube URL field. Duplicates are prevented automatically.
+2. **Add videos** with the YouTube URL field. Paste a video or playlist URL. For playlists, select videos with checkboxes or **Check all** / **Check none**, drag to reorder, then click **Add selected**. If the link includes both a video and a playlist, choose which to add. Duplicates are prevented automatically. Private playlists and YouTube Mixes are not supported.
 3. **Select a video** to load it into the embedded iframe. Switching videos keeps the same player instance for smooth transitions.
 4. **Add notes** using the `+` (or keyboard shortcut): Youtnote auto-grabs the current playback time.
 5. **Edit in Live Preview** by double-clicking a note. Use the configured newline shortcut (`Enter` or `Shift+Enter`) to save.
