@@ -99,6 +99,7 @@ export class PlaylistImportModal extends Modal {
     }
 
     onOpen(): void {
+        this.modalEl.addClass('youtnote-plugin__playlist-dialog');
         this.contentEl.empty();
         this.contentEl.addClass('youtnote-plugin__playlist-modal');
         if (this.phase === 'loading') {
@@ -291,12 +292,12 @@ export class PlaylistImportModal extends Modal {
         const messageEl = contentEl.createDiv({ cls: 'youtnote-plugin__base-modal-message' });
         messageEl.setText('This link points to a video inside a playlist. Add only the video, or import videos from the playlist.');
         const buttonsEl = contentEl.createDiv({ cls: 'youtnote-plugin__base-modal-buttons' });
-        this.addButton(buttonsEl, 'Cancel', 'secondary', 'cancel', () => this.close());
-        this.addButton(buttonsEl, 'Add video only', 'secondary', 'choose-video', () => this.resolveVideoChoice());
         this.addButton(buttonsEl, 'Import playlist', 'primary', 'choose-playlist', () => {
             this.startFetch();
             this.render();
         });
+        this.addButton(buttonsEl, 'Add video only', 'secondary', 'choose-video', () => this.resolveVideoChoice());
+        this.addButton(buttonsEl, 'Cancel', 'secondary', 'cancel', () => this.close());
     }
 
     private renderUnsupported(contentEl: HTMLElement): void {
@@ -313,9 +314,13 @@ export class PlaylistImportModal extends Modal {
 
     private renderLoading(contentEl: HTMLElement): void {
         const progressWrap = contentEl.createDiv({ cls: 'youtnote-plugin__playlist-progress' });
-        progressWrap.createDiv({ cls: 'youtnote-plugin__dot-pulse' });
         this.progressEl = progressWrap.createDiv({ cls: 'youtnote-plugin__playlist-progress-text' });
         this.updateProgressText();
+        const indicatorEl = progressWrap.createDiv({
+            cls: 'youtnote-plugin__playlist-progress-indicator',
+            attr: { 'aria-hidden': 'true' },
+        });
+        indicatorEl.createDiv({ cls: 'youtnote-plugin__dot-pulse' });
         const buttonsEl = contentEl.createDiv({ cls: 'youtnote-plugin__base-modal-buttons' });
         this.addButton(buttonsEl, 'Cancel', 'secondary', 'cancel', () => this.close());
     }

@@ -202,6 +202,10 @@ function contentOf(modal: InstanceType<typeof PlaylistImportModal>): FakeEl {
     return modal.contentEl as unknown as FakeEl;
 }
 
+function shellOf(modal: InstanceType<typeof PlaylistImportModal>): FakeEl {
+    return modal.modalEl as unknown as FakeEl;
+}
+
 function listRows(modal: InstanceType<typeof PlaylistImportModal>): FakeEl[] {
     const lists = contentOf(modal).findAllByCls('youtnote-plugin__playlist-list');
     expect(lists).toHaveLength(1);
@@ -244,6 +248,8 @@ describe('PlaylistImportModal source choice', () => {
         expect(contentOf(modal).findByAction('choose-playlist')).not.toBeNull();
         expect(contentOf(modal).findByAction('choose-video')).not.toBeNull();
         expect(contentOf(modal).findByAction('import')).toBeNull();
+        const buttonsEl = contentOf(modal).findAllByCls('youtnote-plugin__base-modal-buttons')[0];
+        expect(buttonsEl.children.map(c => c.dataset.youtnoteAction)).toEqual(['choose-playlist', 'choose-video', 'cancel']);
 
         mockedFetch.mockResolvedValue({ title: 'Fetched', entries: [] });
         contentOf(modal).findByAction('choose-playlist')!.click();
@@ -285,9 +291,38 @@ describe('PlaylistImportModal source choice', () => {
         const modal = new PlaylistImportModal(app, 'WL', makeOptions());
         modal.open();
         expect(mockedFetch).not.toHaveBeenCalled();
+        expect(shellOf(modal).cls).toContain('youtnote-plugin__playlist-dialog');
+        expect(contentOf(modal).cls).toContain('youtnote-plugin__playlist-modal');
         expect(contentOf(modal).findByAction('choose-video')).toBeNull();
         expect(contentOf(modal).findByAction('import')).toBeNull();
         contentOf(modal).findByAction('cancel')!.click();
+        await expect(modal.result).resolves.toBeNull();
+    });
+
+    it('keeps the dialog and content classes through choice, loading and select phases', async () => {
+        const deferred: { resolve?: (result: PlaylistResult) => void } = {};
+        mockedFetch.mockImplementation(() => new Promise<PlaylistResult>(resolve => { deferred.resolve = resolve; }));
+        const modal = new PlaylistImportModal(app, PLAYLIST_ID, makeOptions({ videoId: 'aircAruvnKk' }));
+        modal.open();
+        expect(shellOf(modal).cls).toContain('youtnote-plugin__playlist-dialog');
+        expect(contentOf(modal).cls).toContain('youtnote-plugin__playlist-modal');
+        expect(contentOf(modal).findByAction('choose-playlist')).not.toBeNull();
+
+        contentOf(modal).findByAction('choose-playlist')!.click();
+        expect(mockedFetch).toHaveBeenCalledTimes(1);
+        expect(shellOf(modal).cls).toContain('youtnote-plugin__playlist-dialog');
+        expect(contentOf(modal).cls).toContain('youtnote-plugin__playlist-modal');
+        expect(contentOf(modal).findByAction('cancel')).not.toBeNull();
+        expect(contentOf(modal).findByAction('import')).toBeNull();
+
+        deferred.resolve?.({ title: 'Fetched', entries: [entry({ key: 'i0', youtubeId: 'aaaaaaaaaa1' })] });
+        await Promise.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(shellOf(modal).cls).toContain('youtnote-plugin__playlist-dialog');
+        expect(contentOf(modal).cls).toContain('youtnote-plugin__playlist-modal');
+        expect(contentOf(modal).findByAction('import')).not.toBeNull();
+        modal.close();
         await expect(modal.result).resolves.toBeNull();
     });
 });
@@ -448,6 +483,15 @@ describe('PlaylistImportModal loading and error phases', () => {
         expect(mockedFetch).toHaveBeenCalledTimes(1);
         expect(contentOf(modal).findByAction('cancel')).not.toBeNull();
         expect(contentOf(modal).findByAction('import')).toBeNull();
+        const progressWrap = contentOf(modal).findAllByCls('youtnote-plugin__playlist-progress')[0];
+        expect(progressWrap.children.map(c => c.cls)).toEqual([
+            'youtnote-plugin__playlist-progress-text',
+            'youtnote-plugin__playlist-progress-indicator',
+        ]);
+        const indicator = progressWrap.children[1];
+        expect(indicator.children).toHaveLength(1);
+        expect(indicator.children[0].cls).toBe('youtnote-plugin__dot-pulse');
+        expect(progressWrap.findAllByCls('youtnote-plugin__dot-pulse')).toHaveLength(1);
         contentOf(modal).findByAction('cancel')!.click();
         await expect(modal.result).resolves.toBeNull();
         deferred.resolve?.({ title: 'late', entries: [] });
@@ -481,6 +525,8 @@ describe('PlaylistImportModal loading and error phases', () => {
         await Promise.resolve();
         await Promise.resolve();
         await Promise.resolve();
+        expect(shellOf(modal).cls).toContain('youtnote-plugin__playlist-dialog');
+        expect(contentOf(modal).cls).toContain('youtnote-plugin__playlist-modal');
         const errorEl = contentOf(modal).findAllByCls('youtnote-plugin__playlist-error');
         expect(errorEl).toHaveLength(1);
         expect(errorEl[0].dataset.youtnoteErrorCode).toBe('timeout');
