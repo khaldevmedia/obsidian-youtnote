@@ -193,6 +193,7 @@ function playlistEntry(key: string, youtubeId: string | null, partial: {
 function makeSettings(): PluginSettings {
     return {
         pinOnPhone: false,
+        followMobileFullscreen: false,
         autoplayOnNoteSelect: false,
         autoplayOnVideoSelect: false,
         autoplayOnCaptionSelect: false,

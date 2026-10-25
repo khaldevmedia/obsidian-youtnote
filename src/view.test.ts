@@ -1,6 +1,6 @@
-import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TFile, WorkspaceLeaf } from 'obsidian';
-import { Notice } from 'obsidian';
+import { Notice, Platform } from 'obsidian';
 import { YoutnoteView } from './view';
 import { promptLegacyConversionDecision } from './ui/MessageBoxes';
 import type { LegacyConversionDecision } from './ui/MessageBoxes';
@@ -46,7 +46,26 @@ vi.mock('obsidian', () => {
         dirty = false;
         saving = false;
         saveAgain = false;
-        contentEl = { empty: vi.fn() };
+        contentEl = (() => {
+            const classes = new Set<string>();
+            return {
+                empty: vi.fn(),
+                classList: {
+                    add: (cls: string) => { classes.add(cls); },
+                    remove: (cls: string) => { classes.delete(cls); },
+                    toggle: (cls: string, force?: boolean) => {
+                        const enabled = force === undefined ? !classes.has(cls) : force;
+                        if (enabled) {
+                            classes.add(cls);
+                        } else {
+                            classes.delete(cls);
+                        }
+                        return enabled;
+                    },
+                    contains: (cls: string) => classes.has(cls),
+                },
+            };
+        })();
         requestSave = () => {
             this.dirty = true;
             void this.save();
@@ -129,6 +148,7 @@ vi.mock('obsidian', () => {
         ViewState: class {},
         App: class {},
         Component: class {},
+        Platform: { isMobile: false, isPhone: false, isTablet: false, isDesktop: true },
     };
 });
 
@@ -2818,5 +2838,89 @@ describe('video selection provenance', () => {
         view.handleSetActiveVideoId('video-1' as VideoId, 'manual');
         view.clear();
         expect(view.videoSelectionRequest).toBeNull();
+    });
+});
+
+describe('mobile fullscreen view class', () => {
+    const MOBILE_FULLSCREEN_CLASS = 'youtnote-plugin__mobile-fullscreen';
+
+    const resetPlatform = () => {
+        Platform.isMobile = false;
+        Platform.isPhone = false;
+        Platform.isTablet = false;
+        Platform.isDesktop = true;
+    };
+
+    beforeEach(resetPlatform);
+    afterEach(resetPlatform);
+
+    function renderableView(settings: Record<string, unknown>) {
+        const { view, plugin } = makeFixture();
+        plugin.settings = unsafeCast<YoutnotePlugin['settings']>(settings);
+        const render = vi.fn();
+        view.root = unsafeCast<NonNullable<typeof view.root>>({ render, unmount: vi.fn() });
+        return { view, plugin, render };
+    }
+
+    it('marks the content element on phone when followMobileFullscreen is enabled', () => {
+        Platform.isPhone = true;
+        Platform.isMobile = true;
+        const { view, render } = renderableView({ followMobileFullscreen: true });
+        view.refresh();
+        expect(view.contentEl.classList.contains(MOBILE_FULLSCREEN_CLASS)).toBe(true);
+        expect(render).toHaveBeenCalledTimes(1);
+    });
+
+    it('leaves the content element unmarked on phone when the option is disabled', () => {
+        Platform.isPhone = true;
+        Platform.isMobile = true;
+        const { view } = renderableView({ followMobileFullscreen: false });
+        view.refresh();
+        expect(view.contentEl.classList.contains(MOBILE_FULLSCREEN_CLASS)).toBe(false);
+    });
+
+    it('treats a missing legacy setting value as disabled', () => {
+        Platform.isPhone = true;
+        Platform.isMobile = true;
+        const { view } = renderableView({});
+        view.refresh();
+        expect(view.contentEl.classList.contains(MOBILE_FULLSCREEN_CLASS)).toBe(false);
+    });
+
+    it('does not mark the content element off-phone even when enabled', () => {
+        for (const platform of ['tablet', 'desktop'] as const) {
+            resetPlatform();
+            if (platform === 'tablet') {
+                Platform.isTablet = true;
+                Platform.isMobile = true;
+                Platform.isDesktop = false;
+            }
+            const { view } = renderableView({ followMobileFullscreen: true });
+            view.refresh();
+            expect(view.contentEl.classList.contains(MOBILE_FULLSCREEN_CLASS)).toBe(false);
+        }
+    });
+
+    it('removes and re-adds the class through refresh without replacing the root or key', () => {
+        Platform.isPhone = true;
+        Platform.isMobile = true;
+        const { view, plugin, render } = renderableView({ followMobileFullscreen: true });
+        view.refresh();
+        expect(view.contentEl.classList.contains(MOBILE_FULLSCREEN_CLASS)).toBe(true);
+        const root = view.root;
+        const firstKey = (render.mock.calls[0][0] as { key?: unknown }).key;
+
+        plugin.settings.followMobileFullscreen = false;
+        view.refresh();
+        expect(view.contentEl.classList.contains(MOBILE_FULLSCREEN_CLASS)).toBe(false);
+
+        plugin.settings.followMobileFullscreen = true;
+        view.refresh();
+        expect(view.contentEl.classList.contains(MOBILE_FULLSCREEN_CLASS)).toBe(true);
+        expect(view.root).toBe(root);
+        expect(render).toHaveBeenCalledTimes(3);
+        for (const call of render.mock.calls) {
+            expect((call[0] as { key?: unknown }).key).toBe(firstKey);
+        }
     });
 });

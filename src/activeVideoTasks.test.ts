@@ -295,6 +295,7 @@ describe('YoutnotePlugin AI task workflow', () => {
         const plugin = new YoutnotePluginClass(app as never, { id: 'youtnote' } as never);
         plugin.settings = {
             pinOnPhone: false,
+            followMobileFullscreen: false,
             autoplayOnNoteSelect: false,
             autoplayOnVideoSelect: false,
             autoplayOnCaptionSelect: false,

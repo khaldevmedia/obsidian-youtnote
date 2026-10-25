@@ -48,11 +48,13 @@ to avoid conflicts with other plugins */
     }
 }
 
-.is-phone .mod-root .workspace-leaf-content[data-type='youtnote-view'] > .view-content {
+/* Opt-in only: while following mobile fullscreen, replace the native top
+   margin with a scroll-away spacer inside the scroller. */
+.is-phone.auto-full-screen .mod-root .workspace-leaf-content[data-type='youtnote-view'] > .view-content.youtnote-plugin__mobile-fullscreen {
     margin-top: 0;
 }
 
-.is-phone .mod-root .workspace-leaf-content[data-type='youtnote-view'] > .view-content > .youtnote-plugin__plugin-container::before {
+.is-phone.auto-full-screen .mod-root .workspace-leaf-content[data-type='youtnote-view'] > .view-content.youtnote-plugin__mobile-fullscreen > .youtnote-plugin__plugin-container::before {
     content: '';
     height: var(--view-top-spacing);
     flex-shrink: 0;
@@ -554,6 +556,13 @@ to avoid conflicts with other plugins */
     bottom: calc(var(--size-4-18) + var(--size-4-1) + env(safe-area-inset-bottom));
     inset-inline-end: var(--size-4-5);
     z-index: var(--layer-cover);
+    transition: opacity 0.2s ease-in-out, transform 0.3s ease-out;
+}
+
+.is-phone.auto-full-screen.is-hidden-nav .mod-root .workspace-leaf-content[data-type='youtnote-view'] > .view-content.youtnote-plugin__mobile-fullscreen .youtnote-plugin__transcript-floating-actions {
+    transform: translateY(calc(var(--navbar-height) + var(--navbar-bottom-offset)));
+    opacity: 0;
+    pointer-events: none;
 }
 
 .is-mobile .youtnote-plugin__transcript-floating-btn {

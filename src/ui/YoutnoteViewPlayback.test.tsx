@@ -209,6 +209,7 @@ function makeVideo(id: VideoId, ytId: string): Video {
 function makeSettings(overrides: Partial<PluginSettings> = {}): PluginSettings {
     return {
         pinOnPhone: false,
+        followMobileFullscreen: false,
         autoplayOnNoteSelect: false,
         autoplayOnVideoSelect: false,
         autoplayOnCaptionSelect: false,

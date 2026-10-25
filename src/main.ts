@@ -348,6 +348,10 @@ export default class YoutnotePlugin extends Plugin {
         this.settingTab?.scrollToAISection();
     };
 
+    restoreMobileNavigation(): void {
+        this.app.mobileNavbar?.restoreNavigation?.();
+    }
+
     async listAIModels(provider: ConfiguredAIProviderId, signal?: AbortSignal): Promise<string[]> {
         return this.createConfiguredAIProvider(provider).listModels(signal);
     }

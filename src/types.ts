@@ -48,7 +48,10 @@ declare module 'obsidian' {
     interface App {
         commands: { executeCommandById(id: string): void };
         mobileToolbar?: { update(): void };
-        mobileNavbar?: { onScroll?: (containerEl: HTMLElement, scrollTop: number) => void };
+        mobileNavbar?: {
+            onScroll?: (containerEl: HTMLElement, scrollTop: number) => void;
+            restoreNavigation?: () => void;
+        };
         loadLocalStorage(key: string): string | null;
         saveLocalStorage(key: string, value: string): void;
         embedRegistry?: {
@@ -93,6 +96,7 @@ export interface AISettings {
 
 export interface PluginSettings {
 	pinOnPhone: boolean;
+	followMobileFullscreen: boolean;
 	autoplayOnNoteSelect: boolean;
 	autoplayOnVideoSelect: boolean;
 	autoplayOnCaptionSelect: boolean;

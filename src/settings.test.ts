@@ -275,6 +275,115 @@ describe('caption autoplay settings controls', () => {
     });
 });
 
+describe('followMobileFullscreen setting', () => {
+    const stubFragment = () => {
+        vi.stubGlobal('createFragment', (callback: (frag: {
+            appendText(text: string): void;
+            createEl(tag: string): unknown;
+        }) => void) => {
+            callback({ appendText: vi.fn(), createEl: () => ({}) });
+            return {};
+        });
+    };
+
+    it('defaults to false when missing and only enables on literal true', () => {
+        expect(DEFAULT_SETTINGS.followMobileFullscreen).toBe(false);
+        expect(mergePluginSettings({}).followMobileFullscreen).toBe(false);
+        expect(mergePluginSettings(undefined).followMobileFullscreen).toBe(false);
+        expect(mergePluginSettings({ followMobileFullscreen: false }).followMobileFullscreen).toBe(false);
+        expect(mergePluginSettings({ followMobileFullscreen: true }).followMobileFullscreen).toBe(true);
+        for (const invalid of ['yes', 1, {}, [], null]) {
+            expect(mergePluginSettings({ followMobileFullscreen: invalid }).followMobileFullscreen).toBe(false);
+        }
+    });
+
+    it('places both mobile toggles in the same settings group', () => {
+        stubFragment();
+        try {
+            const tab = new YoutnoteSettingTab({} as never, { settings: DEFAULT_SETTINGS } as never);
+            const groupKeys = tab.getSettingDefinitions().map(group =>
+                group.items.map(item => ('control' in item ? item.control.key : null)));
+            expect(groupKeys).toContainEqual(['pinOnPhone', 'followMobileFullscreen']);
+        } finally {
+            vi.unstubAllGlobals();
+        }
+    });
+
+    it('setControlValue toggles the stored value and persists once', async () => {
+        const saveDataState = vi.fn(() => Promise.resolve());
+        const refreshAllViews = vi.fn();
+        const plugin = {
+            settings: mergePluginSettings({}),
+            saveDataState,
+            refreshAllViews,
+            restoreMobileNavigation: vi.fn(),
+        };
+        const tab = new YoutnoteSettingTab({} as never, plugin as never);
+        expect(tab.getControlValue('followMobileFullscreen')).toBe(false);
+        await tab.setControlValue('followMobileFullscreen', true);
+        expect(plugin.settings.followMobileFullscreen).toBe(true);
+        expect(tab.getControlValue('followMobileFullscreen')).toBe(true);
+        expect(saveDataState).toHaveBeenCalledTimes(1);
+        expect(refreshAllViews).toHaveBeenCalledTimes(1);
+        expect(plugin.restoreMobileNavigation).not.toHaveBeenCalled();
+    });
+
+    it('restores mobile navigation when the setting is disabled', async () => {
+        const saveDataState = vi.fn(() => Promise.resolve());
+        const refreshAllViews = vi.fn();
+        const restoreMobileNavigation = vi.fn();
+        const plugin = {
+            settings: mergePluginSettings({ followMobileFullscreen: true }),
+            saveDataState,
+            refreshAllViews,
+            restoreMobileNavigation,
+        };
+        const tab = new YoutnoteSettingTab({} as never, plugin as never);
+        await tab.setControlValue('followMobileFullscreen', false);
+        expect(plugin.settings.followMobileFullscreen).toBe(false);
+        expect(restoreMobileNavigation).toHaveBeenCalledTimes(1);
+        expect(saveDataState).toHaveBeenCalledTimes(1);
+        expect(refreshAllViews).toHaveBeenCalledTimes(1);
+    });
+
+    it('legacy display() renders a toggle bound to the same settings key', async () => {
+        stubFragment();
+        try {
+            settingRecords.length = 0;
+            const saveDataState = vi.fn(() => Promise.resolve());
+            const refreshAllViews = vi.fn();
+            const restoreMobileNavigation = vi.fn();
+            const plugin = {
+                settings: mergePluginSettings({ followMobileFullscreen: true }),
+                saveDataState,
+                refreshAllViews,
+                restoreMobileNavigation,
+            };
+            const tab = new YoutnoteSettingTab({} as never, plugin as never);
+            tab.display();
+
+            const toggleOrder = tab.getSettingDefinitions()
+                .flatMap(group => group.items)
+                .flatMap(item => ('control' in item && item.control.type === 'toggle'
+                    ? [item.control.key]
+                    : []));
+            const ordinal = toggleOrder.indexOf('followMobileFullscreen');
+            expect(ordinal).toBeGreaterThanOrEqual(0);
+
+            const toggles = settingRecords.filter(record => record.toggle !== undefined);
+            const target = toggles[ordinal].toggle!;
+            expect(target.value).toBe(true);
+            await target.onChange!(false);
+            expect(plugin.settings.followMobileFullscreen).toBe(false);
+            expect(restoreMobileNavigation).toHaveBeenCalledTimes(1);
+            expect(saveDataState).toHaveBeenCalledTimes(1);
+            expect(refreshAllViews).toHaveBeenCalledTimes(1);
+        } finally {
+            vi.unstubAllGlobals();
+        }
+    });
+});
+
 describe('rememberPlaybackPosition setting', () => {
     const stubFragment = () => {
         vi.stubGlobal('createFragment', (callback: (frag: {

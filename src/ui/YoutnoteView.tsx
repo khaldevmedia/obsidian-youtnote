@@ -1369,11 +1369,11 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
 
     const handleContainerScroll = useCallback(() => {
         const container = containerRef.current;
-        if (Platform.isPhone && container) {
+        if (Platform.isPhone && container && settings.followMobileFullscreen) {
             app.mobileNavbar?.onScroll?.(container, container.scrollTop);
         }
         updateTranscriptScrollTopVisibility();
-    }, [app, updateTranscriptScrollTopVisibility]);
+    }, [app, settings.followMobileFullscreen, updateTranscriptScrollTopVisibility]);
 
     useEffect(() => {
         updateTranscriptScrollTopVisibility();

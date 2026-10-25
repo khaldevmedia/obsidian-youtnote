@@ -1273,12 +1273,12 @@ describe('mobile navbar scroll forwarding', () => {
         (buttons[0].props!.onClick as () => void)();
     }
 
-    function transcriptSetup(app?: Record<string, unknown>) {
+    function transcriptSetup(app?: Record<string, unknown>, followMobileFullscreen = true) {
         const { props } = makeProps({
             app,
             videos: [{ ...makeVideo(), transcript: [{ startMs: 0, text: 'cap-0' }, { startMs: 1000, text: 'cap-1' }] }],
             notes: [],
-            settings: { autoScrollTranscript: true },
+            settings: { autoScrollTranscript: true, followMobileFullscreen },
         });
         let tree = renderView(props);
         enterTranscript(tree);
@@ -1295,7 +1295,11 @@ describe('mobile navbar scroll forwarding', () => {
                 receivers.push(this);
             }),
         };
-        const { props } = makeProps({ app: { mobileNavbar: navbar }, notes: [] });
+        const { props } = makeProps({
+            app: { mobileNavbar: navbar },
+            notes: [],
+            settings: { followMobileFullscreen: true },
+        });
         const tree = renderView(props);
         const container = makeContainerFake();
         const containerEl = attachContainer(tree, container);
@@ -1311,6 +1315,34 @@ describe('mobile navbar scroll forwarding', () => {
         expect(navbar.onScroll).toHaveBeenNthCalledWith(2, container, 120);
         expect(navbar.onScroll).toHaveBeenNthCalledWith(3, container, 0);
         expect(receivers).toEqual([navbar, navbar, navbar]);
+    });
+
+    it('does not forward on phone when mobile full-screen following is disabled', () => {
+        Platform.isMobile = true;
+        Platform.isPhone = true;
+        const navbar = { onScroll: vi.fn() };
+        const { props } = makeProps({
+            app: { mobileNavbar: navbar },
+            notes: [],
+            settings: { followMobileFullscreen: false },
+        });
+        const tree = renderView(props);
+        const containerEl = attachContainer(tree, makeContainerFake({ scrollTop: 300 }));
+        (containerEl.props!.onScroll as () => void)();
+        expect(navbar.onScroll).not.toHaveBeenCalled();
+    });
+
+    it('still drives the back-to-top button when mobile full-screen following is disabled', () => {
+        Platform.isMobile = true;
+        Platform.isPhone = true;
+        const navbar = { onScroll: vi.fn() };
+        const { getTree, rerender } = transcriptSetup({ mobileNavbar: navbar }, false);
+        const containerEl = attachContainer(getTree(), makeContainerFake({ scrollTop: 400 }));
+        attachHeader(getTree());
+        (containerEl.props!.onScroll as () => void)();
+        expect(navbar.onScroll).not.toHaveBeenCalled();
+        rerender();
+        expect(collectByClass(getTree(), SCROLL_TOP_BTN)).toHaveLength(1);
     });
 
     it('still forwards while driving the back-to-top button in transcript mode', () => {
@@ -1331,7 +1363,11 @@ describe('mobile navbar scroll forwarding', () => {
         Platform.isMobile = true;
         Platform.isTablet = true;
         const navbar = { onScroll: vi.fn() };
-        const { props } = makeProps({ app: { mobileNavbar: navbar }, notes: [] });
+        const { props } = makeProps({
+            app: { mobileNavbar: navbar },
+            notes: [],
+            settings: { followMobileFullscreen: true },
+        });
         const tree = renderView(props);
         const containerEl = attachContainer(tree, makeContainerFake({ scrollTop: 300 }));
         (containerEl.props!.onScroll as () => void)();
@@ -1340,7 +1376,11 @@ describe('mobile navbar scroll forwarding', () => {
 
     it('does not forward on desktop even with a navbar present', () => {
         const navbar = { onScroll: vi.fn() };
-        const { props } = makeProps({ app: { mobileNavbar: navbar }, notes: [] });
+        const { props } = makeProps({
+            app: { mobileNavbar: navbar },
+            notes: [],
+            settings: { followMobileFullscreen: true },
+        });
         const tree = renderView(props);
         const containerEl = attachContainer(tree, makeContainerFake({ scrollTop: 300 }));
         (containerEl.props!.onScroll as () => void)();
@@ -1373,7 +1413,11 @@ describe('mobile navbar scroll forwarding', () => {
         Platform.isMobile = true;
         Platform.isPhone = true;
         const navbar = { onScroll: vi.fn() };
-        const { props } = makeProps({ app: { mobileNavbar: navbar }, notes: [] });
+        const { props } = makeProps({
+            app: { mobileNavbar: navbar },
+            notes: [],
+            settings: { followMobileFullscreen: true },
+        });
         const tree = renderView(props);
         const [containerEl] = collectByClass(tree, CONTAINER);
         expect(() => (containerEl.props!.onScroll as () => void)()).not.toThrow();

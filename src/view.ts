@@ -1,4 +1,4 @@
-import { TextFileView, WorkspaceLeaf, TFile, ViewState } from 'obsidian';
+import { TextFileView, WorkspaceLeaf, TFile, ViewState, Platform } from 'obsidian';
 import * as React from 'react';
 import * as ReactDOM from 'react-dom/client';
 import { YoutubePluginView } from './ui/YoutnoteView';
@@ -797,6 +797,7 @@ export class YoutnoteView extends TextFileView {
     render() {
         if (!this.root) return;
 
+        this.contentEl.classList.toggle('youtnote-plugin__mobile-fullscreen', Platform.isPhone && this.plugin.settings.followMobileFullscreen === true);
         const activeVideo = this.videos.find(v => v.id === this.activeVideoId);
         const activeYoutubeId = activeVideo ? extractYouTubeId(activeVideo.url) : null;
 

@@ -22,6 +22,7 @@ export const DEFAULT_SETTINGS: PluginSettings = {
 	exportIncludeNotes: true,
 	exportIncludeTranscripts: true,
 	pinOnPhone: false,
+	followMobileFullscreen: false,
 	uriSchemeEnabled: false,
 	ai: {
 		enabled: false,
@@ -93,6 +94,7 @@ export function mergePluginSettings(raw: unknown): PluginSettings {
 		: source.autoplayOnNoteSelect === true;
 	merged.autoplayOnVideoSelect = source.autoplayOnVideoSelect === true;
 	merged.rememberPlaybackPosition = source.rememberPlaybackPosition === true;
+	merged.followMobileFullscreen = source.followMobileFullscreen === true;
 	merged.ai = mergeAISettings(source.ai);
 	return merged;
 }
@@ -150,7 +152,7 @@ export async function refreshAIModelList(
 
 type ToggleKey = keyof Pick<
 	PluginSettings,
-	'pinOnPhone' | 'autoplayOnNoteSelect' | 'autoplayOnVideoSelect' | 'autoplayOnCaptionSelect' | 'singleExpandMode' | 'persistExpandedState' | 'openExportedFile' | 'showNoteStats' | 'autoScrollTranscript' | 'switchToNotesAfterTranscriptNote' | 'rememberPlaybackPosition' | 'uriSchemeEnabled'
+	'pinOnPhone' | 'followMobileFullscreen' | 'autoplayOnNoteSelect' | 'autoplayOnVideoSelect' | 'autoplayOnCaptionSelect' | 'singleExpandMode' | 'persistExpandedState' | 'openExportedFile' | 'showNoteStats' | 'autoScrollTranscript' | 'switchToNotesAfterTranscriptNote' | 'rememberPlaybackPosition' | 'uriSchemeEnabled'
 >;
 
 type Desc = string | (() => string | DocumentFragment);
@@ -277,11 +279,22 @@ const SETTING_DEFINITIONS: SettingGroupDef[] = [
 				desc: 'When creating a note from a transcript timestamp, go back to the note list and select the new note. When off, the note is added without leaving the transcript view.',
 				key: 'switchToNotesAfterTranscriptNote',
 			},
+		],
+	},
+	{
+		heading: 'Mobile',
+		items: [
 			{
 				kind: 'toggle',
 				name: 'Pin video on phone (sticky)',
 				desc: 'Keep the video player visible at the top while scrolling notes on mobile.',
 				key: 'pinOnPhone',
+			},
+			{
+				kind: 'toggle',
+				name: 'Follow mobile full screen',
+				desc: 'Let Youtnote follow Obsidian’s Full screen setting by hiding interface elements while scrolling down and showing them while scrolling up.',
+				key: 'followMobileFullscreen',
 			},
 		],
 	},
@@ -343,7 +356,7 @@ export class YoutnoteSettingTab extends PluginSettingTab {
 
 	private settingGroups(): SettingGroupDef[] {
 		const groups = SETTING_DEFINITIONS.slice();
-		groups.splice(1, 0, this.buildAIGroup());
+		groups.splice(2, 0, this.buildAIGroup());
 		return groups;
 	}
 
@@ -358,6 +371,15 @@ export class YoutnoteSettingTab extends PluginSettingTab {
 			return;
 		}
 		this.display();
+	}
+
+	private async persistControlValue(key: string, value: unknown): Promise<void> {
+		(this.plugin.settings as unknown as Record<string, unknown>)[key] = value;
+		if (key === 'followMobileFullscreen' && value === false) {
+			this.plugin.restoreMobileNavigation();
+		}
+		await this.plugin.saveDataState();
+		this.plugin.refreshAllViews();
 	}
 
 	private buildAIGroup(): SettingGroupDef {
@@ -595,11 +617,6 @@ export class YoutnoteSettingTab extends PluginSettingTab {
 		const { containerEl } = this;
 		containerEl.empty();
 
-		const persistAndRefresh = async () => {
-			await this.plugin.saveDataState();
-			this.plugin.refreshAllViews();
-		};
-
 		for (const group of this.settingGroups()) {
 			new Setting(containerEl)
 				.setName(group.heading)
@@ -617,8 +634,7 @@ export class YoutnoteSettingTab extends PluginSettingTab {
 						.addToggle(toggle => toggle
 							.setValue(this.plugin.settings[item.key])
 							.onChange(async (value) => {
-								this.plugin.settings[item.key] = value;
-								await persistAndRefresh();
+								await this.persistControlValue(item.key, value);
 							}));
 				} else if (item.kind === 'dropdown') {
 					new Setting(containerEl)
@@ -631,8 +647,7 @@ export class YoutnoteSettingTab extends PluginSettingTab {
 							dropdown
 								.setValue(this.plugin.settings[item.key])
 								.onChange(async (value) => {
-									this.plugin.settings[item.key] = value as 'enter' | 'shift+enter';
-									await persistAndRefresh();
+									await this.persistControlValue(item.key, value);
 								});
 						});
 				} else if (item.kind === 'custom') {
@@ -653,9 +668,7 @@ export class YoutnoteSettingTab extends PluginSettingTab {
 	}
 
 	async setControlValue(key: string, value: unknown): Promise<void> {
-		(this.plugin.settings as unknown as Record<string, unknown>)[key] = value;
-		await this.plugin.saveDataState();
-		this.plugin.refreshAllViews();
+		await this.persistControlValue(key, value);
 	}
 
 	getSettingDefinitions() {
