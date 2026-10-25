@@ -99,7 +99,16 @@ export default class YoutnotePlugin extends Plugin {
             name: 'Create new file',
             callback: async () => {
                 const folder = this.app.workspace.getActiveFile()?.parent?.path || '';
-                await this.createYoutnoteInFolder(folder);
+                await this.createYoutnoteInFolder(folder, false);
+            }
+        });
+
+        this.addCommand({
+            id: 'create-file-new-tab',
+            name: 'Create new file in a new tab',
+            callback: async () => {
+                const folder = this.app.workspace.getActiveFile()?.parent?.path || '';
+                await this.createYoutnoteInFolder(folder, true);
             }
         });
 
@@ -161,7 +170,7 @@ export default class YoutnotePlugin extends Plugin {
                                 .setIcon('youtnote')
                                 .setSection('action-primary')
                                 .onClick(() => {
-                                    void this.createYoutnoteInFolder(file.path);
+                                    void this.createYoutnoteInFolder(file.path, false);
                                 });
                         });
                     }
@@ -735,10 +744,12 @@ export default class YoutnotePlugin extends Plugin {
     }
 
     // Create a new Youtnote file inside the given folder (use '' for vault root),
-    // resolving name collisions with a numeric suffix, then open it in a new tab
-    // in the Youtnote view. Shared by the create-file command and the folder
-    // context-menu item.
-    private async createYoutnoteInFolder(folderPath: string): Promise<void> {
+    // resolving name collisions with a numeric suffix, then open and focus it in
+    // the Youtnote view. When newLeaf is false the file replaces the current
+    // leaf (like core "New note" and other plugins); when true it opens in a
+    // new tab. Shared by the create-file commands, the folder context-menu
+    // item, and the URI scheme handler.
+    private async createYoutnoteInFolder(folderPath: string, newLeaf: boolean): Promise<{ file: TFile; leaf: WorkspaceLeaf }> {
         const baseFileName = 'Youtnote Untitled';
         let newFileName = `${baseFileName}.md`;
         let newFilePath = folderPath ? `${folderPath}/${newFileName}` : newFileName;
@@ -753,11 +764,14 @@ export default class YoutnotePlugin extends Plugin {
 
         const newFile = await this.app.vault.create(newFilePath, createEmptyYoutnoteMarkdown());
 
-        // Open the new file in a new tab directly in the Youtnote view
-        const leaf = this.app.workspace.getLeaf(true);
+        // Open the new file in the Youtnote view
+        const leaf = this.app.workspace.getLeaf(newLeaf);
         await leaf.openFile(newFile);
         this.youtnoteFileModes[leaf.id ?? newFile.path] = VIEW_TYPE;
         await this.setYoutnoteView(leaf);
+        this.app.workspace.setActiveLeaf(leaf, { focus: true });
+
+        return { file: newFile, leaf };
     }
 
     async isYoutnoteFile(file: TFile): Promise<boolean> {
@@ -889,25 +903,7 @@ export default class YoutnotePlugin extends Plugin {
      */
     async createYoutnoteFile(): Promise<{ file: TFile; leaf: WorkspaceLeaf }> {
         const folder = this.app.workspace.getActiveFile()?.parent?.path || '';
-        const baseFileName = 'Youtnote Untitled';
-        let newFileName = `${baseFileName}.md`;
-        let newFilePath = folder ? `${folder}/${newFileName}` : newFileName;
-
-        let i = 1;
-        while (await this.app.vault.adapter.exists(newFilePath)) {
-            newFileName = `${baseFileName} ${i}.md`;
-            newFilePath = folder ? `${folder}/${newFileName}` : newFileName;
-            i++;
-        }
-
-        const newFile = await this.app.vault.create(newFilePath, createEmptyYoutnoteMarkdown());
-
-        const leaf = this.app.workspace.getLeaf(true);
-        await leaf.openFile(newFile);
-        this.youtnoteFileModes[leaf.id ?? newFile.path] = VIEW_TYPE;
-        await this.setYoutnoteView(leaf);
-
-        return { file: newFile, leaf };
+        return this.createYoutnoteInFolder(folder, true);
     }
 
     /**

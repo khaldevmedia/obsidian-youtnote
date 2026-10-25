@@ -1,9 +1,10 @@
 /**
- * Tests the URI handlers in main.ts: notice styling and persistence, duplicate
- * handling, and target-view selection. Unlike uri-scheme.test.ts, which tests
- * parameter validation, these tests mock Obsidian to exercise plugin behavior
- * without launching the app. Assertions avoid message wording for i18n safety;
- * actual theme colors still require manual verification.
+ * Tests the URI handlers in main.ts (notice styling and persistence, duplicate
+ * handling, target-view selection) plus youtnote file creation leaf behavior.
+ * Unlike uri-scheme.test.ts, which tests parameter validation, these tests mock
+ * Obsidian to exercise plugin behavior without launching the app. Assertions
+ * avoid message wording for i18n safety; actual theme colors still require
+ * manual verification.
  */
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { App, TFile, WorkspaceLeaf } from 'obsidian';
@@ -98,6 +99,8 @@ interface UriSchemeInternals {
     handleUriSchemeAppend(normalizedUrl: string): Promise<void>;
     handleUriSchemeGeneralNote(normalizedUrl: string, text: string): Promise<void>;
     fetchVideoMetadata(normalizedUrl: string): Promise<{ title: string; thumbnail: string; durationSec: number }>;
+    createYoutnoteInFolder(folderPath: string, newLeaf: boolean): Promise<{ file: TFile; leaf: WorkspaceLeaf }>;
+    createYoutnoteFile(): Promise<{ file: TFile; leaf: WorkspaceLeaf }>;
 }
 
 describe('YoutnotePlugin URI scheme notices', () => {
@@ -274,5 +277,77 @@ describe('YoutnotePlugin URI scheme notices', () => {
 
             expect(plugin.getOpenYoutnoteView()).toBeNull();
         });
+    });
+});
+
+describe('youtnote file creation', () => {
+    let YoutnotePluginClass: typeof YoutnotePlugin;
+
+    beforeAll(async () => {
+        YoutnotePluginClass = (await import('./main')).default;
+    });
+
+    const makeLeaf = (path = 'Youtnote Untitled.md') => {
+        const state = { file: path };
+        const openFile = vi.fn(async () => {});
+        const setViewState = vi.fn(async () => {});
+        const leaf = unsafeCast<WorkspaceLeaf>({
+            id: 'leaf-1',
+            view: { getState: () => state },
+            openFile,
+            setViewState,
+        });
+        return { leaf, openFile, setViewState };
+    };
+
+    const makePlugin = (leaf: WorkspaceLeaf) => {
+        const exists = vi.fn(async (_path: string) => false);
+        const create = vi.fn(async (path: string) =>
+            unsafeCast<TFile>({ path, basename: path.replace(/\.md$/, '') }));
+        const getLeaf = vi.fn(() => leaf);
+        const setActiveLeaf = vi.fn();
+        const app = unsafeCast<App>({
+            vault: { adapter: { exists }, create },
+            workspace: { getLeaf, setActiveLeaf },
+        });
+        const plugin = new YoutnotePluginClass(app, unsafeCast({ id: 'youtnote' }));
+        return { plugin, exists, create, getLeaf, setActiveLeaf };
+    };
+
+    it('replaces the current leaf when newLeaf is false and focuses it', async () => {
+        const { leaf, setViewState } = makeLeaf();
+        const { plugin, getLeaf, setActiveLeaf } = makePlugin(leaf);
+        const internals = unsafeCast<UriSchemeInternals>(plugin);
+
+        const result = await internals.createYoutnoteInFolder('notes', false);
+
+        expect(getLeaf).toHaveBeenCalledWith(false);
+        expect(setActiveLeaf).toHaveBeenCalledWith(leaf, { focus: true });
+        expect(setViewState).toHaveBeenCalledWith(
+            expect.objectContaining({ type: VIEW_TYPE }));
+        expect(result).toEqual(expect.objectContaining({ leaf }));
+    });
+
+    it('opens a new tab when newLeaf is true and focuses it', async () => {
+        const { leaf } = makeLeaf();
+        const { plugin, getLeaf, setActiveLeaf } = makePlugin(leaf);
+        const internals = unsafeCast<UriSchemeInternals>(plugin);
+
+        const result = await internals.createYoutnoteInFolder('notes', true);
+
+        expect(getLeaf).toHaveBeenCalledWith(true);
+        expect(setActiveLeaf).toHaveBeenCalledWith(leaf, { focus: true });
+        expect(result.leaf).toBe(leaf);
+    });
+
+    it('appends a numeric suffix when the target filename already exists', async () => {
+        const { leaf } = makeLeaf();
+        const { plugin, exists, create } = makePlugin(leaf);
+        exists.mockImplementation(async (path: string) => path.endsWith('Youtnote Untitled.md'));
+        const internals = unsafeCast<UriSchemeInternals>(plugin);
+
+        await internals.createYoutnoteInFolder('notes', false);
+
+        expect(create).toHaveBeenCalledWith('notes/Youtnote Untitled 1.md', expect.any(String));
     });
 });

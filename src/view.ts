@@ -786,6 +786,7 @@ export class YoutnoteView extends TextFileView {
         if (this.plugin.settings.openExportedFile) {
             const leaf = this.plugin.app.workspace.getLeaf('tab');
             await leaf.openFile(createdFile);
+            this.plugin.app.workspace.setActiveLeaf(leaf, { focus: true });
         }
         else{
             // Show a notification that the file was created
