@@ -1,5 +1,6 @@
 import React from 'react';
 import { App, Component, TFile } from 'obsidian';
+import type { EditorView } from '@codemirror/view';
 import type { AIProviderId, ConfiguredAIProviderId } from './ai/types';
 import type { AIGeneralNoteMode, AINoteSaveMode } from './ai/notePersistence';
 import type { VideoTaskState } from './activeVideoTasks';
@@ -10,7 +11,7 @@ export type MarkdownEditorClass = abstract new (...args: unknown[]) => Component
     buildLocalExtensions(): unknown[];
     get(): string;
     set(value: string): void;
-    readonly editor?: { focus(): void };
+    readonly editor?: { focus(): void; cm?: EditorView };
 };
 
 /** Context for instantiating Obsidian's internal embed registry factory. */

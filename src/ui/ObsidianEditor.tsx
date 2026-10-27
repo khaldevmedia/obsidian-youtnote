@@ -160,6 +160,14 @@ export const ObsidianEditor: React.FC<ObsidianEditorProps> = ({ app, view, value
         editorInstanceRef.current = editor;
         editor.set(value || '');
 
+        const cm = editor.editor?.cm;
+        if (cm) {
+            cm.dispatch({
+                selection: { anchor: cm.state.doc.length },
+                scrollIntoView: true,
+            });
+        }
+
         // Focus the editor
         window.setTimeout(() => {
             editor.editor?.focus();
