@@ -56,6 +56,7 @@ For more details on this issue, please **[read here](docs/error-153-ios.md)**.
 ## Features
 - **Multi-video timeline**: Track any number of YouTube videos inside the same file, reorder them with drag & drop, and jump between them instantly.
 - **Playlist import**: Choose videos from a YouTube playlist and drag them into your preferred order before adding them.
+- **Bulk video import**: Paste a whole list of video links at once — numbered or plain — review them, and pick which ones to add.
 - **Timestamped note cards**: Click any note to seek the YouTube iframe to that second (with optional autoplay) or edit timestamps inline with validation.
 - **Native Obsidian Live Preview editor**: The note editor embeds Obsidian's own CM6 Live Preview, so hotkeys, themes, and plugins work exactly as you expect.
 - **Sticky player on phones**: Keep the video visible while scrolling through long note stacks thanks to the "pin on phone" option.
@@ -94,6 +95,19 @@ For more details on this issue, please **[read here](docs/error-153-ios.md)**.
 9. **Fetch the transcript** with the captions icon in the notes header. In the transcript view, click a timestamp to seek, hover a caption to copy it, edit its text, or turn it into a note. Use the search bar to filter captions and the re-fetch icon to reload them from YouTube. The caption at the current playback position is highlighted, and optional auto-scroll keeps it centered as the video plays — if you scroll away manually, use the sync button to jump back to the current caption.
 10. **Generate notes with AI** using the bot button in the notes or transcript header (requires AI to be enabled in settings). All dialog fields are optional: add custom instructions, limit the maximum number of notes, and choose whether to add to or replace existing notes. While generating, a status row with a Cancel button lets you abort the request.
 11. **Export** single-video or full-note markdown via the header buttons.
+
+### Add multiple videos
+
+Leave the YouTube URL field empty and click `+` to open the bulk importer. Paste one video link per line — numbered or plain — then click **Load videos**:
+
+```
+1. https://www.youtube.com/watch?v=aircAruvnKk
+2. https://youtu.be/SZorAJ4I7xg
+```
+
+Numbered-list support is intended for links copied using a mobile browser's multiple-tab sharing feature, which produces lines in the `1. URL` format: a number, a dot, then a space before the URL. Keep that space — `1.URL`, `2 URL`, and `1) URL` are not accepted. Plain URLs need no numbering.
+
+Choose videos with **Add** / **Remove** or **Add all** / **Clear**, drag to reorder **Videos to add**, then click **Add videos**. Playlist parameters on a link are ignored — each link is treated as an individual video (to import a playlist itself, paste its link in the field normally). Videos already in the file and repeated links are grayed out and cannot be added again.
 
 ## Storage format
 

@@ -15,6 +15,7 @@ const { fakeEl, sortableCreates, sortableDestroy } = vi.hoisted(() => {
         disabled: boolean;
         focused: boolean;
         scrollTop: number;
+        value: string;
         empty(): void;
         addClass(cls: string): void;
         createDiv(options?: { cls?: string; text?: string; attr?: Record<string, string> }): FakeEl;
@@ -40,6 +41,7 @@ const { fakeEl, sortableCreates, sortableDestroy } = vi.hoisted(() => {
             disabled: false,
             focused: false,
             scrollTop: 0,
+            value: '',
             listeners: {},
             empty() {
                 el.children = [];
@@ -174,8 +176,14 @@ vi.mock('../playlistFetch', () => ({
     fetchPlaylist: vi.fn(),
 }));
 
+vi.mock('../videoUrlListFetch', () => ({
+    fetchProvidedVideos: vi.fn(),
+}));
+
 const { fetchPlaylist } = await import('../playlistFetch');
 const mockedFetch = vi.mocked(fetchPlaylist);
+const { fetchProvidedVideos } = await import('../videoUrlListFetch');
+const mockedProvidedFetch = vi.mocked(fetchProvidedVideos);
 const { setIcon } = await import('obsidian');
 const mockedSetIcon = vi.mocked(setIcon);
 const { PlaylistImportModal } = await import('./PlaylistImportModal');
@@ -282,6 +290,7 @@ async function openLoadedModal(entriesList: PlaylistEntry[], options = makeOptio
 
 beforeEach(() => {
     mockedFetch.mockReset();
+    mockedProvidedFetch.mockReset();
     mockedSetIcon.mockReset();
     sortableCreates.length = 0;
     sortableDestroy.mockReset();
@@ -720,5 +729,244 @@ describe('PlaylistImportModal loading and error phases', () => {
         modal.close();
         expect(signal!.aborted).toBe(true);
         await expect(modal.result).resolves.toBeNull();
+    });
+});
+
+describe('PlaylistImportModal provided links', () => {
+    const PASTED = `1. https://youtu.be/aaaaaaaaaa1\n2. https://www.youtube.com/watch?v=aaaaaaaaaa2`;
+
+    const providedEntries = [
+        entry({ key: 'p0', youtubeId: 'aaaaaaaaaa1' }),
+        entry({ key: 'p1', youtubeId: 'aaaaaaaaaa2', available: false }),
+        entry({ key: 'p2', youtubeId: 'aaaaaaaaaa3' }),
+    ];
+
+    function openProvidedModal(options = makeOptions()) {
+        const modal = new PlaylistImportModal(app, { kind: 'provided' }, options);
+        modal.open();
+        return modal;
+    }
+
+    function inputOf(modal: InstanceType<typeof PlaylistImportModal>): FakeEl {
+        const input = contentOf(modal).findByAction('url-input');
+        expect(input).not.toBeNull();
+        return input!;
+    }
+
+    function typeProvidedText(modal: InstanceType<typeof PlaylistImportModal>, text: string): void {
+        const input = inputOf(modal);
+        input.value = text;
+        input.listeners.input?.();
+    }
+
+    function loadProvidedText(modal: InstanceType<typeof PlaylistImportModal>, text: string): void {
+        typeProvidedText(modal, text);
+        contentOf(modal).findByAction('load-videos')!.click();
+    }
+
+    it('opens the paste input without fetching and enables load only with text', async () => {
+        const modal = openProvidedModal();
+        expect(mockedFetch).not.toHaveBeenCalled();
+        expect(mockedProvidedFetch).not.toHaveBeenCalled();
+        expect(contentOf(modal).findByAction('import')).toBeNull();
+        expect(contentOf(modal).findByAction('choose-playlist')).toBeNull();
+        const input = inputOf(modal);
+        expect(input.value).toBe('');
+        const messages = contentOf(modal).findAllByCls('youtnote-plugin__base-modal-message');
+        expect(messages).toHaveLength(1);
+        const instructionId = messages[0].attr.id;
+        expect(instructionId).toBeTruthy();
+        expect(input.attr['aria-labelledby']).toBe(instructionId);
+        expect(input.attr['aria-label']).toBeUndefined();
+        expect(input.attr.title).toBeUndefined();
+        expect(contentOf(modal).findByAction('load-videos')!.disabled).toBe(true);
+        typeProvidedText(modal, `https://youtu.be/aaaaaaaaaa1`);
+        expect(contentOf(modal).findByAction('load-videos')!.disabled).toBe(false);
+        contentOf(modal).findByAction('cancel')!.click();
+        await expect(modal.result).resolves.toBeNull();
+    });
+
+    it('ignores the video fallback option for a provided source', async () => {
+        const modal = openProvidedModal(makeOptions({ videoId: 'aircAruvnKk' }));
+        expect(inputOf(modal)).toBeDefined();
+        expect(contentOf(modal).findByAction('choose-video')).toBeNull();
+        expect(contentOf(modal).findByAction('choose-playlist')).toBeNull();
+        expect(mockedFetch).not.toHaveBeenCalled();
+        expect(mockedProvidedFetch).not.toHaveBeenCalled();
+        modal.close();
+    });
+
+    it('reports invalid lines with a stable code and no fetch, keeping the text', async () => {
+        const modal = openProvidedModal();
+        const pasted = `https://youtu.be/aaaaaaaaaa1\nbad line\nhttps://www.youtube.com/playlist?list=${PLAYLIST_ID}`;
+        loadProvidedText(modal, pasted);
+        expect(mockedProvidedFetch).not.toHaveBeenCalled();
+        const errors = contentOf(modal).findAllByCls('youtnote-plugin__playlist-input-error');
+        expect(errors).toHaveLength(1);
+        expect(errors[0].dataset.youtnoteErrorCode).toBe('invalid');
+        expect(errors[0].dataset.youtnoteInvalidLines).toBe('2 3');
+        const input = inputOf(modal);
+        expect(input.value).toBe(pasted);
+        expect(input.focused).toBe(true);
+        modal.close();
+        await expect(modal.result).resolves.toBeNull();
+    });
+
+    it('loads parsed canonical links through the provided loader only', async () => {
+        mockedProvidedFetch.mockResolvedValue({ title: 'Provided videos', entries: providedEntries });
+        const modal = openProvidedModal();
+        loadProvidedText(modal, PASTED);
+        expect(mockedProvidedFetch).toHaveBeenCalledTimes(1);
+        expect(mockedFetch).not.toHaveBeenCalled();
+        const [videosArg] = mockedProvidedFetch.mock.calls[0];
+        expect(videosArg.map(v => v.youtubeId)).toEqual(['aaaaaaaaaa1', 'aaaaaaaaaa2']);
+        expect(videosArg.map(v => v.url)).toEqual([
+            'https://www.youtube.com/watch?v=aaaaaaaaaa1',
+            'https://www.youtube.com/watch?v=aaaaaaaaaa2',
+        ]);
+        await Promise.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(rowKeys(sourceRows(modal))).toEqual(['p0', 'p1', 'p2']);
+        modal.close();
+    });
+
+    it('marks failed, repeated and existing provided rows with stable statuses', async () => {
+        const entries = [
+            entry({ key: 'p0', youtubeId: 'aaaaaaaaaa1' }),
+            entry({ key: 'p1', youtubeId: 'aaaaaaaaaa2', available: false }),
+            entry({ key: 'p2', youtubeId: 'aaaaaaaaaa3', available: false }),
+            entry({ key: 'p3', youtubeId: 'aaaaaaaaaa1' }),
+        ];
+        mockedProvidedFetch.mockResolvedValue({ title: 'Provided videos', entries });
+        const modal = openProvidedModal(makeOptions({ existing: ['aaaaaaaaaa3'] }));
+        loadProvidedText(modal, `https://youtu.be/aaaaaaaaaa1`);
+        await Promise.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+        const rows = sourceRows(modal);
+        expect(rows[1].dataset.youtnoteEntryStatus).toBe('load-failed');
+        expect(rows[2].dataset.youtnoteEntryStatus).toBe('existing');
+        expect(rows[3].dataset.youtnoteEntryStatus).toBe('repeated');
+        expect(rows[1].findByAction('add-entry')!.disabled).toBe(true);
+        expect(rows[2].findByAction('add-entry')!.disabled).toBe(true);
+        expect(rows[3].findByAction('add-entry')!.disabled).toBe(true);
+        expect(contentOf(modal).findAllByCls('youtnote-plugin__playlist-existing-note')).toHaveLength(1);
+        contentOf(modal).findByAction('add-all')!.click();
+        expect(rowKeys(pendingRows(modal))).toEqual(['p0']);
+        modal.close();
+    });
+
+    it('treats a single pasted watch url with a playlist param as a provided video', async () => {
+        mockedProvidedFetch.mockResolvedValue({ title: 'Provided videos', entries: providedEntries });
+        const modal = openProvidedModal();
+        loadProvidedText(modal, `https://www.youtube.com/watch?v=aaaaaaaaaa1&list=RDMix12345`);
+        expect(mockedProvidedFetch).toHaveBeenCalledTimes(1);
+        expect(mockedFetch).not.toHaveBeenCalled();
+        const [videosArg] = mockedProvidedFetch.mock.calls[0];
+        expect(videosArg).toHaveLength(1);
+        expect(videosArg[0].url).toBe('https://www.youtube.com/watch?v=aaaaaaaaaa1');
+        await Promise.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(rowKeys(sourceRows(modal))).toEqual(['p0', 'p1', 'p2']);
+        expect(contentOf(modal).findByAction('choose-video')).toBeNull();
+        expect(contentOf(modal).findByAction('choose-playlist')).toBeNull();
+        modal.close();
+    });
+
+    it('returns to the input with text intact from loading and select, aborting the fetch', async () => {
+        let signal: AbortSignal | undefined;
+        const deferreds: { resolve: (result: PlaylistResult) => void }[] = [];
+        mockedProvidedFetch.mockImplementation((_videos: unknown, options?: { signal?: AbortSignal }) => {
+            signal = options?.signal;
+            return new Promise<PlaylistResult>(resolve => { deferreds.push({ resolve }); });
+        });
+        const modal = openProvidedModal();
+        loadProvidedText(modal, PASTED);
+        expect(mockedProvidedFetch).toHaveBeenCalledTimes(1);
+        contentOf(modal).findByAction('back')!.click();
+        expect(signal!.aborted).toBe(true);
+        expect(inputOf(modal).value).toBe(PASTED);
+
+        loadProvidedText(modal, PASTED);
+        expect(mockedProvidedFetch).toHaveBeenCalledTimes(2);
+        deferreds[1].resolve({ title: 'Provided videos', entries: providedEntries });
+        await Promise.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(rowKeys(sourceRows(modal))).toEqual(['p0', 'p1', 'p2']);
+        contentOf(modal).findByAction('back')!.click();
+        expect(inputOf(modal).value).toBe(PASTED);
+        modal.close();
+        await expect(modal.result).resolves.toBeNull();
+    });
+
+    it('ignores a stale result after going back and reloading', async () => {
+        const deferreds: { resolve: (result: PlaylistResult) => void }[] = [];
+        mockedProvidedFetch.mockImplementation(() => new Promise<PlaylistResult>(resolve => { deferreds.push({ resolve }); }));
+        const modal = openProvidedModal();
+        loadProvidedText(modal, PASTED);
+        contentOf(modal).findByAction('back')!.click();
+        loadProvidedText(modal, PASTED);
+        expect(mockedProvidedFetch).toHaveBeenCalledTimes(2);
+        deferreds[0].resolve({ title: 'Stale', entries: providedEntries });
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(contentOf(modal).findAllByCls('youtnote-plugin__playlist-columns')).toHaveLength(0);
+        deferreds[1].resolve({ title: 'Provided videos', entries: providedEntries });
+        await Promise.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(rowKeys(sourceRows(modal))).toEqual(['p0', 'p1', 'p2']);
+        modal.close();
+    });
+
+    it('offers back, retry and cancel on a fatal failure and retries the same links', async () => {
+        mockedProvidedFetch.mockRejectedValueOnce(new PlaylistError('timeout', 'slow'));
+        const modal = openProvidedModal();
+        loadProvidedText(modal, PASTED);
+        await Promise.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(contentOf(modal).findAllByCls('youtnote-plugin__playlist-error')[0].dataset.youtnoteErrorCode).toBe('timeout');
+        expect(contentOf(modal).findByAction('back')).not.toBeNull();
+        expect(contentOf(modal).findByAction('retry')).not.toBeNull();
+        expect(contentOf(modal).findByAction('cancel')).not.toBeNull();
+        expect(contentOf(modal).findByAction('import')).toBeNull();
+
+        mockedProvidedFetch.mockResolvedValueOnce({ title: 'Provided videos', entries: providedEntries });
+        contentOf(modal).findByAction('retry')!.click();
+        expect(mockedProvidedFetch).toHaveBeenCalledTimes(2);
+        const [videosArg] = mockedProvidedFetch.mock.calls[1];
+        expect(videosArg.map(v => v.youtubeId)).toEqual(['aaaaaaaaaa1', 'aaaaaaaaaa2']);
+        await Promise.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(rowKeys(sourceRows(modal))).toEqual(['p0', 'p1', 'p2']);
+        modal.close();
+    });
+
+    it('returns queued provided entries in display order and keeps the provided footer order', async () => {
+        const entries = [
+            entry({ key: 'p0', youtubeId: 'aaaaaaaaaa1' }),
+            entry({ key: 'p1', youtubeId: 'aaaaaaaaaa2' }),
+            entry({ key: 'p2', youtubeId: 'aaaaaaaaaa3' }),
+        ];
+        mockedProvidedFetch.mockResolvedValue({ title: 'Provided videos', entries });
+        const modal = openProvidedModal();
+        loadProvidedText(modal, PASTED);
+        await Promise.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+        const buttonsEl = contentOf(modal).findAllByCls('youtnote-plugin__base-modal-buttons')
+            .find(el => el.findByAction('import') !== null);
+        expect(buttonsEl!.children.map(c => c.dataset.youtnoteAction)).toEqual(['import', 'back', 'cancel']);
+        addRow(modal, 'p1');
+        addRow(modal, 'p0');
+        sortableCreates[0].options.onEnd?.({ oldIndex: 1, newIndex: 0 });
+        expect(rowKeys(pendingRows(modal))).toEqual(['p0', 'p1']);
+        contentOf(modal).findByAction('import')!.click();
+        await expect(modal.result).resolves.toEqual([entries[0], entries[1]]);
     });
 });

@@ -1540,6 +1540,23 @@ button.youtnote-plugin__add-btn {
     color: var(--text-error);
 }
 
+.youtnote-plugin__playlist-input {
+    width: 100%;
+    box-sizing: border-box;
+    min-height: calc(var(--size-4-12) * 4);
+    max-height: 40vh;
+    max-height: 40dvh;
+    resize: vertical;
+    margin-bottom: var(--size-4-3);
+}
+
+.youtnote-plugin__playlist-input-error {
+    color: var(--text-error);
+    font-size: var(--font-ui-small);
+    margin-bottom: var(--size-4-3);
+    overflow-wrap: anywhere;
+}
+
 .youtnote-plugin__playlist-info {
     margin-bottom: var(--size-4-3);
     font-weight: var(--font-semibold);

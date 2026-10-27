@@ -122,7 +122,7 @@ function throwOnErrorAlerts(root: Record<string, unknown>): void {
     }
 }
 
-function isTrustedThumbnailUrl(url: string): boolean {
+export function isTrustedThumbnailUrl(url: string): boolean {
     let parsed: URL;
     try {
         parsed = new URL(url);

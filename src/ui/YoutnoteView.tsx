@@ -896,11 +896,12 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
         e.preventDefault();
         const guard = renderMutationGuard;
         const liveGuard = () => mountedRef.current && guard();
-        if (readOnly || !newVideoUrl || isFetchingMetadata || addVideoBusyRef.current || !guard()) return;
+        if (readOnly || isFetchingMetadata || addVideoBusyRef.current || !guard()) return;
 
-        const ytId = extractYouTubeId(newVideoUrl);
-        const playlistId = extractYouTubePlaylistId(newVideoUrl);
-        if (!ytId && !playlistId) {
+        const trimmedInput = newVideoUrl.trim();
+        const ytId = extractYouTubeId(trimmedInput);
+        const playlistId = extractYouTubePlaylistId(trimmedInput);
+        if (trimmedInput !== '' && !ytId && !playlistId) {
             new AlertModal(app, "Invalid URL", "The URL you provided is not a valid YouTube URL.").open();
             return;
         }
@@ -908,7 +909,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
         addVideoBusyRef.current = true;
         setIsFetchingMetadata(true);
         try {
-            if (playlistId) {
+            if (trimmedInput === '' || playlistId) {
                 const existingVideoIds = () => {
                     const ids = new Set<string>();
                     for (const video of view.videos) {
@@ -919,11 +920,16 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
                     }
                     return ids;
                 };
-                const modal = new PlaylistImportModal(app, playlistId, {
-                    videoId: ytId ?? undefined,
-                    getExistingVideoIds: existingVideoIds,
-                    isValid: () => liveGuard() && !readOnly,
-                });
+                const source = playlistId === null ? { kind: 'provided' as const } : playlistId;
+                const modal = new PlaylistImportModal(
+                    app,
+                    source,
+                    {
+                        videoId: trimmedInput === '' ? undefined : (ytId ?? undefined),
+                        getExistingVideoIds: existingVideoIds,
+                        isValid: () => liveGuard() && !readOnly,
+                    },
+                );
                 playlistImportModalRef.current = modal;
                 modal.open();
                 const outcome = await modal.result;
@@ -1596,6 +1602,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
                         }}
                         type="submit"
                         className="youtnote-plugin__add-btn youtnote-plugin__add-video-submit"
+                        aria-label={newVideoUrl.trim() === '' ? 'Add multiple videos' : 'Add video or playlist'}
                         disabled={isFetchingMetadata}
                     >
                     </button>

@@ -112,14 +112,14 @@ const { FakePlaylistImportModal, FakeAlertModal } = vi.hoisted(() => {
     }
     class FakePlaylistImportModal {
         static instances: FakePlaylistImportModal[] = [];
-        readonly playlistId: string;
+        readonly playlistId: string | { kind: 'provided' };
         readonly options: ModalOptions;
         opened = false;
         closed = false;
         private settled = false;
         private resolveResult!: (value: unknown) => void;
         readonly result: Promise<unknown>;
-        constructor(_app: unknown, playlistId: string, options: ModalOptions) {
+        constructor(_app: unknown, playlistId: string | { kind: 'provided' }, options: ModalOptions) {
             this.playlistId = playlistId;
             this.options = options;
             this.result = new Promise(resolve => { this.resolveResult = resolve; });
@@ -688,5 +688,106 @@ describe('playlist import integration', () => {
         expect(FakeAlertModal.opens).toBe(0);
         expect(mounted.props.onUpdateVideos).not.toHaveBeenCalled();
         expect(mounted.props.setActiveVideoId).not.toHaveBeenCalled();
+    });
+});
+
+describe('provided links import integration', () => {
+    it('opens the provided-links modal for an empty submission without fetching or saving', async () => {
+        const mounted = mount(makeProps());
+        submitUrl(mounted, '');
+        await tick();
+        expect(FakePlaylistImportModal.instances).toHaveLength(1);
+        const modal = lastModal();
+        expect(modal.playlistId).toEqual({ kind: 'provided' });
+        expect(modal.options.videoId).toBeUndefined();
+        expect(modal.opened).toBe(true);
+        expect(FakeAlertModal.opens).toBe(0);
+        expect(mockedRequestUrl).not.toHaveBeenCalled();
+        expect(mounted.props.onUpdateVideos).not.toHaveBeenCalled();
+        mounted.unmount();
+    });
+
+    it('appends provided entries in the returned order and filters live duplicates', async () => {
+        const mounted = mount(makeProps());
+        submitUrl(mounted, '   ');
+        await tick();
+        lastModal().settle([
+            playlistEntry('p0', YT_NEW, { title: 'first' }),
+            playlistEntry('p1', YT_A, { title: 'existing' }),
+            playlistEntry('p2', YT_NEW2, { title: 'second' }),
+        ]);
+        await tick();
+        const updates = mounted.props.onUpdateVideos.mock.calls;
+        expect(updates).toHaveLength(1);
+        const next = updates[0][0] as Video[];
+        expect(next).toHaveLength(4);
+        expect(next[0].id).toBe(VID_A);
+        expect(next[1].id).toBe(VID_B);
+        expect(next.slice(2).map(v => v.url)).toEqual([
+            `https://www.youtube.com/watch?v=${YT_NEW}`,
+            `https://www.youtube.com/watch?v=${YT_NEW2}`,
+        ]);
+        expect(mockedRequestUrl).not.toHaveBeenCalled();
+        mounted.unmount();
+    });
+
+    it('does not save anything when the provided modal is cancelled', async () => {
+        const mounted = mount(makeProps());
+        submitUrl(mounted, '');
+        await tick();
+        lastModal().close();
+        await tick();
+        expect(mounted.props.onUpdateVideos).not.toHaveBeenCalled();
+        expect(mockedRequestUrl).not.toHaveBeenCalled();
+        mounted.unmount();
+    });
+
+    it('closes the provided modal on unmount and ignores the late result', async () => {
+        const mounted = mount(makeProps());
+        submitUrl(mounted, '');
+        await tick();
+        const modal = lastModal();
+        mounted.unmount();
+        expect(modal.closed).toBe(true);
+        modal.settle([playlistEntry('p0', YT_NEW)]);
+        await tick();
+        expect(mounted.props.onUpdateVideos).not.toHaveBeenCalled();
+    });
+
+    it('blocks a second submit while the provided modal is open', async () => {
+        const mounted = mount(makeProps());
+        submitUrl(mounted, '');
+        const form = findByClass(lastTree, 'youtnote-plugin__add-video-form');
+        fireHandler(form, 'onSubmit', { preventDefault: () => {} });
+        await tick();
+        expect(FakePlaylistImportModal.instances).toHaveLength(1);
+        lastModal().close();
+        await tick();
+        mounted.unmount();
+    });
+
+    it('closes the provided modal without saving when the view becomes read-only', async () => {
+        const mounted = mount(makeProps());
+        submitUrl(mounted, '');
+        await tick();
+        const modal = lastModal();
+        mounted.rerender({ readOnly: true });
+        await tick();
+        expect(modal.closed).toBe(true);
+        modal.settle([playlistEntry('p0', YT_NEW)]);
+        await tick();
+        expect(mounted.props.onUpdateVideos).not.toHaveBeenCalled();
+        mounted.unmount();
+    });
+
+    it('blocks the provided commit when the mutation guard is stale', async () => {
+        const mounted = mount(makeProps());
+        submitUrl(mounted, '');
+        await tick();
+        guardValid = false;
+        lastModal().settle([playlistEntry('p0', YT_NEW)]);
+        await tick();
+        expect(mounted.props.onUpdateVideos).not.toHaveBeenCalled();
+        mounted.unmount();
     });
 });

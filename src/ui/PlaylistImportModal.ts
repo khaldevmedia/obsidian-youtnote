@@ -2,9 +2,13 @@ import { App, Modal, setIcon } from 'obsidian';
 import Sortable from 'sortablejs';
 import type { SortableEvent } from 'sortablejs';
 import { fetchPlaylist } from '../playlistFetch';
+import { fetchProvidedVideos } from '../videoUrlListFetch';
+import { MAX_VIDEO_URLS, parseVideoUrlList } from '../videoUrlList';
+import type { ProvidedVideoUrl } from '../videoUrlList';
 import { classifyPlaylistId, PlaylistError } from '../playlist';
 import type { PlaylistEntry, PlaylistIdKind } from '../playlist';
 
+export type PlaylistImportSource = string | { kind: 'provided' };
 export type PlaylistImportResult = 'video' | PlaylistEntry[] | null;
 
 export interface PlaylistImportModalOptions {
@@ -13,15 +17,17 @@ export interface PlaylistImportModalOptions {
     isValid: () => boolean;
 }
 
-type PlaylistImportPhase = 'choice' | 'unsupported' | 'loading' | 'error' | 'select';
-type EntryDisabledReason = 'unavailable' | 'existing' | 'repeated';
+type PlaylistImportPhase = 'choice' | 'unsupported' | 'loading' | 'error' | 'select' | 'input';
+type EntryDisabledReason = 'unavailable' | 'existing' | 'repeated' | 'load-failed';
 
-function disabledReasonText(reason: EntryDisabledReason): string {
+function disabledReasonText(reason: EntryDisabledReason, provided: boolean): string {
     switch (reason) {
         case 'existing':
             return 'Already in the list';
         case 'repeated':
-            return 'Repeated in this playlist';
+            return provided ? 'Repeated in provided links' : 'Repeated in this playlist';
+        case 'load-failed':
+            return 'Could not load video';
         default:
             return 'Unavailable';
     }
@@ -49,12 +55,31 @@ function describeFetchError(error: unknown): { code: string; message: string } {
     return { code: 'unknown', message: 'The playlist could not be loaded.' };
 }
 
+function describeProvidedError(error: unknown): { code: string; message: string } {
+    if (error instanceof PlaylistError) {
+        switch (error.code) {
+            case 'timeout':
+                return { code: error.code, message: 'Loading the videos timed out.' };
+            case 'limit':
+                return { code: error.code, message: 'Too many links were provided. Nothing was imported.' };
+            case 'http':
+                return { code: error.code, message: 'Could not reach YouTube.' };
+            case 'cancelled':
+                return { code: error.code, message: 'The import was cancelled.' };
+            default:
+                return { code: error.code, message: 'The videos could not be loaded.' };
+        }
+    }
+    return { code: 'unknown', message: 'The videos could not be loaded.' };
+}
+
 export class PlaylistImportModal extends Modal {
     readonly result: Promise<PlaylistImportResult>;
 
     private resolveResult: ((result: PlaylistImportResult) => void) | null = null;
+    private readonly isProvided: boolean;
     private readonly playlistId: string;
-    private readonly playlistKind: PlaylistIdKind;
+    private readonly playlistKind: PlaylistIdKind | null;
     private readonly options: PlaylistImportModalOptions;
     private phase: PlaylistImportPhase;
     private closed = false;
@@ -77,16 +102,25 @@ export class PlaylistImportModal extends Modal {
     private addAllButtonEl: HTMLButtonElement | null = null;
     private clearButtonEl: HTMLButtonElement | null = null;
     private importButtonEl: HTMLButtonElement | null = null;
+    private providedText = '';
+    private providedVideos: ProvidedVideoUrl[] = [];
+    private parseErrorCode = '';
+    private parseErrorLines: number[] = [];
+    private inputEl: HTMLTextAreaElement | null = null;
+    private loadButtonEl: HTMLButtonElement | null = null;
     private readonly sourceActionEls = new Map<string, HTMLButtonElement>();
     private readonly pendingActionEls = new Map<string, HTMLButtonElement>();
     private readonly pendingRowEls = new Map<string, HTMLElement>();
 
-    constructor(app: App, playlistId: string, options: PlaylistImportModalOptions) {
+    constructor(app: App, source: PlaylistImportSource, options: PlaylistImportModalOptions) {
         super(app);
-        this.playlistId = playlistId;
+        this.isProvided = typeof source !== 'string';
+        this.playlistId = typeof source === 'string' ? source : '';
         this.options = options;
-        this.playlistKind = classifyPlaylistId(playlistId);
-        if (this.playlistKind === 'invalid') {
+        this.playlistKind = typeof source === 'string' ? classifyPlaylistId(source) : null;
+        if (this.isProvided) {
+            this.phase = 'input';
+        } else if (this.playlistKind === 'invalid') {
             this.phase = 'error';
             this.errorCode = 'invalid';
             this.errorMessage = 'This is not a supported playlist link.';
@@ -127,6 +161,8 @@ export class PlaylistImportModal extends Modal {
         this.addAllButtonEl = null;
         this.clearButtonEl = null;
         this.importButtonEl = null;
+        this.inputEl = null;
+        this.loadButtonEl = null;
         this.sourceActionEls.clear();
         this.pendingActionEls.clear();
         this.pendingRowEls.clear();
@@ -159,16 +195,17 @@ export class PlaylistImportModal extends Modal {
         this.phase = 'loading';
         this.abortController = new AbortController();
         const signal = this.abortController.signal;
-        void fetchPlaylist(this.playlistId, {
-            signal,
-            onProgress: loaded => {
-                if (this.closed || signal.aborted || !this.options.isValid()) {
-                    return;
-                }
-                this.progressCount = loaded;
-                this.updateProgressText();
-            },
-        }).then(result => {
+        const onProgress = (loaded: number) => {
+            if (this.closed || signal.aborted || !this.options.isValid()) {
+                return;
+            }
+            this.progressCount = loaded;
+            this.updateProgressText();
+        };
+        const request = this.isProvided
+            ? fetchProvidedVideos(this.providedVideos, { signal, onProgress })
+            : fetchPlaylist(this.playlistId, { signal, onProgress });
+        void request.then(result => {
             if (this.closed || signal.aborted) {
                 return;
             }
@@ -189,7 +226,7 @@ export class PlaylistImportModal extends Modal {
                 this.settleAndClose(null);
                 return;
             }
-            const described = describeFetchError(error);
+            const described = this.isProvided ? describeProvidedError(error) : describeFetchError(error);
             this.errorCode = described.code;
             this.errorMessage = described.message;
             this.phase = 'error';
@@ -205,8 +242,10 @@ export class PlaylistImportModal extends Modal {
         this.disabledReasons.clear();
         for (const entry of this.entries) {
             this.entriesByKey.set(entry.key, entry);
-            if (!entry.available || entry.youtubeId === null) {
-                this.disabledReasons.set(entry.key, 'unavailable');
+            if (this.isProvided && entry.youtubeId !== null && existing.has(entry.youtubeId)) {
+                this.disabledReasons.set(entry.key, 'existing');
+            } else if (!entry.available || entry.youtubeId === null) {
+                this.disabledReasons.set(entry.key, this.isProvided ? 'load-failed' : 'unavailable');
             } else if (existing.has(entry.youtubeId)) {
                 this.disabledReasons.set(entry.key, 'existing');
             } else if (seen.has(entry.youtubeId)) {
@@ -218,6 +257,14 @@ export class PlaylistImportModal extends Modal {
     }
 
     private titleText(): string {
+        if (this.isProvided) {
+            switch (this.phase) {
+                case 'error':
+                    return 'Unable to load videos';
+                default:
+                    return 'Add multiple videos';
+            }
+        }
         switch (this.phase) {
             case 'unsupported':
                 return 'Playlist not supported';
@@ -243,6 +290,8 @@ export class PlaylistImportModal extends Modal {
         this.addAllButtonEl = null;
         this.clearButtonEl = null;
         this.importButtonEl = null;
+        this.inputEl = null;
+        this.loadButtonEl = null;
         this.sourceActionEls.clear();
         this.pendingActionEls.clear();
         this.pendingRowEls.clear();
@@ -253,6 +302,9 @@ export class PlaylistImportModal extends Modal {
         titleEl.setText(this.titleText());
 
         switch (this.phase) {
+            case 'input':
+                this.renderInput(contentEl);
+                break;
             case 'choice':
                 this.renderChoice(contentEl);
                 break;
@@ -300,6 +352,110 @@ export class PlaylistImportModal extends Modal {
         }
     }
 
+    private renderInput(contentEl: HTMLElement): void {
+        const instructionId = `youtnote-playlist-input-${crypto.randomUUID()}`;
+        const messageEl = contentEl.createDiv({
+            cls: 'youtnote-plugin__base-modal-message',
+            attr: { id: instructionId },
+        });
+        messageEl.setText('Paste one YouTube video link per line. Numbered lines work too.');
+
+        const inputEl = contentEl.createEl('textarea', {
+            cls: 'youtnote-plugin__playlist-input',
+            attr: { 'aria-labelledby': instructionId },
+        });
+        inputEl.dataset.youtnoteAction = 'url-input';
+        inputEl.value = this.providedText;
+        inputEl.addEventListener('input', () => {
+            this.providedText = inputEl.value;
+            this.updateLoadButton();
+        });
+        this.inputEl = inputEl;
+
+        if (this.parseErrorCode !== '') {
+            const errorEl = contentEl.createDiv({
+                cls: 'youtnote-plugin__playlist-input-error',
+                attr: { role: 'alert' },
+            });
+            errorEl.dataset.youtnoteErrorCode = this.parseErrorCode;
+            errorEl.dataset.youtnoteInvalidLines = this.parseErrorLines.join(' ');
+            errorEl.setText(this.inputErrorText());
+        }
+
+        const buttonsEl = contentEl.createDiv({ cls: 'youtnote-plugin__base-modal-buttons' });
+        this.loadButtonEl = this.addButton(buttonsEl, 'Load videos', 'primary', 'load-videos', () => this.loadProvidedVideos());
+        this.addButton(buttonsEl, 'Cancel', 'secondary', 'cancel', () => this.close());
+        this.updateLoadButton();
+    }
+
+    private inputErrorText(): string {
+        switch (this.parseErrorCode) {
+            case 'invalid':
+                return `These lines are not valid video links: ${this.parseErrorLines.join(', ')}. Add playlist links with the main URL field instead.`;
+            case 'limit':
+                return `Too many links were pasted (maximum ${MAX_VIDEO_URLS}).`;
+            case 'text-limit':
+                return 'The pasted text is too long.';
+            default:
+                return 'Paste at least one video link.';
+        }
+    }
+
+    private updateLoadButton(): void {
+        if (this.loadButtonEl) {
+            this.loadButtonEl.disabled = this.providedText.trim() === '';
+        }
+    }
+
+    private loadProvidedVideos(): void {
+        if (this.closed || !this.isProvided || !this.options.isValid()) {
+            return;
+        }
+        const parsed = parseVideoUrlList(this.providedText);
+        if (!parsed.ok) {
+            this.parseErrorCode = parsed.code;
+            this.parseErrorLines = parsed.lines;
+            this.render();
+            this.inputEl?.focus();
+            return;
+        }
+        this.parseErrorCode = '';
+        this.parseErrorLines = [];
+        this.providedVideos = parsed.videos;
+        this.startFetch();
+        this.render();
+    }
+
+    private goBackToInput(): void {
+        if (this.closed || !this.isProvided) {
+            return;
+        }
+        this.abortController?.abort();
+        this.abortController = null;
+        this.fetchStarted = false;
+        this.progressCount = 0;
+        this.entries = [];
+        this.entriesByKey.clear();
+        this.pendingKeys = [];
+        this.disabledReasons.clear();
+        this.errorCode = '';
+        this.errorMessage = '';
+        this.phase = 'input';
+        this.render();
+    }
+
+    private retryProvidedFetch(): void {
+        if (this.closed || !this.isProvided) {
+            return;
+        }
+        this.errorCode = '';
+        this.errorMessage = '';
+        this.progressCount = 0;
+        this.fetchStarted = false;
+        this.startFetch();
+        this.render();
+    }
+
     private renderChoice(contentEl: HTMLElement): void {
         const messageEl = contentEl.createDiv({ cls: 'youtnote-plugin__base-modal-message' });
         messageEl.setText('This link points to a video inside a playlist. Add only the video, or import videos from the playlist.');
@@ -334,10 +490,17 @@ export class PlaylistImportModal extends Modal {
         });
         indicatorEl.createDiv({ cls: 'youtnote-plugin__dot-pulse' });
         const buttonsEl = contentEl.createDiv({ cls: 'youtnote-plugin__base-modal-buttons' });
+        if (this.isProvided) {
+            this.addButton(buttonsEl, 'Back', 'secondary', 'back', () => this.goBackToInput());
+        }
         this.addButton(buttonsEl, 'Cancel', 'secondary', 'cancel', () => this.close());
     }
 
     private updateProgressText(): void {
+        if (this.isProvided) {
+            this.progressEl?.setText(`Loading videos (${this.progressCount}/${this.providedVideos.length})`);
+            return;
+        }
         this.progressEl?.setText(`Loading playlist videos (${this.progressCount})`);
     }
 
@@ -346,6 +509,12 @@ export class PlaylistImportModal extends Modal {
         messageEl.dataset.youtnoteErrorCode = this.errorCode;
         messageEl.setText(this.errorMessage);
         const buttonsEl = contentEl.createDiv({ cls: 'youtnote-plugin__base-modal-buttons' });
+        if (this.isProvided) {
+            this.addButton(buttonsEl, 'Back', 'secondary', 'back', () => this.goBackToInput());
+            this.addButton(buttonsEl, 'Retry', 'primary', 'retry', () => this.retryProvidedFetch());
+            this.addButton(buttonsEl, 'Cancel', 'secondary', 'cancel', () => this.close());
+            return;
+        }
         this.addButton(buttonsEl, 'Cancel', 'secondary', 'cancel', () => this.close());
         if (this.options.videoId) {
             this.addButton(buttonsEl, 'Add video only', 'primary', 'choose-video', () => this.resolveVideoChoice());
@@ -353,11 +522,15 @@ export class PlaylistImportModal extends Modal {
     }
 
     private renderSelect(contentEl: HTMLElement): void {
-        const infoEl = contentEl.createDiv({ cls: 'youtnote-plugin__playlist-info' });
-        infoEl.setText(this.playlistTitle || 'Playlist');
+        if (!this.isProvided) {
+            const infoEl = contentEl.createDiv({ cls: 'youtnote-plugin__playlist-info' });
+            infoEl.setText(this.playlistTitle || 'Playlist');
+        }
 
         const noteEl = contentEl.createDiv({ cls: 'youtnote-plugin__playlist-note' });
-        noteEl.setText('YouTube may hide unavailable videos, so only the entries it returned are listed.');
+        noteEl.setText(this.isProvided
+            ? 'Each link is treated as an individual video, even if it includes a playlist.'
+            : 'YouTube may hide unavailable videos, so only the entries it returned are listed.');
 
         if ([...this.disabledReasons.values()].includes('existing')) {
             const existingNoteEl = contentEl.createDiv({
@@ -367,7 +540,7 @@ export class PlaylistImportModal extends Modal {
         }
 
         const columnsEl = contentEl.createDiv({ cls: 'youtnote-plugin__playlist-columns' });
-        const sourcePane = this.renderPane(columnsEl, 'Playlist videos', 'source');
+        const sourcePane = this.renderPane(columnsEl, this.isProvided ? 'Provided videos' : 'Playlist videos', 'source');
         const pendingPane = this.renderPane(columnsEl, 'Videos to add', 'pending');
         this.sourceCountEl = sourcePane.countEl;
         this.pendingCountEl = pendingPane.countEl;
@@ -397,7 +570,9 @@ export class PlaylistImportModal extends Modal {
         });
 
         const buttonsEl = contentEl.createDiv({ cls: 'youtnote-plugin__base-modal-buttons' });
-        this.addButton(buttonsEl, 'Cancel', 'secondary', 'cancel', () => this.close());
+        if (!this.isProvided) {
+            this.addButton(buttonsEl, 'Cancel', 'secondary', 'cancel', () => this.close());
+        }
         this.importButtonEl = this.addButton(
             buttonsEl,
             'Add videos',
@@ -405,6 +580,10 @@ export class PlaylistImportModal extends Modal {
             'import',
             () => this.commitImport(),
         );
+        if (this.isProvided) {
+            this.addButton(buttonsEl, 'Back', 'secondary', 'back', () => this.goBackToInput());
+            this.addButton(buttonsEl, 'Cancel', 'secondary', 'cancel', () => this.close());
+        }
         this.updateImportButton();
     }
 
@@ -511,7 +690,7 @@ export class PlaylistImportModal extends Modal {
         titleEl.setText(entry.title || 'Untitled video');
         if (reason !== null) {
             const statusEl = textEl.createDiv({ cls: 'youtnote-plugin__playlist-entry-status' });
-            statusEl.setText(disabledReasonText(reason));
+            statusEl.setText(disabledReasonText(reason, this.isProvided));
         }
     }
 
