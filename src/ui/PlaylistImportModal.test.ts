@@ -12,18 +12,18 @@ const { fakeEl, sortableCreates, sortableDestroy } = vi.hoisted(() => {
         listeners: Record<string, () => void>;
         dataset: Record<string, string>;
         attr: Record<string, string>;
-        checked: boolean;
         disabled: boolean;
         focused: boolean;
+        scrollTop: number;
         empty(): void;
         addClass(cls: string): void;
-        createDiv(options?: { cls?: string; text?: string }): FakeEl;
+        createDiv(options?: { cls?: string; text?: string; attr?: Record<string, string> }): FakeEl;
         createEl(tag: string, options?: { text?: string; cls?: string; attr?: Record<string, string> }): FakeEl;
         createSpan(options?: { text?: string; cls?: string }): FakeEl;
         appendChild(child: FakeEl): FakeEl;
         setText(text: string): void;
         addEventListener(type: string, handler: () => void): void;
-        focus(): void;
+        focus(options?: { preventScroll?: boolean }): void;
         click(): void;
         findByAction(action: string): FakeEl | null;
         findAllByCls(cls: string, found?: FakeEl[]): FakeEl[];
@@ -37,9 +37,9 @@ const { fakeEl, sortableCreates, sortableDestroy } = vi.hoisted(() => {
             children: [],
             dataset: {},
             attr: {},
-            checked: false,
             disabled: false,
             focused: false,
+            scrollTop: 0,
             listeners: {},
             empty() {
                 el.children = [];
@@ -51,6 +51,7 @@ const { fakeEl, sortableCreates, sortableDestroy } = vi.hoisted(() => {
                 const child = fakeEl();
                 child.cls = options?.cls ?? '';
                 if (options?.text !== undefined) child.text = options.text;
+                if (options?.attr !== undefined) child.attr = options.attr;
                 el.children.push(child);
                 return child;
             },
@@ -119,7 +120,15 @@ const { fakeEl, sortableCreates, sortableDestroy } = vi.hoisted(() => {
     }
     return {
         fakeEl,
-        sortableCreates: [] as { el: unknown; options: { onEnd?: (e: { oldIndex?: number; newIndex?: number }) => void } }[],
+        sortableCreates: [] as {
+            el: unknown;
+            options: {
+                draggable?: string;
+                handle?: string;
+                group?: unknown;
+                onEnd?: (e: { oldIndex?: number; newIndex?: number }) => void;
+            };
+        }[],
         sortableDestroy: vi.fn(),
     };
 });
@@ -149,7 +158,12 @@ vi.mock('obsidian', () => {
 
 vi.mock('sortablejs', () => ({
     default: {
-        create(el: unknown, options: { onEnd?: (e: { oldIndex?: number; newIndex?: number }) => void }) {
+        create(el: unknown, options: {
+            draggable?: string;
+            handle?: string;
+            group?: unknown;
+            onEnd?: (e: { oldIndex?: number; newIndex?: number }) => void;
+        }) {
             sortableCreates.push({ el, options });
             return { destroy: sortableDestroy };
         },
@@ -206,16 +220,49 @@ function shellOf(modal: InstanceType<typeof PlaylistImportModal>): FakeEl {
     return modal.modalEl as unknown as FakeEl;
 }
 
-function listRows(modal: InstanceType<typeof PlaylistImportModal>): FakeEl[] {
-    const lists = contentOf(modal).findAllByCls('youtnote-plugin__playlist-list');
+function paneList(modal: InstanceType<typeof PlaylistImportModal>, pane: 'source' | 'pending'): FakeEl {
+    const lists = contentOf(modal).findAllByCls(`youtnote-plugin__playlist-list--${pane}`);
     expect(lists).toHaveLength(1);
-    return lists[0].children.filter(row => row.cls.includes('youtnote-plugin__playlist-entry'));
+    return lists[0];
 }
 
-function rowCheckbox(row: FakeEl): FakeEl {
-    const checkbox = row.findByTag('input');
-    expect(checkbox).not.toBeNull();
-    return checkbox!;
+function rowsIn(listEl: FakeEl): FakeEl[] {
+    return listEl.children.filter(child => child.cls.split(' ').includes('youtnote-plugin__playlist-entry'));
+}
+
+function sourceRows(modal: InstanceType<typeof PlaylistImportModal>): FakeEl[] {
+    return rowsIn(paneList(modal, 'source'));
+}
+
+function pendingRows(modal: InstanceType<typeof PlaylistImportModal>): FakeEl[] {
+    return rowsIn(paneList(modal, 'pending'));
+}
+
+function rowKeys(rows: FakeEl[]): string[] {
+    return rows.map(row => row.dataset.youtnoteEntryKey);
+}
+
+function emptyStateOf(listEl: FakeEl): FakeEl | null {
+    return listEl.children.find(child => child.cls.split(' ').includes('youtnote-plugin__playlist-empty')) ?? null;
+}
+
+function countOf(modal: InstanceType<typeof PlaylistImportModal>, pane: 'source' | 'pending'): FakeEl {
+    const counts = contentOf(modal).findAllByCls('youtnote-plugin__playlist-pane-count')
+        .filter(el => el.dataset.youtnotePane === pane);
+    expect(counts).toHaveLength(1);
+    return counts[0];
+}
+
+function addRow(modal: InstanceType<typeof PlaylistImportModal>, key: string): void {
+    const row = sourceRows(modal).find(r => r.dataset.youtnoteEntryKey === key);
+    expect(row).toBeDefined();
+    row!.findByAction('add-entry')!.click();
+}
+
+function removeRow(modal: InstanceType<typeof PlaylistImportModal>, key: string): void {
+    const row = pendingRows(modal).find(r => r.dataset.youtnoteEntryKey === key);
+    expect(row).toBeDefined();
+    row!.findByAction('remove-entry')!.click();
 }
 
 function importButton(modal: InstanceType<typeof PlaylistImportModal>): FakeEl {
@@ -336,65 +383,208 @@ describe('PlaylistImportModal selection phase', () => {
         entry({ key: 'i4', youtubeId: 'aaaaaaaaaa4' }),
     ];
 
-    it('checks eligible entries and disables unavailable, existing and repeated ones', async () => {
+    it('starts with an empty queue and lists every entry in the source pane', async () => {
         const modal = await openLoadedModal(entriesList, makeOptions({ existing: ['aaaaaaaaaa4'] }));
-        const rows = listRows(modal);
-        expect(rows).toHaveLength(5);
-        expect(rows.map(r => r.dataset.youtnoteEntryKey)).toEqual(['i0', 'i1', 'i2', 'i3', 'i4']);
+        expect(shellOf(modal).dataset.youtnotePlaylistPhase).toBe('select');
+        expect(rowKeys(sourceRows(modal))).toEqual(['i0', 'i1', 'i2', 'i3', 'i4']);
+        expect(pendingRows(modal)).toHaveLength(0);
+        const rows = sourceRows(modal);
         expect(rows[2].dataset.youtnoteEntryStatus).toBe('unavailable');
         expect(rows[3].dataset.youtnoteEntryStatus).toBe('repeated');
         expect(rows[4].dataset.youtnoteEntryStatus).toBe('existing');
-        expect(rowCheckbox(rows[0]).checked).toBe(true);
-        expect(rowCheckbox(rows[1]).checked).toBe(true);
-        expect(rowCheckbox(rows[2]).disabled).toBe(true);
-        expect(rowCheckbox(rows[3]).disabled).toBe(true);
-        expect(rowCheckbox(rows[4]).disabled).toBe(true);
-        expect(importButton(modal).disabled).toBe(false);
-        expect(importButton(modal).dataset.youtnoteCount).toBe('2');
+        expect(contentOf(modal).findAllByCls('youtnote-plugin__playlist-existing-note')).toHaveLength(1);
+        expect(contentOf(modal).findByTag('input')).toBeNull();
+        expect(emptyStateOf(paneList(modal, 'pending'))).not.toBeNull();
+        expect(emptyStateOf(paneList(modal, 'pending'))!.cls.split(' ')).not.toContain('youtnote-plugin__playlist-entry');
+        expect(rows[0].findByAction('add-entry')!.disabled).toBe(false);
+        expect(rows[2].findByAction('add-entry')!.disabled).toBe(true);
+        expect(rows[3].findByAction('add-entry')!.disabled).toBe(true);
+        expect(rows[4].findByAction('add-entry')!.disabled).toBe(true);
+        expect(importButton(modal).disabled).toBe(true);
+        expect(importButton(modal).dataset.youtnoteCount).toBe('0');
+        expect(contentOf(modal).findByAction('add-all')!.disabled).toBe(false);
+        expect(contentOf(modal).findByAction('clear')!.disabled).toBe(true);
         modal.close();
         await expect(modal.result).resolves.toBeNull();
     });
 
-    it('check-all and check-none update selection and the count', async () => {
+    it('hides the existing-file notice when no fetched entry is already in the file', async () => {
+        const modal = await openLoadedModal(entriesList, makeOptions({ existing: ['zzzzzzzzzzz'] }));
+        expect(contentOf(modal).findAllByCls('youtnote-plugin__playlist-existing-note')).toHaveLength(0);
+        modal.close();
+    });
+
+    it('labels each pane list with its own heading', async () => {
         const modal = await openLoadedModal(entriesList);
-        contentOf(modal).findByAction('check-none')!.click();
-        expect(importButton(modal).dataset.youtnoteCount).toBe('0');
+        const panes = contentOf(modal).findAllByCls('youtnote-plugin__playlist-pane')
+            .filter(el => el.cls.split(' ').includes('youtnote-plugin__playlist-pane'));
+        expect(panes).toHaveLength(2);
+        expect(contentOf(modal).findAllByCls('youtnote-plugin__playlist-pane-toolbar')).toHaveLength(0);
+        const headingIds = new Set<string>();
+        for (const pane of panes) {
+            const headers = pane.findAllByCls('youtnote-plugin__playlist-pane-header');
+            const lists = pane.findAllByCls('youtnote-plugin__playlist-list')
+                .filter(el => el.cls.split(' ').includes('youtnote-plugin__playlist-list'));
+            expect(headers).toHaveLength(1);
+            expect(lists).toHaveLength(1);
+            const header = headers[0];
+            expect(header.children).toHaveLength(3);
+            expect(header.children[0].cls.split(' ')).toContain('youtnote-plugin__playlist-pane-title');
+            expect(header.children[1].cls.split(' ')).toContain('youtnote-plugin__playlist-pane-count');
+            expect(header.children[2].dataset.youtnoteAction).toBe(pane.dataset.youtnotePane === 'source' ? 'add-all' : 'clear');
+            const headingId = header.children[0].attr.id;
+            expect(headingId).toBeTruthy();
+            headingIds.add(headingId);
+            expect(lists[0].attr.role).toBe('region');
+            expect(lists[0].attr['aria-labelledby']).toBe(headingId);
+            expect(lists[0].attr['aria-label']).toBeUndefined();
+            expect(lists[0].attr.title).toBeUndefined();
+        }
+        expect(headingIds.size).toBe(2);
+        modal.close();
+    });
+
+    it('moves rows between panes and restores the original source order on remove', async () => {
+        const modal = await openLoadedModal(entriesList);
+        addRow(modal, 'i0');
+        addRow(modal, 'i4');
+        addRow(modal, 'i1');
+        expect(rowKeys(pendingRows(modal))).toEqual(['i0', 'i4', 'i1']);
+        expect(rowKeys(sourceRows(modal))).toEqual(['i2', 'i3']);
+        sortableCreates[0].options.onEnd?.({ oldIndex: 0, newIndex: 2 });
+        expect(rowKeys(pendingRows(modal))).toEqual(['i4', 'i1', 'i0']);
+        removeRow(modal, 'i0');
+        expect(rowKeys(pendingRows(modal))).toEqual(['i4', 'i1']);
+        expect(rowKeys(sourceRows(modal))).toEqual(['i0', 'i2', 'i3']);
+        addRow(modal, 'i0');
+        expect(rowKeys(pendingRows(modal))).toEqual(['i4', 'i1', 'i0']);
+        modal.close();
+    });
+
+    it('ignores repeated adds and clicks on disabled rows', async () => {
+        const modal = await openLoadedModal(entriesList);
+        const staleAdd = sourceRows(modal)[0].findByAction('add-entry')!;
+        addRow(modal, 'i0');
+        staleAdd.click();
+        expect(rowKeys(pendingRows(modal))).toEqual(['i0']);
+        sourceRows(modal).find(r => r.dataset.youtnoteEntryKey === 'i2')!.findByAction('add-entry')!.click();
+        sourceRows(modal).find(r => r.dataset.youtnoteEntryKey === 'i3')!.findByAction('add-entry')!.click();
+        expect(rowKeys(pendingRows(modal))).toEqual(['i0']);
+        expect(importButton(modal).dataset.youtnoteCount).toBe('1');
+        modal.close();
+    });
+
+    it('add-all appends remaining eligible entries in source order', async () => {
+        const modal = await openLoadedModal(entriesList);
+        addRow(modal, 'i4');
+        contentOf(modal).findByAction('add-all')!.click();
+        expect(rowKeys(pendingRows(modal))).toEqual(['i4', 'i0', 'i1']);
+        expect(rowKeys(sourceRows(modal))).toEqual(['i2', 'i3']);
+        expect(contentOf(modal).findByAction('add-all')!.disabled).toBe(true);
+        expect(importButton(modal).dataset.youtnoteCount).toBe('3');
+        expect(countOf(modal, 'source').dataset.youtnoteCount).toBe('2');
+        expect(countOf(modal, 'pending').dataset.youtnoteCount).toBe('3');
+        modal.close();
+    });
+
+    it('clear returns every entry to the source in its original order', async () => {
+        const modal = await openLoadedModal(entriesList);
+        addRow(modal, 'i4');
+        addRow(modal, 'i0');
+        contentOf(modal).findByAction('clear')!.click();
+        expect(rowKeys(pendingRows(modal))).toEqual([]);
+        expect(rowKeys(sourceRows(modal))).toEqual(['i0', 'i1', 'i2', 'i3', 'i4']);
+        expect(emptyStateOf(paneList(modal, 'pending'))).not.toBeNull();
+        expect(contentOf(modal).findByAction('clear')!.disabled).toBe(true);
         expect(importButton(modal).disabled).toBe(true);
-        const rows = listRows(modal);
-        expect(rowCheckbox(rows[0]).checked).toBe(false);
-        expect(rowCheckbox(rows[1]).checked).toBe(false);
-        contentOf(modal).findByAction('check-all')!.click();
-        expect(importButton(modal).dataset.youtnoteCount).toBe('3');
-        expect(importButton(modal).disabled).toBe(false);
-        expect(rowCheckbox(rows[0]).checked).toBe(true);
-        expect(rowCheckbox(rows[3]).disabled).toBe(true);
         modal.close();
     });
 
-    it('toggling a checkbox updates the count', async () => {
-        const modal = await openLoadedModal(entriesList);
-        const rows = listRows(modal);
-        const checkbox = rowCheckbox(rows[0]);
-        checkbox.checked = false;
-        checkbox.listeners.change?.();
-        expect(importButton(modal).dataset.youtnoteCount).toBe('2');
-        checkbox.checked = true;
-        checkbox.listeners.change?.();
-        expect(importButton(modal).dataset.youtnoteCount).toBe('3');
+    it('disables bulk actions and import when no entry can be added', async () => {
+        const locked = [
+            entry({ key: 'i0', youtubeId: null, available: false }),
+            entry({ key: 'i1', youtubeId: 'aaaaaaaaaa9' }),
+        ];
+        const modal = await openLoadedModal(locked, makeOptions({ existing: ['aaaaaaaaaa9'] }));
+        expect(rowKeys(sourceRows(modal))).toEqual(['i0', 'i1']);
+        expect(pendingRows(modal)).toHaveLength(0);
+        expect(contentOf(modal).findByAction('add-all')!.disabled).toBe(true);
+        expect(contentOf(modal).findByAction('clear')!.disabled).toBe(true);
+        expect(importButton(modal).disabled).toBe(true);
+        expect(importButton(modal).dataset.youtnoteCount).toBe('0');
         modal.close();
     });
 
-    it('returns selected entries in displayed order on import', async () => {
-        const modal = await openLoadedModal(entriesList);
-        const rows = listRows(modal);
-        const checkbox = rowCheckbox(rows[1]);
-        checkbox.checked = false;
-        checkbox.listeners.change?.();
-        contentOf(modal).findByAction('import')!.click();
-        await expect(modal.result).resolves.toEqual([
-            entriesList[0],
-            entriesList[4],
+    it('shows an empty source state once every eligible entry is queued', async () => {
+        const modal = await openLoadedModal([
+            entry({ key: 'i0', youtubeId: 'aaaaaaaaaa1' }),
+            entry({ key: 'i1', youtubeId: 'aaaaaaaaaa2' }),
         ]);
+        contentOf(modal).findByAction('add-all')!.click();
+        expect(sourceRows(modal)).toHaveLength(0);
+        expect(emptyStateOf(paneList(modal, 'source'))).not.toBeNull();
+        expect(rowKeys(pendingRows(modal))).toEqual(['i0', 'i1']);
+        modal.close();
+    });
+
+    it('binds a single sortable to the pending list only', async () => {
+        const modal = await openLoadedModal(entriesList);
+        expect(sortableCreates).toHaveLength(1);
+        expect(sortableCreates[0].el).toBe(paneList(modal, 'pending'));
+        expect(sortableCreates[0].options.draggable).toBe('.youtnote-plugin__playlist-entry');
+        expect(sortableCreates[0].options.handle).toBe('.youtnote-plugin__playlist-entry-drag');
+        expect(sortableCreates[0].options.group).toBeUndefined();
+        for (const row of sourceRows(modal)) {
+            expect(row.findByAction('drag-handle')).toBeNull();
+            expect(row.findByAction('remove-entry')).toBeNull();
+            expect(row.findByAction('add-entry')).not.toBeNull();
+        }
+        addRow(modal, 'i0');
+        const pendingRow = pendingRows(modal)[0];
+        const handle = pendingRow.findByAction('drag-handle');
+        expect(handle).not.toBeNull();
+        expect(mockedSetIcon).toHaveBeenCalledWith(handle, 'grip-vertical');
+        expect(handle!.text).toBe('');
+        expect(pendingRow.findByAction('remove-entry')).not.toBeNull();
+        expect(pendingRow.findByAction('add-entry')).toBeNull();
+        expect(sortableCreates).toHaveLength(1);
+        modal.close();
+    });
+
+    it('orders only the pending queue by drag and returns the pending order on import', async () => {
+        const three = [
+            entry({ key: 'i0', youtubeId: 'aaaaaaaaaa1' }),
+            entry({ key: 'i1', youtubeId: 'aaaaaaaaaa2' }),
+            entry({ key: 'i2', youtubeId: 'aaaaaaaaaa3' }),
+        ];
+        const modal = await openLoadedModal(three);
+        addRow(modal, 'i1');
+        addRow(modal, 'i0');
+        addRow(modal, 'i2');
+        expect(rowKeys(pendingRows(modal))).toEqual(['i1', 'i0', 'i2']);
+        sortableCreates[0].options.onEnd?.({ oldIndex: 2, newIndex: 0 });
+        expect(rowKeys(pendingRows(modal))).toEqual(['i2', 'i1', 'i0']);
+        contentOf(modal).findByAction('import')!.click();
+        await expect(modal.result).resolves.toEqual([three[2], three[1], three[0]]);
+    });
+
+    it('ignores out-of-range drag indices', async () => {
+        const modal = await openLoadedModal(entriesList);
+        addRow(modal, 'i0');
+        addRow(modal, 'i1');
+        sortableCreates[0].options.onEnd?.({ oldIndex: 5, newIndex: 0 });
+        sortableCreates[0].options.onEnd?.({ oldIndex: 0, newIndex: -1 });
+        sortableCreates[0].options.onEnd?.({});
+        expect(rowKeys(pendingRows(modal))).toEqual(['i0', 'i1']);
+        modal.close();
+    });
+
+    it('returns the pending entries in queue order on import', async () => {
+        const modal = await openLoadedModal(entriesList);
+        addRow(modal, 'i4');
+        addRow(modal, 'i1');
+        contentOf(modal).findByAction('import')!.click();
+        await expect(modal.result).resolves.toEqual([entriesList[4], entriesList[1]]);
     });
 
     it('resolves null when the import is cancelled by closing', async () => {
@@ -407,6 +597,7 @@ describe('PlaylistImportModal selection phase', () => {
     it('resolves null and mutates nothing when isValid fails at commit', async () => {
         let valid = true;
         const modal = await openLoadedModal(entriesList, makeOptions({ isValid: () => valid }));
+        addRow(modal, 'i0');
         valid = false;
         contentOf(modal).findByAction('import')!.click();
         await expect(modal.result).resolves.toBeNull();
@@ -419,57 +610,38 @@ describe('PlaylistImportModal selection phase', () => {
             getExistingVideoIds: () => existing,
             isValid: () => true,
         });
+        addRow(modal, 'i0');
+        addRow(modal, 'i1');
         existing.add('aaaaaaaaaa1');
         contentOf(modal).findByAction('import')!.click();
-        await expect(modal.result).resolves.toEqual([
-            entriesList[1],
-            entriesList[4],
-        ]);
-    });
-});
-
-describe('PlaylistImportModal reordering', () => {
-    const entriesList = [
-        entry({ key: 'i0', youtubeId: 'aaaaaaaaaa1' }),
-        entry({ key: 'i1', youtubeId: 'aaaaaaaaaa2' }),
-        entry({ key: 'i2', youtubeId: 'aaaaaaaaaa3' }),
-    ];
-
-    it('creates a sortable list and destroys it on close', async () => {
-        const modal = await openLoadedModal(entriesList);
-        expect(sortableCreates).toHaveLength(1);
-        modal.close();
-        expect(sortableDestroy).toHaveBeenCalled();
+        await expect(modal.result).resolves.toEqual([entriesList[1]]);
     });
 
-    it('keeps checked state and returns reordered entries after a drag', async () => {
+    it('keeps scroll positions and moves focus to a usable control after transfers', async () => {
         const modal = await openLoadedModal(entriesList);
-        const rows = listRows(modal);
-        const checkbox = rowCheckbox(rows[0]);
-        checkbox.checked = false;
-        checkbox.listeners.change?.();
-        sortableCreates[0].options.onEnd?.({ oldIndex: 2, newIndex: 0 });
-        const reorderedRows = listRows(modal);
-        expect(reorderedRows.map(r => r.dataset.youtnoteEntryKey)).toEqual(['i2', 'i0', 'i1']);
-        expect(rowCheckbox(reorderedRows[1]).checked).toBe(false);
-        contentOf(modal).findByAction('import')!.click();
-        await expect(modal.result).resolves.toEqual([
-            entriesList[2],
-            entriesList[1],
-        ]);
-    });
+        const sourceListEl = paneList(modal, 'source');
+        const pendingListEl = paneList(modal, 'pending');
+        sourceListEl.scrollTop = 40;
+        pendingListEl.scrollTop = 15;
+        addRow(modal, 'i0');
+        expect(sourceListEl.scrollTop).toBe(40);
+        expect(pendingListEl.scrollTop).toBe(15);
+        const nextAdd = sourceRows(modal).find(r => r.dataset.youtnoteEntryKey === 'i1')!.findByAction('add-entry')!;
+        expect(nextAdd.focused).toBe(true);
 
-    it('renders every row with a drag handle and no button elements', async () => {
-        const modal = await openLoadedModal(entriesList);
-        const rows = listRows(modal);
-        expect(rows).toHaveLength(3);
-        for (const row of rows) {
-            const handle = row.findByAction('drag-handle');
-            expect(handle).not.toBeNull();
-            expect(mockedSetIcon).toHaveBeenCalledWith(handle, 'grip-vertical');
-            expect(handle!.text).toBe('');
-            expect(row.findByTag('button')).toBeNull();
-        }
+        addRow(modal, 'i4');
+        removeRow(modal, 'i0');
+        const remainingRemove = pendingRows(modal).find(r => r.dataset.youtnoteEntryKey === 'i4')!.findByAction('remove-entry')!;
+        expect(remainingRemove.focused).toBe(true);
+
+        removeRow(modal, 'i4');
+        const restoredAdd = sourceRows(modal).find(r => r.dataset.youtnoteEntryKey === 'i4')!.findByAction('add-entry')!;
+        expect(restoredAdd.focused).toBe(true);
+
+        contentOf(modal).findByAction('add-all')!.click();
+        expect(contentOf(modal).findByAction('clear')!.focused).toBe(true);
+        contentOf(modal).findByAction('clear')!.click();
+        expect(contentOf(modal).findByAction('add-all')!.focused).toBe(true);
         modal.close();
     });
 });

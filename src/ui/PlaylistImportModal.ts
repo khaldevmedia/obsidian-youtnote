@@ -64,18 +64,22 @@ export class PlaylistImportModal extends Modal {
     private playlistTitle = '';
     private entries: PlaylistEntry[] = [];
     private entriesByKey = new Map<string, PlaylistEntry>();
-    private orderedKeys: string[] = [];
-    private readonly selected = new Set<string>();
+    private pendingKeys: string[] = [];
     private readonly disabledReasons = new Map<string, EntryDisabledReason>();
     private errorCode = '';
     private errorMessage = '';
     private progressCount = 0;
     private progressEl: HTMLElement | null = null;
-    private listEl: HTMLElement | null = null;
-    private countEl: HTMLElement | null = null;
+    private sourceListEl: HTMLElement | null = null;
+    private pendingListEl: HTMLElement | null = null;
+    private sourceCountEl: HTMLElement | null = null;
+    private pendingCountEl: HTMLElement | null = null;
+    private addAllButtonEl: HTMLButtonElement | null = null;
+    private clearButtonEl: HTMLButtonElement | null = null;
     private importButtonEl: HTMLButtonElement | null = null;
-    private readonly rowEls = new Map<string, HTMLElement>();
-    private readonly checkboxEls = new Map<string, HTMLInputElement>();
+    private readonly sourceActionEls = new Map<string, HTMLButtonElement>();
+    private readonly pendingActionEls = new Map<string, HTMLButtonElement>();
+    private readonly pendingRowEls = new Map<string, HTMLElement>();
 
     constructor(app: App, playlistId: string, options: PlaylistImportModalOptions) {
         super(app);
@@ -116,11 +120,16 @@ export class PlaylistImportModal extends Modal {
         this.sortable = null;
         this.settle(null);
         this.progressEl = null;
-        this.listEl = null;
-        this.countEl = null;
+        this.sourceListEl = null;
+        this.pendingListEl = null;
+        this.sourceCountEl = null;
+        this.pendingCountEl = null;
+        this.addAllButtonEl = null;
+        this.clearButtonEl = null;
         this.importButtonEl = null;
-        this.rowEls.clear();
-        this.checkboxEls.clear();
+        this.sourceActionEls.clear();
+        this.pendingActionEls.clear();
+        this.pendingRowEls.clear();
         this.contentEl.empty();
     }
 
@@ -192,12 +201,10 @@ export class PlaylistImportModal extends Modal {
         const existing = this.options.getExistingVideoIds();
         const seen = new Set<string>();
         this.entriesByKey.clear();
-        this.orderedKeys = [];
-        this.selected.clear();
+        this.pendingKeys = [];
         this.disabledReasons.clear();
         for (const entry of this.entries) {
             this.entriesByKey.set(entry.key, entry);
-            this.orderedKeys.push(entry.key);
             if (!entry.available || entry.youtubeId === null) {
                 this.disabledReasons.set(entry.key, 'unavailable');
             } else if (existing.has(entry.youtubeId)) {
@@ -206,7 +213,6 @@ export class PlaylistImportModal extends Modal {
                 this.disabledReasons.set(entry.key, 'repeated');
             } else {
                 seen.add(entry.youtubeId);
-                this.selected.add(entry.key);
             }
         }
     }
@@ -227,13 +233,19 @@ export class PlaylistImportModal extends Modal {
             return;
         }
         const { contentEl } = this;
+        this.modalEl.dataset.youtnotePlaylistPhase = this.phase;
         contentEl.empty();
         this.progressEl = null;
-        this.listEl = null;
-        this.countEl = null;
+        this.sourceListEl = null;
+        this.pendingListEl = null;
+        this.sourceCountEl = null;
+        this.pendingCountEl = null;
+        this.addAllButtonEl = null;
+        this.clearButtonEl = null;
         this.importButtonEl = null;
-        this.rowEls.clear();
-        this.checkboxEls.clear();
+        this.sourceActionEls.clear();
+        this.pendingActionEls.clear();
+        this.pendingRowEls.clear();
         this.sortable?.destroy();
         this.sortable = null;
 
@@ -347,30 +359,38 @@ export class PlaylistImportModal extends Modal {
         const noteEl = contentEl.createDiv({ cls: 'youtnote-plugin__playlist-note' });
         noteEl.setText('YouTube may hide unavailable videos, so only the entries it returned are listed.');
 
-        const toolbarEl = contentEl.createDiv({ cls: 'youtnote-plugin__playlist-toolbar' });
-        this.addButton(toolbarEl, 'Check all', 'secondary', 'check-all', () => this.checkAll());
-        this.addButton(toolbarEl, 'Check none', 'secondary', 'check-none', () => this.checkNone());
-        this.countEl = toolbarEl.createDiv({ cls: 'youtnote-plugin__playlist-count' });
-        this.updateCountText();
+        if ([...this.disabledReasons.values()].includes('existing')) {
+            const existingNoteEl = contentEl.createDiv({
+                cls: 'youtnote-plugin__playlist-note youtnote-plugin__playlist-existing-note',
+            });
+            existingNoteEl.setText('Videos already in this file are grayed out and cannot be added again.');
+        }
 
-        const listEl = contentEl.createDiv({ cls: 'youtnote-plugin__playlist-list' });
-        this.listEl = listEl;
-        this.orderedKeys.forEach(key => {
-            const entry = this.entriesByKey.get(key);
-            if (entry) {
-                this.renderRow(listEl, entry);
-            }
-        });
-        this.sortable = Sortable.create(this.listEl, {
+        const columnsEl = contentEl.createDiv({ cls: 'youtnote-plugin__playlist-columns' });
+        const sourcePane = this.renderPane(columnsEl, 'Playlist videos', 'source');
+        const pendingPane = this.renderPane(columnsEl, 'Videos to add', 'pending');
+        this.sourceCountEl = sourcePane.countEl;
+        this.pendingCountEl = pendingPane.countEl;
+        this.addAllButtonEl = this.addButton(sourcePane.headerEl, 'Add all', 'secondary', 'add-all', () => this.addAll());
+        this.clearButtonEl = this.addButton(pendingPane.headerEl, 'Clear', 'secondary', 'clear', () => this.clearPending());
+        this.sourceListEl = sourcePane.listEl;
+        this.pendingListEl = pendingPane.listEl;
+        this.renderLists();
+
+        this.sortable = Sortable.create(this.pendingListEl, {
+            draggable: '.youtnote-plugin__playlist-entry',
             handle: '.youtnote-plugin__playlist-entry-drag',
             animation: 150,
             forceFallback: true,
             fallbackOnBody: true,
             onEnd: (evt: SortableEvent) => {
+                if (this.closed) {
+                    return;
+                }
                 const oldIndex = evt.oldIndex;
                 const newIndex = evt.newIndex;
                 if (typeof oldIndex === 'number' && typeof newIndex === 'number' && oldIndex !== newIndex) {
-                    this.reorderKeys(oldIndex, newIndex);
+                    this.reorderPending(oldIndex, newIndex);
                     this.applyDomOrder();
                 }
             },
@@ -380,7 +400,7 @@ export class PlaylistImportModal extends Modal {
         this.addButton(buttonsEl, 'Cancel', 'secondary', 'cancel', () => this.close());
         this.importButtonEl = this.addButton(
             buttonsEl,
-            'Add selected',
+            'Add videos',
             'primary',
             'import',
             () => this.commitImport(),
@@ -388,135 +408,262 @@ export class PlaylistImportModal extends Modal {
         this.updateImportButton();
     }
 
-    private renderRow(listEl: HTMLElement, entry: PlaylistEntry): void {
+    private renderPane(
+        parent: HTMLElement,
+        heading: string,
+        pane: 'source' | 'pending',
+    ): { countEl: HTMLElement; headerEl: HTMLElement; listEl: HTMLElement } {
+        const paneEl = parent.createDiv({ cls: 'youtnote-plugin__playlist-pane' });
+        paneEl.dataset.youtnotePane = pane;
+        const headerEl = paneEl.createDiv({ cls: 'youtnote-plugin__playlist-pane-header' });
+        const headingId = `youtnote-playlist-${pane}-${crypto.randomUUID()}`;
+        const titleEl = headerEl.createDiv({ cls: 'youtnote-plugin__playlist-pane-title', attr: { id: headingId } });
+        titleEl.setText(heading);
+        const countEl = headerEl.createDiv({ cls: 'youtnote-plugin__playlist-pane-count' });
+        countEl.dataset.youtnotePane = pane;
+        const listEl = paneEl.createDiv({
+            cls: `youtnote-plugin__playlist-list youtnote-plugin__playlist-list--${pane}`,
+            attr: { role: 'region', 'aria-labelledby': headingId },
+        });
+        return { countEl, headerEl, listEl };
+    }
+
+    private renderLists(origin?: 'source' | 'pending', movedKey?: string, removedIndex?: number): void {
+        const sourceListEl = this.sourceListEl;
+        const pendingListEl = this.pendingListEl;
+        if (!sourceListEl || !pendingListEl) {
+            return;
+        }
+        const sourceScroll = sourceListEl.scrollTop;
+        const pendingScroll = pendingListEl.scrollTop;
+        const pendingSet = new Set(this.pendingKeys);
+        const sourceEntries = this.entries.filter(entry => !pendingSet.has(entry.key));
+        this.sourceActionEls.clear();
+        this.pendingActionEls.clear();
+        this.pendingRowEls.clear();
+
+        sourceListEl.empty();
+        if (sourceEntries.length === 0) {
+            const emptyEl = sourceListEl.createDiv({ cls: 'youtnote-plugin__playlist-empty' });
+            emptyEl.setText('No more videos in this playlist.');
+        } else {
+            for (const entry of sourceEntries) {
+                this.renderSourceRow(sourceListEl, entry);
+            }
+        }
+
+        pendingListEl.empty();
+        if (this.pendingKeys.length === 0) {
+            const emptyEl = pendingListEl.createDiv({ cls: 'youtnote-plugin__playlist-empty' });
+            emptyEl.setText('Use the add buttons to queue videos here.');
+        } else {
+            for (const key of this.pendingKeys) {
+                const entry = this.entriesByKey.get(key);
+                if (entry) {
+                    this.renderPendingRow(pendingListEl, entry);
+                }
+            }
+        }
+
+        sourceListEl.scrollTop = sourceScroll;
+        pendingListEl.scrollTop = pendingScroll;
+        this.updateControls(sourceEntries.length, pendingSet);
+        if (origin !== undefined) {
+            this.refocusAfterTransfer(origin, movedKey, removedIndex);
+        }
+    }
+
+    private renderSourceRow(listEl: HTMLElement, entry: PlaylistEntry): void {
         const reason = this.disabledReasons.get(entry.key) ?? null;
         const row = listEl.createDiv({ cls: 'youtnote-plugin__playlist-entry' });
         row.dataset.youtnoteEntryKey = entry.key;
         if (reason !== null) {
             row.dataset.youtnoteEntryStatus = reason;
         }
+        this.renderEntryContent(row, entry, reason);
+        const addButton = this.addButton(row, 'Add', 'secondary', 'add-entry', () => this.addEntry(entry.key));
+        addButton.disabled = reason !== null;
+        this.sourceActionEls.set(entry.key, addButton);
+    }
 
+    private renderPendingRow(listEl: HTMLElement, entry: PlaylistEntry): void {
+        const row = listEl.createDiv({ cls: 'youtnote-plugin__playlist-entry' });
+        row.dataset.youtnoteEntryKey = entry.key;
         const drag = row.createSpan({ cls: 'youtnote-plugin__playlist-entry-drag' });
         drag.dataset.youtnoteAction = 'drag-handle';
         setIcon(drag, 'grip-vertical');
+        this.renderEntryContent(row, entry, null);
+        const removeButton = this.addButton(row, 'Remove', 'secondary', 'remove-entry', () => this.removeEntry(entry.key));
+        this.pendingActionEls.set(entry.key, removeButton);
+        this.pendingRowEls.set(entry.key, row);
+    }
 
-        const label = row.createEl('label', { cls: 'youtnote-plugin__playlist-entry-label' });
-        const checkbox = label.createEl('input', {
-            attr: {
-                type: 'checkbox',
-                'aria-label': entry.title || 'Untitled video',
-            },
-        });
-        checkbox.dataset.youtnoteAction = 'toggle';
-        checkbox.checked = this.selected.has(entry.key);
-        checkbox.disabled = reason !== null;
-        checkbox.addEventListener('change', () => {
-            this.setEntryChecked(entry.key, checkbox.checked);
-        });
-        this.checkboxEls.set(entry.key, checkbox);
-
+    private renderEntryContent(row: HTMLElement, entry: PlaylistEntry, reason: EntryDisabledReason | null): void {
+        const contentEl = row.createDiv({ cls: 'youtnote-plugin__playlist-entry-content' });
         if (entry.thumbnail) {
-            label.createEl('img', {
+            contentEl.createEl('img', {
                 cls: 'youtnote-plugin__playlist-entry-thumb',
                 attr: { src: entry.thumbnail, alt: '' },
             });
         }
-
-        const textEl = label.createDiv({ cls: 'youtnote-plugin__playlist-entry-text' });
+        const textEl = contentEl.createDiv({ cls: 'youtnote-plugin__playlist-entry-text' });
         const titleEl = textEl.createDiv({ cls: 'youtnote-plugin__playlist-entry-title' });
         titleEl.setText(entry.title || 'Untitled video');
         if (reason !== null) {
             const statusEl = textEl.createDiv({ cls: 'youtnote-plugin__playlist-entry-status' });
             statusEl.setText(disabledReasonText(reason));
         }
-
-        this.rowEls.set(entry.key, row);
     }
 
-    private reorderKeys(from: number, to: number): void {
-        if (from < 0 || from >= this.orderedKeys.length || to < 0 || to >= this.orderedKeys.length) {
+    private addEntry(key: string): void {
+        if (this.closed || !this.options.isValid()) {
             return;
         }
-        const [moved] = this.orderedKeys.splice(from, 1);
-        this.orderedKeys.splice(to, 0, moved);
+        if (!this.entriesByKey.has(key) || this.disabledReasons.has(key) || this.pendingKeys.includes(key)) {
+            return;
+        }
+        this.pendingKeys.push(key);
+        this.renderLists('source', key);
+    }
+
+    private removeEntry(key: string): void {
+        if (this.closed || !this.options.isValid()) {
+            return;
+        }
+        const index = this.pendingKeys.indexOf(key);
+        if (index === -1) {
+            return;
+        }
+        this.pendingKeys.splice(index, 1);
+        this.renderLists('pending', key, index);
+    }
+
+    private addAll(): void {
+        if (this.closed || !this.options.isValid()) {
+            return;
+        }
+        const pendingSet = new Set(this.pendingKeys);
+        for (const entry of this.entries) {
+            if (!pendingSet.has(entry.key) && !this.disabledReasons.has(entry.key)) {
+                this.pendingKeys.push(entry.key);
+            }
+        }
+        this.renderLists('source');
+    }
+
+    private clearPending(): void {
+        if (this.closed || !this.options.isValid() || this.pendingKeys.length === 0) {
+            return;
+        }
+        this.pendingKeys = [];
+        this.renderLists('pending');
+    }
+
+    private refocusAfterTransfer(origin: 'source' | 'pending', movedKey?: string, removedIndex?: number): void {
+        let target: HTMLElement | null = null;
+        if (origin === 'source') {
+            if (movedKey !== undefined) {
+                target = this.nextActionableSourceButton(movedKey, 1)
+                    ?? this.nextActionableSourceButton(movedKey, -1)
+                    ?? this.pendingActionEls.get(movedKey)
+                    ?? null;
+            }
+            target = target ?? this.clearButtonEl;
+        } else {
+            if (movedKey !== undefined && removedIndex !== undefined) {
+                const nextKey = this.pendingKeys[removedIndex] ?? this.pendingKeys[removedIndex - 1];
+                if (nextKey !== undefined) {
+                    target = this.pendingActionEls.get(nextKey) ?? null;
+                }
+                target = target ?? this.sourceActionEls.get(movedKey) ?? null;
+            }
+            target = target ?? this.addAllButtonEl;
+        }
+        target?.focus({ preventScroll: true });
+    }
+
+    private nextActionableSourceButton(afterKey: string, direction: 1 | -1): HTMLButtonElement | null {
+        const startIndex = this.entries.findIndex(entry => entry.key === afterKey);
+        if (startIndex === -1) {
+            return null;
+        }
+        const pendingSet = new Set(this.pendingKeys);
+        for (let i = startIndex + direction; i >= 0 && i < this.entries.length; i += direction) {
+            const key = this.entries[i].key;
+            if (!pendingSet.has(key) && !this.disabledReasons.has(key)) {
+                return this.sourceActionEls.get(key) ?? null;
+            }
+        }
+        return null;
+    }
+
+    private reorderPending(from: number, to: number): void {
+        if (from < 0 || from >= this.pendingKeys.length || to < 0 || to >= this.pendingKeys.length) {
+            return;
+        }
+        const [moved] = this.pendingKeys.splice(from, 1);
+        this.pendingKeys.splice(to, 0, moved);
     }
 
     private applyDomOrder(): void {
-        const listEl = this.listEl;
-        if (!listEl) {
+        const pendingListEl = this.pendingListEl;
+        if (!pendingListEl) {
             return;
         }
-        for (const key of this.orderedKeys) {
-            const row = this.rowEls.get(key);
+        for (const key of this.pendingKeys) {
+            const row = this.pendingRowEls.get(key);
             if (row) {
-                listEl.appendChild(row);
+                pendingListEl.appendChild(row);
             }
         }
     }
 
-    private setEntryChecked(key: string, checked: boolean): void {
-        if (this.disabledReasons.has(key)) {
-            return;
+    private updateControls(sourceCount: number, pendingSet: Set<string>): void {
+        if (this.sourceCountEl) {
+            this.sourceCountEl.setText(`${sourceCount}`);
+            this.sourceCountEl.dataset.youtnoteCount = String(sourceCount);
         }
-        if (checked) {
-            this.selected.add(key);
-        } else {
-            this.selected.delete(key);
+        if (this.pendingCountEl) {
+            this.pendingCountEl.setText(`${this.pendingKeys.length}`);
+            this.pendingCountEl.dataset.youtnoteCount = String(this.pendingKeys.length);
+        }
+        let eligible = 0;
+        for (const entry of this.entries) {
+            if (!pendingSet.has(entry.key) && !this.disabledReasons.has(entry.key)) {
+                eligible += 1;
+            }
+        }
+        if (this.addAllButtonEl) {
+            this.addAllButtonEl.disabled = eligible === 0;
+        }
+        if (this.clearButtonEl) {
+            this.clearButtonEl.disabled = this.pendingKeys.length === 0;
         }
         this.updateImportButton();
-        this.updateCountText();
-    }
-
-    private checkAll(): void {
-        for (const key of this.orderedKeys) {
-            if (!this.disabledReasons.has(key)) {
-                this.selected.add(key);
-            }
-        }
-        this.syncCheckboxes();
-    }
-
-    private checkNone(): void {
-        this.selected.clear();
-        this.syncCheckboxes();
-    }
-
-    private syncCheckboxes(): void {
-        for (const [key, checkbox] of this.checkboxEls) {
-            if (!checkbox.disabled) {
-                checkbox.checked = this.selected.has(key);
-            }
-        }
-        this.updateImportButton();
-        this.updateCountText();
-    }
-
-    private updateCountText(): void {
-        this.countEl?.setText(`${this.selected.size} selected`);
     }
 
     private updateImportButton(): void {
         if (this.importButtonEl) {
-            const count = this.selected.size;
+            const count = this.pendingKeys.length;
             this.importButtonEl.disabled = count === 0;
-            this.importButtonEl.setText(`Add selected (${count})`);
+            this.importButtonEl.setText(`Add videos (${count})`);
             this.importButtonEl.dataset.youtnoteCount = String(count);
         }
     }
 
     private commitImport(): void {
-        if (!this.options.isValid() || this.selected.size === 0) {
+        if (!this.options.isValid() || this.pendingKeys.length === 0) {
             this.settleAndClose(null);
             return;
         }
         const existing = this.options.getExistingVideoIds();
         const result: PlaylistEntry[] = [];
-        for (const key of this.orderedKeys) {
-            if (!this.selected.has(key)) {
-                continue;
-            }
+        for (const key of this.pendingKeys) {
             const entry = this.entriesByKey.get(key);
             if (!entry) {
+                continue;
+            }
+            if (this.disabledReasons.has(key)) {
                 continue;
             }
             if (entry.youtubeId && existing.has(entry.youtubeId)) {

@@ -1497,6 +1497,10 @@ button.youtnote-plugin__add-btn {
     overflow: hidden;
 }
 
+.modal.youtnote-plugin__playlist-dialog[data-youtnote-playlist-phase='select'] {
+    width: 960px;
+}
+
 .youtnote-plugin__playlist-dialog .youtnote-plugin__playlist-modal {
     display: flex;
     flex-direction: column;
@@ -1506,16 +1510,10 @@ button.youtnote-plugin__add-btn {
     overflow-wrap: anywhere;
 }
 
-.youtnote-plugin__playlist-dialog .youtnote-plugin__playlist-modal > :not(.youtnote-plugin__playlist-list) {
+.youtnote-plugin__playlist-dialog .youtnote-plugin__playlist-modal > :not(.youtnote-plugin__playlist-columns) {
     flex-shrink: 0;
 }
 
-.youtnote-plugin__playlist-dialog .youtnote-plugin__playlist-list {
-    flex: 0 1 auto;
-    min-height: var(--size-4-12);
-}
-
-.youtnote-plugin__playlist-dialog .youtnote-plugin__playlist-toolbar,
 .youtnote-plugin__playlist-dialog .youtnote-plugin__base-modal-buttons {
     flex-wrap: wrap;
 }
@@ -1555,29 +1553,65 @@ button.youtnote-plugin__add-btn {
     color: var(--text-muted);
 }
 
-.youtnote-plugin__playlist-toolbar {
+.youtnote-plugin__playlist-columns {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--size-4-4);
+    height: 50vh;
+    height: 50dvh;
+    min-height: calc(4 * var(--size-4-12));
+    flex: 0 1 auto;
+    margin-bottom: var(--size-4-4);
+}
+
+.youtnote-plugin__playlist-pane {
     display: flex;
-    align-items: center;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+}
+
+.youtnote-plugin__playlist-pane-header {
+    display: flex;
+    align-items: baseline;
     gap: var(--size-4-2);
-    margin-bottom: var(--size-4-3);
+    flex-wrap: wrap;
+    flex-shrink: 0;
+    margin-bottom: var(--size-4-2);
 }
 
-.youtnote-plugin__playlist-toolbar .youtnote-plugin__modal-button {
-    padding: var(--size-4-1) var(--size-4-2);
+.youtnote-plugin__playlist-pane-title {
+    font-weight: var(--font-semibold);
+    color: var(--text-normal);
+    overflow-wrap: anywhere;
 }
 
-.youtnote-plugin__playlist-count {
-    margin-left: auto;
+.youtnote-plugin__playlist-pane-count {
     color: var(--text-muted);
     font-size: var(--font-ui-small);
 }
 
+.youtnote-plugin__playlist-pane-header > .youtnote-plugin__modal-button {
+    margin-inline-start: auto;
+    flex-shrink: 0;
+}
+
+.youtnote-plugin__playlist-pane .youtnote-plugin__playlist-list {
+    flex: 1 1 0;
+    min-height: 0;
+}
+
 .youtnote-plugin__playlist-list {
-    max-height: 50vh;
     overflow-y: auto;
-    margin-bottom: var(--size-4-4);
     border: 1px solid var(--background-modifier-border);
     border-radius: var(--radius-s);
+}
+
+.youtnote-plugin__playlist-empty {
+    padding: var(--size-4-4);
+    color: var(--text-muted);
+    font-size: var(--font-ui-small);
+    text-align: center;
 }
 
 .youtnote-plugin__playlist-entry {
@@ -1603,13 +1637,17 @@ button.youtnote-plugin__add-btn {
     flex-shrink: 0;
 }
 
-.youtnote-plugin__playlist-entry-label {
+.youtnote-plugin__playlist-entry-content {
     display: flex;
     align-items: center;
     gap: var(--size-4-2);
     flex: 1;
     min-width: 0;
-    cursor: var(--cursor-link);
+}
+
+.youtnote-plugin__playlist-entry .youtnote-plugin__modal-button {
+    flex-shrink: 0;
+    padding: var(--size-4-1) var(--size-4-2);
 }
 
 .youtnote-plugin__playlist-entry-thumb {
@@ -1634,6 +1672,18 @@ button.youtnote-plugin__add-btn {
 .youtnote-plugin__playlist-entry-status {
     color: var(--text-muted);
     font-size: var(--font-ui-smaller);
+}
+
+.is-mobile .youtnote-plugin__playlist-columns {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: repeat(2, minmax(0, 1fr));
+}
+
+@media (max-width: 700px) {
+    .youtnote-plugin__playlist-columns {
+        grid-template-columns: minmax(0, 1fr);
+        grid-template-rows: repeat(2, minmax(0, 1fr));
+    }
 }
 
 @media (max-width: 480px) {

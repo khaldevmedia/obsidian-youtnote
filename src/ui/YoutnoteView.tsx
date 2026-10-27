@@ -1582,7 +1582,7 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
                     <input 
                         type="url" 
                         className="youtnote-plugin__add-video-input" 
-                        placeholder="YouTube URL..." 
+                        placeholder="YouTube video or playlist URL..." 
                         value={newVideoUrl}
                         onChange={(e) => setNewVideoUrl(e.target.value)}
                         disabled={isFetchingMetadata}
