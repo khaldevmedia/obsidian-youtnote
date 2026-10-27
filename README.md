@@ -86,7 +86,7 @@ For more details on this issue, please **[read here](docs/error-153-ios.md)**.
 1. **Create a Youtnote file** via the ribbon icon or the `Youtnote: Create new file` command, which opens it in the current tab (use `Youtnote: Create new file in a new tab` to open it in a new tab instead). A file with `youtnote: true` and `youtnote-format-version: 2` frontmatter opens in the custom view.
 2. **Add videos** with the YouTube URL field. Paste a video or playlist URL. For playlists, select videos with checkboxes or **Check all** / **Check none**, drag to reorder, then click **Add selected**. If the link includes both a video and a playlist, choose which to add. Duplicates are prevented automatically. Private playlists and YouTube Mixes are not supported.
 3. **Select a video** to load it into the embedded iframe. Switching videos keeps the same player instance for smooth transitions.
-4. **Add notes** using the `+` (or keyboard shortcut): Youtnote auto-grabs the current playback time.
+4. **Add notes** using the `+`: Youtnote auto-grabs the current playback time.
 5. **Edit in Live Preview** by double-clicking a note. Use the configured newline shortcut (`Enter` or `Shift+Enter`) to save.
 6. **Jump around** by clicking any timestamp: the player seeks (and optionally autoplays) to that moment.
 7. **Add a general note** using the note icon in the notes header, perfect for video summaries or context without a timestamp. One per video.
