@@ -1557,6 +1557,38 @@ button.youtnote-plugin__add-btn {
     overflow-wrap: anywhere;
 }
 
+.youtnote-plugin__playlist-invalid-summary {
+    margin-bottom: var(--size-4-1);
+}
+
+.youtnote-plugin__playlist-invalid-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    max-height: 20vh;
+    max-height: 20dvh;
+    overflow-y: auto;
+    overflow-x: hidden;
+}
+
+.youtnote-plugin__playlist-invalid-item {
+    display: flex;
+    gap: var(--size-4-2);
+    align-items: flex-start;
+    padding: var(--size-4-1) 0;
+}
+
+.youtnote-plugin__playlist-invalid-text {
+    flex: 1;
+    min-width: 0;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+}
+
+.youtnote-plugin__playlist-invalid-item > .youtnote-plugin__modal-button {
+    flex-shrink: 0;
+}
+
 .youtnote-plugin__playlist-info {
     margin-bottom: var(--size-4-3);
     font-weight: var(--font-semibold);

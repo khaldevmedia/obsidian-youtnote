@@ -4,7 +4,7 @@ import type { SortableEvent } from 'sortablejs';
 import { fetchPlaylist } from '../playlistFetch';
 import { fetchProvidedVideos } from '../videoUrlListFetch';
 import { MAX_VIDEO_URLS, parseVideoUrlList } from '../videoUrlList';
-import type { ProvidedVideoUrl } from '../videoUrlList';
+import type { InvalidVideoUrlEntry, ParseVideoUrlListResult, ProvidedVideoUrl } from '../videoUrlList';
 import { classifyPlaylistId, PlaylistError } from '../playlist';
 import type { PlaylistEntry, PlaylistIdKind } from '../playlist';
 
@@ -104,9 +104,9 @@ export class PlaylistImportModal extends Modal {
     private importButtonEl: HTMLButtonElement | null = null;
     private providedText = '';
     private providedVideos: ProvidedVideoUrl[] = [];
-    private parseErrorCode = '';
-    private parseErrorLines: number[] = [];
+    private inputValidation: ParseVideoUrlListResult | null = null;
     private inputEl: HTMLTextAreaElement | null = null;
+    private inputFeedbackEl: HTMLElement | null = null;
     private loadButtonEl: HTMLButtonElement | null = null;
     private readonly sourceActionEls = new Map<string, HTMLButtonElement>();
     private readonly pendingActionEls = new Map<string, HTMLButtonElement>();
@@ -162,6 +162,7 @@ export class PlaylistImportModal extends Modal {
         this.clearButtonEl = null;
         this.importButtonEl = null;
         this.inputEl = null;
+        this.inputFeedbackEl = null;
         this.loadButtonEl = null;
         this.sourceActionEls.clear();
         this.pendingActionEls.clear();
@@ -291,6 +292,7 @@ export class PlaylistImportModal extends Modal {
         this.clearButtonEl = null;
         this.importButtonEl = null;
         this.inputEl = null;
+        this.inputFeedbackEl = null;
         this.loadButtonEl = null;
         this.sourceActionEls.clear();
         this.pendingActionEls.clear();
@@ -368,19 +370,16 @@ export class PlaylistImportModal extends Modal {
         inputEl.value = this.providedText;
         inputEl.addEventListener('input', () => {
             this.providedText = inputEl.value;
+            if (this.inputValidation !== null) {
+                this.inputValidation = parseVideoUrlList(this.providedText);
+                this.renderInputFeedback();
+            }
             this.updateLoadButton();
         });
         this.inputEl = inputEl;
 
-        if (this.parseErrorCode !== '') {
-            const errorEl = contentEl.createDiv({
-                cls: 'youtnote-plugin__playlist-input-error',
-                attr: { role: 'alert' },
-            });
-            errorEl.dataset.youtnoteErrorCode = this.parseErrorCode;
-            errorEl.dataset.youtnoteInvalidLines = this.parseErrorLines.join(' ');
-            errorEl.setText(this.inputErrorText());
-        }
+        this.inputFeedbackEl = contentEl.createDiv({ cls: 'youtnote-plugin__playlist-input-feedback' });
+        this.renderInputFeedback();
 
         const buttonsEl = contentEl.createDiv({ cls: 'youtnote-plugin__base-modal-buttons' });
         this.loadButtonEl = this.addButton(buttonsEl, 'Load videos', 'primary', 'load-videos', () => this.loadProvidedVideos());
@@ -388,10 +387,8 @@ export class PlaylistImportModal extends Modal {
         this.updateLoadButton();
     }
 
-    private inputErrorText(): string {
-        switch (this.parseErrorCode) {
-            case 'invalid':
-                return `These lines are not valid video links: ${this.parseErrorLines.join(', ')}. Add playlist links with the main URL field instead.`;
+    private inputErrorText(code: string): string {
+        switch (code) {
             case 'limit':
                 return `Too many links were pasted (maximum ${MAX_VIDEO_URLS}).`;
             case 'text-limit':
@@ -399,6 +396,63 @@ export class PlaylistImportModal extends Modal {
             default:
                 return 'Paste at least one video link.';
         }
+    }
+
+    private renderInputFeedback(): void {
+        const feedbackEl = this.inputFeedbackEl;
+        if (!feedbackEl) {
+            return;
+        }
+        feedbackEl.empty();
+        const validation = this.inputValidation;
+        if (validation === null || validation.ok) {
+            return;
+        }
+        const errorEl = feedbackEl.createDiv({ cls: 'youtnote-plugin__playlist-input-error' });
+        errorEl.dataset.youtnoteErrorCode = validation.code;
+        if (validation.code !== 'invalid') {
+            errorEl.setAttribute('role', 'alert');
+            errorEl.setText(this.inputErrorText(validation.code));
+            return;
+        }
+        errorEl.dataset.youtnoteInvalidLines = validation.lines.join(' ');
+        const summaryEl = errorEl.createDiv({
+            cls: 'youtnote-plugin__playlist-invalid-summary',
+            attr: { role: 'status', 'aria-live': 'polite' },
+        });
+        summaryEl.setText(validation.invalidEntries.length === 1
+            ? '1 invalid URL'
+            : `${validation.invalidEntries.length} invalid URLs`);
+        const listEl = errorEl.createEl('ul', { cls: 'youtnote-plugin__playlist-invalid-list' });
+        const snapshot = this.providedText;
+        const idPrefix = `youtnote-invalid-${crypto.randomUUID()}-`;
+        validation.invalidEntries.forEach((entry, index) => {
+            const itemEl = listEl.createEl('li', { cls: 'youtnote-plugin__playlist-invalid-item' });
+            const textId = `${idPrefix}${index}`;
+            const textEl = itemEl.createEl('code', {
+                cls: 'youtnote-plugin__playlist-invalid-text',
+                attr: { id: textId },
+            });
+            textEl.setText(entry.text);
+            const selectEl = this.addButton(itemEl, 'Go to entry', 'secondary', 'select-invalid-entry', () => {
+                this.selectInvalidEntry(entry, snapshot);
+            });
+            selectEl.dataset.youtnoteStart = String(entry.start);
+            selectEl.dataset.youtnoteEnd = String(entry.end);
+            selectEl.setAttribute('aria-describedby', textId);
+        });
+    }
+
+    private selectInvalidEntry(entry: InvalidVideoUrlEntry, snapshot: string): void {
+        if (this.closed || this.phase !== 'input' || !this.options.isValid()) {
+            return;
+        }
+        const inputEl = this.inputEl;
+        if (!inputEl || inputEl.value !== snapshot) {
+            return;
+        }
+        inputEl.focus();
+        inputEl.setSelectionRange(entry.start, entry.end);
     }
 
     private updateLoadButton(): void {
@@ -411,16 +465,19 @@ export class PlaylistImportModal extends Modal {
         if (this.closed || !this.isProvided || !this.options.isValid()) {
             return;
         }
+        this.providedText = this.inputEl?.value ?? this.providedText;
         const parsed = parseVideoUrlList(this.providedText);
         if (!parsed.ok) {
-            this.parseErrorCode = parsed.code;
-            this.parseErrorLines = parsed.lines;
-            this.render();
-            this.inputEl?.focus();
+            this.inputValidation = parsed;
+            this.renderInputFeedback();
+            if (parsed.code === 'invalid' && parsed.invalidEntries.length > 0) {
+                this.selectInvalidEntry(parsed.invalidEntries[0], this.providedText);
+            } else {
+                this.inputEl?.focus();
+            }
             return;
         }
-        this.parseErrorCode = '';
-        this.parseErrorLines = [];
+        this.inputValidation = null;
         this.providedVideos = parsed.videos;
         this.startFetch();
         this.render();
@@ -440,6 +497,7 @@ export class PlaylistImportModal extends Modal {
         this.disabledReasons.clear();
         this.errorCode = '';
         this.errorMessage = '';
+        this.inputValidation = null;
         this.phase = 'input';
         this.render();
     }

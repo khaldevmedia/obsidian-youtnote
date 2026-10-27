@@ -79,7 +79,7 @@ describe('parseVideoUrlList', () => {
             'definitely not a link',
             `https://youtu.be/${ID2}`,
         ].join('\n'));
-        expect(result).toEqual({ ok: false, code: 'invalid', lines: [2] });
+        expect(result).toMatchObject({ ok: false, code: 'invalid', lines: [2] });
     });
 
     it('collects every invalid physical line number', () => {
@@ -97,7 +97,7 @@ describe('parseVideoUrlList', () => {
             `1 https://youtu.be/${ID1}`,
         ];
         const result = parseVideoUrlList(cases.join('\n'));
-        expect(result).toEqual({ ok: false, code: 'invalid', lines: cases.map((_, i) => i + 1) });
+        expect(result).toMatchObject({ ok: false, code: 'invalid', lines: cases.map((_, i) => i + 1) });
     });
 
     it.each([
@@ -105,7 +105,52 @@ describe('parseVideoUrlList', () => {
         `1.https://youtu.be/${ID1}`,
         `2 https://youtu.be/${ID1}`,
     ])('rejects numbering prefix %j', (line) => {
-        expect(parseVideoUrlList(line)).toEqual({ ok: false, code: 'invalid', lines: [1] });
+        expect(parseVideoUrlList(line)).toMatchObject({ ok: false, code: 'invalid', lines: [1] });
+    });
+
+    it.each(['\n', '\r\n', '\r'])('reports raw invalid entries with UTF16 ranges for %j newlines', (nl) => {
+        const raw3 = `   4. https://example.com/watch?v=${ID1}  `;
+        const raw6 = '2 notalink';
+        const text = [
+            `1. https://youtu.be/${ID1}`,
+            '',
+            raw3,
+            `https://youtu.be/${ID2}`,
+            '   ',
+            raw6,
+            `3. youtu.be/${ID1}`,
+        ].join(nl);
+        const result = parseVideoUrlList(text);
+        expect(result).toMatchObject({ ok: false, code: 'invalid', lines: [3, 6] });
+        if (result.ok || result.code !== 'invalid') return;
+        expect(result.invalidEntries).toHaveLength(2);
+        expect(result.invalidEntries.map(e => e.text)).toEqual([raw3, raw6]);
+        expect(result.invalidEntries.map(e => e.line)).toEqual([3, 6]);
+        for (const entry of result.invalidEntries) {
+            expect(text.slice(entry.start, entry.end)).toBe(entry.text);
+        }
+    });
+
+    it('tracks UTF16 offsets across unicode content before invalid lines', () => {
+        const bad1 = 'bad \u{1F600}';
+        const bad2 = 'also bad';
+        const text = `${bad1}\nhttps://youtu.be/${ID1}\n${bad2}`;
+        const result = parseVideoUrlList(text);
+        expect(result).toMatchObject({ ok: false, code: 'invalid', lines: [1, 3] });
+        if (result.ok || result.code !== 'invalid') return;
+        expect(text.slice(result.invalidEntries[0].start, result.invalidEntries[0].end)).toBe(bad1);
+        expect(text.slice(result.invalidEntries[1].start, result.invalidEntries[1].end)).toBe(bad2);
+    });
+
+    it('gives repeated identical invalid lines distinct ranges', () => {
+        const raw = 'not a link';
+        const text = `${raw}\n${raw}`;
+        const result = parseVideoUrlList(text);
+        if (result.ok || result.code !== 'invalid') throw new Error('expected invalid result');
+        expect(result.invalidEntries).toHaveLength(2);
+        expect(result.invalidEntries[0].start).not.toBe(result.invalidEntries[1].start);
+        expect(text.slice(result.invalidEntries[0].start, result.invalidEntries[0].end)).toBe(raw);
+        expect(text.slice(result.invalidEntries[1].start, result.invalidEntries[1].end)).toBe(raw);
     });
 
     it('reports empty for blank input', () => {

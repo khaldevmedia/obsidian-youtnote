@@ -16,6 +16,8 @@ const { fakeEl, sortableCreates, sortableDestroy } = vi.hoisted(() => {
         focused: boolean;
         scrollTop: number;
         value: string;
+        selectionStart: number;
+        selectionEnd: number;
         empty(): void;
         addClass(cls: string): void;
         createDiv(options?: { cls?: string; text?: string; attr?: Record<string, string> }): FakeEl;
@@ -23,6 +25,8 @@ const { fakeEl, sortableCreates, sortableDestroy } = vi.hoisted(() => {
         createSpan(options?: { text?: string; cls?: string }): FakeEl;
         appendChild(child: FakeEl): FakeEl;
         setText(text: string): void;
+        setAttribute(name: string, value: string): void;
+        setSelectionRange(start: number, end: number): void;
         addEventListener(type: string, handler: () => void): void;
         focus(options?: { preventScroll?: boolean }): void;
         click(): void;
@@ -42,6 +46,8 @@ const { fakeEl, sortableCreates, sortableDestroy } = vi.hoisted(() => {
             focused: false,
             scrollTop: 0,
             value: '',
+            selectionStart: -1,
+            selectionEnd: -1,
             listeners: {},
             empty() {
                 el.children = [];
@@ -84,6 +90,13 @@ const { fakeEl, sortableCreates, sortableDestroy } = vi.hoisted(() => {
             },
             setText(text) {
                 el.text = text;
+            },
+            setAttribute(name, value) {
+                el.attr[name] = value;
+            },
+            setSelectionRange(start, end) {
+                el.selectionStart = start;
+                el.selectionEnd = end;
             },
             addEventListener(type, handler) {
                 el.listeners[type] = handler;
@@ -764,6 +777,28 @@ describe('PlaylistImportModal provided links', () => {
         contentOf(modal).findByAction('load-videos')!.click();
     }
 
+    function selectButtons(modal: InstanceType<typeof PlaylistImportModal>): FakeEl[] {
+        const found: FakeEl[] = [];
+        const walk = (el: FakeEl): void => {
+            for (const child of el.children) {
+                if (child.dataset.youtnoteAction === 'select-invalid-entry') {
+                    found.push(child);
+                }
+                walk(child);
+            }
+        };
+        walk(contentOf(modal));
+        return found;
+    }
+
+    function invalidTextEls(modal: InstanceType<typeof PlaylistImportModal>): FakeEl[] {
+        return contentOf(modal).findAllByCls('youtnote-plugin__playlist-invalid-text');
+    }
+
+    function feedbackErrors(modal: InstanceType<typeof PlaylistImportModal>): FakeEl[] {
+        return contentOf(modal).findAllByCls('youtnote-plugin__playlist-input-error');
+    }
+
     it('opens the paste input without fetching and enables load only with text', async () => {
         const modal = openProvidedModal();
         expect(mockedFetch).not.toHaveBeenCalled();
@@ -796,20 +831,158 @@ describe('PlaylistImportModal provided links', () => {
         modal.close();
     });
 
-    it('reports invalid lines with a stable code and no fetch, keeping the text', async () => {
+    it('lists raw invalid entries with select buttons and no fetch, keeping the text', async () => {
         const modal = openProvidedModal();
-        const pasted = `https://youtu.be/aaaaaaaaaa1\nbad line\nhttps://www.youtube.com/playlist?list=${PLAYLIST_ID}`;
+        const bad = 'bad line';
+        const playlistOnly = `https://www.youtube.com/playlist?list=${PLAYLIST_ID}`;
+        const pasted = `https://youtu.be/aaaaaaaaaa1\n${bad}\n${playlistOnly}`;
+        const inputBefore = inputOf(modal);
         loadProvidedText(modal, pasted);
         expect(mockedProvidedFetch).not.toHaveBeenCalled();
-        const errors = contentOf(modal).findAllByCls('youtnote-plugin__playlist-input-error');
-        expect(errors).toHaveLength(1);
-        expect(errors[0].dataset.youtnoteErrorCode).toBe('invalid');
-        expect(errors[0].dataset.youtnoteInvalidLines).toBe('2 3');
+        expect(feedbackErrors(modal)).toHaveLength(1);
+        expect(feedbackErrors(modal)[0].dataset.youtnoteErrorCode).toBe('invalid');
+        expect(feedbackErrors(modal)[0].dataset.youtnoteInvalidLines).toBe('2 3');
+        expect(feedbackErrors(modal)[0].attr.role).toBeUndefined();
+        const summaries = contentOf(modal).findAllByCls('youtnote-plugin__playlist-invalid-summary');
+        expect(summaries).toHaveLength(1);
+        expect(summaries[0].attr.role).toBe('status');
+        expect(summaries[0].attr['aria-live']).toBe('polite');
+        expect(invalidTextEls(modal).map(el => el.text)).toEqual([bad, playlistOnly]);
+        const buttons = selectButtons(modal);
+        expect(buttons).toHaveLength(2);
+        expect(buttons[0].dataset.youtnoteStart).toBe(String(pasted.indexOf(bad)));
+        expect(buttons[0].dataset.youtnoteEnd).toBe(String(pasted.indexOf(bad) + bad.length));
         const input = inputOf(modal);
+        expect(input).toBe(inputBefore);
         expect(input.value).toBe(pasted);
         expect(input.focused).toBe(true);
+        expect(input.selectionStart).toBe(pasted.indexOf(bad));
+        expect(input.selectionEnd).toBe(pasted.indexOf(bad) + bad.length);
         modal.close();
         await expect(modal.result).resolves.toBeNull();
+    });
+
+    it('selects the clicked invalid entry range, including a later duplicate', async () => {
+        const modal = openProvidedModal();
+        const bad = 'not a link';
+        const pasted = `https://youtu.be/aaaaaaaaaa1\n${bad}\n${bad}`;
+        loadProvidedText(modal, pasted);
+        const input = inputOf(modal);
+        expect(input.selectionStart).toBe(pasted.indexOf(bad));
+        const buttons = selectButtons(modal);
+        expect(buttons).toHaveLength(2);
+        buttons[1].click();
+        const secondStart = pasted.lastIndexOf(bad);
+        expect(input.selectionStart).toBe(secondStart);
+        expect(input.selectionEnd).toBe(secondStart + bad.length);
+        expect(input.value).toBe(pasted);
+        modal.close();
+    });
+
+    it('targets the right entry range across blank lines and unordered numbering', async () => {
+        const modal = openProvidedModal();
+        const bad = '7. broken entry';
+        const pasted = `1. https://youtu.be/aaaaaaaaaa1\n\n\n3. https://youtu.be/aaaaaaaaaa2\n${bad}\n2. https://youtu.be/aaaaaaaaaa3`;
+        loadProvidedText(modal, pasted);
+        const buttons = selectButtons(modal);
+        expect(buttons).toHaveLength(1);
+        buttons[0].click();
+        const input = inputOf(modal);
+        const start = pasted.indexOf(bad);
+        expect(input.selectionStart).toBe(start);
+        expect(input.selectionEnd).toBe(start + bad.length);
+        modal.close();
+    });
+
+    it('refreshes entries and ranges on edits without touching caret, focus or scroll', async () => {
+        const modal = openProvidedModal();
+        const pasted = `https://youtu.be/aaaaaaaaaa1\nbad one`;
+        loadProvidedText(modal, pasted);
+        expect(selectButtons(modal)).toHaveLength(1);
+        const input = inputOf(modal);
+        input.selectionStart = 999;
+        input.selectionEnd = 999;
+        input.scrollTop = 12;
+        input.focused = false;
+        const edited = `https://youtu.be/aaaaaaaaaa1\nhttps://youtu.be/aaaaaaaaaa2\nworse entry here`;
+        input.value = edited;
+        input.listeners.input?.();
+        expect(invalidTextEls(modal).map(el => el.text)).toEqual(['worse entry here']);
+        const buttons = selectButtons(modal);
+        expect(buttons).toHaveLength(1);
+        expect(input.selectionStart).toBe(999);
+        expect(input.selectionEnd).toBe(999);
+        expect(input.scrollTop).toBe(12);
+        expect(input.focused).toBe(false);
+        buttons[0].click();
+        const start = edited.indexOf('worse entry here');
+        expect(input.selectionStart).toBe(start);
+        expect(input.selectionEnd).toBe(start + 'worse entry here'.length);
+        expect(input.focused).toBe(true);
+        expect(mockedProvidedFetch).not.toHaveBeenCalled();
+        modal.close();
+    });
+
+    it('clears fixed issues without fetching and shows new ones on later edits', async () => {
+        const modal = openProvidedModal();
+        loadProvidedText(modal, `https://youtu.be/aaaaaaaaaa1\nbroken entry`);
+        expect(selectButtons(modal)).toHaveLength(1);
+        const input = inputOf(modal);
+        input.value = `https://youtu.be/aaaaaaaaaa1\nhttps://youtu.be/aaaaaaaaaa2`;
+        input.listeners.input?.();
+        expect(feedbackErrors(modal)).toHaveLength(0);
+        expect(mockedProvidedFetch).not.toHaveBeenCalled();
+        input.value = `${input.value}\nagain bad`;
+        input.listeners.input?.();
+        expect(invalidTextEls(modal).map(el => el.text)).toEqual(['again bad']);
+        expect(mockedProvidedFetch).not.toHaveBeenCalled();
+        modal.close();
+    });
+
+    it('ignores a stale select button after the text changed', async () => {
+        const modal = openProvidedModal();
+        loadProvidedText(modal, `https://youtu.be/aaaaaaaaaa1\nbad entry`);
+        const staleButton = selectButtons(modal)[0];
+        const input = inputOf(modal);
+        input.value = `https://youtu.be/aaaaaaaaaa1\nworse entry`;
+        input.listeners.input?.();
+        input.selectionStart = 5;
+        input.selectionEnd = 5;
+        staleButton.click();
+        expect(input.selectionStart).toBe(5);
+        expect(input.selectionEnd).toBe(5);
+        modal.close();
+    });
+
+    it('does not select entries when the modal is closed or no longer valid', async () => {
+        let valid = true;
+        const modal = openProvidedModal(makeOptions({ isValid: () => valid }));
+        loadProvidedText(modal, `https://youtu.be/aaaaaaaaaa1\nbad entry`);
+        const input = inputOf(modal);
+        const button = selectButtons(modal)[0];
+        input.selectionStart = -1;
+        input.selectionEnd = -1;
+        valid = false;
+        button.click();
+        expect(input.selectionStart).toBe(-1);
+        valid = true;
+        modal.close();
+        button.click();
+        expect(input.selectionStart).toBe(-1);
+    });
+
+    it('shows global errors without per-entry select buttons', async () => {
+        const modal = openProvidedModal();
+        const line = `https://youtu.be/aaaaaaaaaa1`;
+        loadProvidedText(modal, Array.from({ length: 1001 }, () => line).join('\n'));
+        const errors = feedbackErrors(modal);
+        expect(errors).toHaveLength(1);
+        expect(errors[0].dataset.youtnoteErrorCode).toBe('limit');
+        expect(errors[0].attr.role).toBe('alert');
+        expect(selectButtons(modal)).toHaveLength(0);
+        expect(inputOf(modal).focused).toBe(true);
+        expect(mockedProvidedFetch).not.toHaveBeenCalled();
+        modal.close();
     });
 
     it('loads parsed canonical links through the provided loader only', async () => {

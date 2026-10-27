@@ -10,9 +10,17 @@ export interface ProvidedVideoUrl {
     line: number;
 }
 
+export interface InvalidVideoUrlEntry {
+    line: number;
+    text: string;
+    start: number;
+    end: number;
+}
+
 export type ParseVideoUrlListResult =
     | { ok: true; videos: ProvidedVideoUrl[] }
-    | { ok: false; code: 'empty' | 'limit' | 'text-limit' | 'invalid'; lines: number[] };
+    | { ok: false; code: 'empty' | 'limit' | 'text-limit'; lines: number[] }
+    | { ok: false; code: 'invalid'; lines: number[]; invalidEntries: InvalidVideoUrlEntry[] };
 
 const NUMBER_PREFIX_REGEX = /^\d+\.\s+/;
 const SCHEME_REGEX = /^[a-zA-Z][a-zA-Z0-9+.-]*:/;
@@ -24,11 +32,18 @@ export function parseVideoUrlList(text: string): ParseVideoUrlListResult {
     }
     const lines = text.split(/\r\n|\r|\n/);
     const videos: ProvidedVideoUrl[] = [];
-    const invalid: number[] = [];
+    const invalidEntries: InvalidVideoUrlEntry[] = [];
     let nonblank = 0;
+    let offset = 0;
     for (let i = 0; i < lines.length; i += 1) {
         const lineNo = i + 1;
-        const trimmed = lines[i].trim();
+        const rawLine = lines[i];
+        const lineStart = offset;
+        offset += rawLine.length;
+        if (offset < text.length) {
+            offset += text.startsWith('\r\n', offset) ? 2 : 1;
+        }
+        const trimmed = rawLine.trim();
         if (trimmed === '') {
             continue;
         }
@@ -51,7 +66,7 @@ export function parseVideoUrlList(text: string): ParseVideoUrlListResult {
             }
         }
         if (youtubeId === null) {
-            invalid.push(lineNo);
+            invalidEntries.push({ line: lineNo, text: rawLine, start: lineStart, end: lineStart + rawLine.length });
             continue;
         }
         videos.push({
@@ -67,8 +82,13 @@ export function parseVideoUrlList(text: string): ParseVideoUrlListResult {
     if (nonblank > MAX_VIDEO_URLS) {
         return { ok: false, code: 'limit', lines: [] };
     }
-    if (invalid.length > 0) {
-        return { ok: false, code: 'invalid', lines: invalid };
+    if (invalidEntries.length > 0) {
+        return {
+            ok: false,
+            code: 'invalid',
+            lines: invalidEntries.map(e => e.line),
+            invalidEntries,
+        };
     }
     return { ok: true, videos };
 }
