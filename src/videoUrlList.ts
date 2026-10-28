@@ -26,7 +26,7 @@ export type ParseVideoUrlListResult =
     | { ok: false; code: 'invalid'; lines: number[]; invalidEntries: InvalidVideoUrlEntry[] };
 
 const NUMBER_PREFIX_REGEX = /^\d+\.\s*/;
-const UNSUPPORTED_NUMBER_PREFIX_REGEX = /^\d+(?:\)\s*|\s+)/;
+const NUMERIC_PREFIX_REGEX = /^(\d+)([^\w]*)/;
 const SCHEME_REGEX = /^[a-zA-Z][a-zA-Z0-9+.-]*:/;
 const WHITESPACE_REGEX = /\s/;
 
@@ -54,14 +54,17 @@ function checkVideoUrl(body: string): { youtubeId: string | null; isUrl: boolean
     return { youtubeId: extractYouTubeId(parsed.href), isUrl };
 }
 
-function classifyInvalidEntry(trimmed: string, hasAcceptedPrefix: boolean, isUrl: boolean): InvalidVideoUrlReason {
-    if (hasAcceptedPrefix) {
-        return 'url';
-    }
-    const unsupported = UNSUPPORTED_NUMBER_PREFIX_REGEX.exec(trimmed);
-    if (unsupported !== null) {
-        const remainder = trimmed.slice(unsupported[0].length).trim();
-        return checkVideoUrl(remainder).youtubeId !== null ? 'numbering' : 'entry';
+function classifyInvalidEntry(trimmed: string, isUrl: boolean): InvalidVideoUrlReason {
+    const prefix = NUMERIC_PREFIX_REGEX.exec(trimmed);
+    if (prefix !== null) {
+        const separator = prefix[2];
+        if (/^\.\s*$/.test(separator)) {
+            return 'url';
+        }
+        if (separator !== '') {
+            const remainder = trimmed.slice(prefix[0].length).trim();
+            return checkVideoUrl(remainder).youtubeId !== null ? 'numbering' : 'entry';
+        }
     }
     return isUrl ? 'url' : 'entry';
 }
@@ -88,7 +91,6 @@ export function parseVideoUrlList(text: string): ParseVideoUrlListResult {
             continue;
         }
         nonblank += 1;
-        const hasAcceptedPrefix = NUMBER_PREFIX_REGEX.test(trimmed);
         const body = trimmed.replace(NUMBER_PREFIX_REGEX, '').trim();
         const bodyCheck = checkVideoUrl(body);
         if (bodyCheck.youtubeId === null) {
@@ -97,7 +99,7 @@ export function parseVideoUrlList(text: string): ParseVideoUrlListResult {
                 text: rawLine,
                 start: lineStart,
                 end: lineStart + rawLine.length,
-                reason: classifyInvalidEntry(trimmed, hasAcceptedPrefix, bodyCheck.isUrl),
+                reason: classifyInvalidEntry(trimmed, bodyCheck.isUrl),
             });
             continue;
         }
