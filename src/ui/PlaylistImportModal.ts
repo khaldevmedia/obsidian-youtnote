@@ -4,7 +4,7 @@ import type { SortableEvent } from 'sortablejs';
 import { fetchPlaylist } from '../playlistFetch';
 import { fetchProvidedVideos } from '../videoUrlListFetch';
 import { MAX_VIDEO_URLS, parseVideoUrlList } from '../videoUrlList';
-import type { InvalidVideoUrlEntry, ParseVideoUrlListResult, ProvidedVideoUrl } from '../videoUrlList';
+import type { InvalidVideoUrlEntry, InvalidVideoUrlReason, ParseVideoUrlListResult, ProvidedVideoUrl } from '../videoUrlList';
 import { classifyPlaylistId, PlaylistError } from '../playlist';
 import type { PlaylistEntry, PlaylistIdKind } from '../playlist';
 
@@ -30,6 +30,17 @@ function disabledReasonText(reason: EntryDisabledReason, provided: boolean): str
             return 'Could not load video';
         default:
             return 'Unavailable';
+    }
+}
+
+function invalidReasonText(reason: InvalidVideoUrlReason): string {
+    switch (reason) {
+        case 'numbering':
+            return 'Unsupported numbering format';
+        case 'url':
+            return 'Not a supported YouTube video URL';
+        default:
+            return 'Invalid entry';
     }
 }
 
@@ -421,25 +432,33 @@ export class PlaylistImportModal extends Modal {
             attr: { role: 'status', 'aria-live': 'polite' },
         });
         summaryEl.setText(validation.invalidEntries.length === 1
-            ? '1 invalid URL'
-            : `${validation.invalidEntries.length} invalid URLs`);
+            ? '1 invalid entry'
+            : `${validation.invalidEntries.length} invalid entries`);
         const listEl = errorEl.createEl('ul', { cls: 'youtnote-plugin__playlist-invalid-list' });
         const snapshot = this.providedText;
         const idPrefix = `youtnote-invalid-${crypto.randomUUID()}-`;
         validation.invalidEntries.forEach((entry, index) => {
             const itemEl = listEl.createEl('li', { cls: 'youtnote-plugin__playlist-invalid-item' });
+            itemEl.dataset.youtnoteInvalidReason = entry.reason;
+            const contentWrap = itemEl.createDiv({ cls: 'youtnote-plugin__playlist-invalid-content' });
             const textId = `${idPrefix}${index}`;
-            const textEl = itemEl.createEl('code', {
+            const textEl = contentWrap.createEl('code', {
                 cls: 'youtnote-plugin__playlist-invalid-text',
                 attr: { id: textId },
             });
             textEl.setText(entry.text);
-            const selectEl = this.addButton(itemEl, 'Go to entry', 'secondary', 'select-invalid-entry', () => {
+            const reasonId = `${textId}-reason`;
+            const reasonEl = contentWrap.createDiv({
+                cls: 'youtnote-plugin__playlist-invalid-reason',
+                attr: { id: reasonId },
+            });
+            reasonEl.setText(invalidReasonText(entry.reason));
+            const selectEl = this.addButton(itemEl, 'Select entry', 'secondary', 'select-invalid-entry', () => {
                 this.selectInvalidEntry(entry, snapshot);
             });
             selectEl.dataset.youtnoteStart = String(entry.start);
             selectEl.dataset.youtnoteEnd = String(entry.end);
-            selectEl.setAttribute('aria-describedby', textId);
+            selectEl.setAttribute('aria-describedby', `${textId} ${reasonId}`);
         });
     }
 

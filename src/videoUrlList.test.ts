@@ -100,12 +100,38 @@ describe('parseVideoUrlList', () => {
         expect(result).toMatchObject({ ok: false, code: 'invalid', lines: cases.map((_, i) => i + 1) });
     });
 
+    it('accepts a numbered prefix with or without the space', () => {
+        expect(parsedIds([
+            `1.https://m.youtube.com/watch?v=${ID1}`,
+            `3. youtu.be/${ID2}`,
+            `2.www.youtube.com/watch?v=${ID3}`,
+            `https://youtu.be/${ID4}`,
+        ].join('\n'))).toEqual([ID1, ID2, ID3, ID4]);
+    });
+
     it.each([
-        `1) https://youtu.be/${ID1}`,
-        `1.https://youtu.be/${ID1}`,
-        `2 https://youtu.be/${ID1}`,
-    ])('rejects numbering prefix %j', (line) => {
-        expect(parseVideoUrlList(line)).toMatchObject({ ok: false, code: 'invalid', lines: [1] });
+        [`1) https://youtu.be/${ID1}`, 'numbering'],
+        [`2 https://youtu.be/${ID1}`, 'numbering'],
+        [`1)youtu.be/${ID1}`, 'numbering'],
+        [`1. https://example.com/page`, 'url'],
+        [`https://example.com/page`, 'url'],
+        [`https://youtu.be/short`, 'url'],
+        [`https://www.youtube.com/playlist?list=PLVbEymL-83SyVXXqT7fYX5sEvELvyGjL7`, 'url'],
+        [`ftp://www.youtube.com/watch?v=${ID1}`, 'url'],
+        [`https://user@www.youtube.com/watch?v=${ID1}`, 'url'],
+        ['3.', 'url'],
+        [`1) https://youtu.be/short`, 'entry'],
+        [`2 https://example.com/foo`, 'entry'],
+        [`check this https://youtu.be/${ID1}`, 'entry'],
+        [ID1, 'entry'],
+        ['definitely not a link', 'entry'],
+    ])('classifies %j as %s', (line, reason) => {
+        const result = parseVideoUrlList(line);
+        if (result.ok || result.code !== 'invalid') throw new Error(`expected invalid result for ${line}`);
+        expect(result.invalidEntries).toHaveLength(1);
+        expect(result.invalidEntries[0].reason).toBe(reason);
+        expect(result.invalidEntries[0].text).toBe(line);
+        expect(line.slice(result.invalidEntries[0].start, result.invalidEntries[0].end)).toBe(line);
     });
 
     it.each(['\n', '\r\n', '\r'])('reports raw invalid entries with UTF16 ranges for %j newlines', (nl) => {

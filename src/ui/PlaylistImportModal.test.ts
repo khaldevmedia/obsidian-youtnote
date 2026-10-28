@@ -795,6 +795,10 @@ describe('PlaylistImportModal provided links', () => {
         return contentOf(modal).findAllByCls('youtnote-plugin__playlist-invalid-text');
     }
 
+    function invalidItems(modal: InstanceType<typeof PlaylistImportModal>): FakeEl[] {
+        return contentOf(modal).findAllByCls('youtnote-plugin__playlist-invalid-item');
+    }
+
     function feedbackErrors(modal: InstanceType<typeof PlaylistImportModal>): FakeEl[] {
         return contentOf(modal).findAllByCls('youtnote-plugin__playlist-input-error');
     }
@@ -860,6 +864,66 @@ describe('PlaylistImportModal provided links', () => {
         expect(input.selectionEnd).toBe(pasted.indexOf(bad) + bad.length);
         modal.close();
         await expect(modal.result).resolves.toBeNull();
+    });
+
+    it('shows a reason category per invalid entry with raw text and description links', async () => {
+        const modal = openProvidedModal();
+        const numbering = `1) https://youtu.be/aaaaaaaaaa1`;
+        const url = `1. https://example.com/page`;
+        const generic = 'check this link';
+        const pasted = `${numbering}\n${url}\n${generic}`;
+        loadProvidedText(modal, pasted);
+        const items = invalidItems(modal);
+        expect(items).toHaveLength(3);
+        expect(items.map(i => i.dataset.youtnoteInvalidReason)).toEqual(['numbering', 'url', 'entry']);
+        expect(invalidTextEls(modal).map(el => el.text)).toEqual([numbering, url, generic]);
+        for (const item of items) {
+            const raw = item.findAllByCls('youtnote-plugin__playlist-invalid-text');
+            const reason = item.findAllByCls('youtnote-plugin__playlist-invalid-reason');
+            expect(raw).toHaveLength(1);
+            expect(reason).toHaveLength(1);
+            const button = item.findByAction('select-invalid-entry');
+            expect(button).not.toBeNull();
+            expect(button!.attr['aria-describedby']).toBe(`${raw[0].attr.id} ${reason[0].attr.id}`);
+        }
+        selectButtons(modal)[1].click();
+        const input = inputOf(modal);
+        const start = pasted.indexOf(url);
+        expect(input.selectionStart).toBe(start);
+        expect(input.selectionEnd).toBe(start + url.length);
+        modal.close();
+    });
+
+    it('reclassifies entries as the text is edited without disturbing the textarea', async () => {
+        mockedProvidedFetch.mockResolvedValue({ title: 'Provided videos', entries: providedEntries });
+        const modal = openProvidedModal();
+        loadProvidedText(modal, `1) https://youtu.be/aaaaaaaaaa1`);
+        expect(invalidItems(modal).map(i => i.dataset.youtnoteInvalidReason)).toEqual(['numbering']);
+        const input = inputOf(modal);
+        input.selectionStart = 7;
+        input.selectionEnd = 7;
+        input.scrollTop = 4;
+        input.focused = false;
+        input.value = 'https://example.com/foo';
+        input.listeners.input?.();
+        expect(invalidItems(modal).map(i => i.dataset.youtnoteInvalidReason)).toEqual(['url']);
+        input.value = 'just some words';
+        input.listeners.input?.();
+        expect(invalidItems(modal).map(i => i.dataset.youtnoteInvalidReason)).toEqual(['entry']);
+        input.value = '1.https://youtu.be/aaaaaaaaaa1';
+        input.listeners.input?.();
+        expect(feedbackErrors(modal)).toHaveLength(0);
+        expect(input.selectionStart).toBe(7);
+        expect(input.selectionEnd).toBe(7);
+        expect(input.scrollTop).toBe(4);
+        expect(input.focused).toBe(false);
+        expect(mockedProvidedFetch).not.toHaveBeenCalled();
+        contentOf(modal).findByAction('load-videos')!.click();
+        expect(mockedProvidedFetch).toHaveBeenCalledTimes(1);
+        expect(mockedFetch).not.toHaveBeenCalled();
+        const [videosArg] = mockedProvidedFetch.mock.calls[0];
+        expect(videosArg.map(v => v.url)).toEqual(['https://www.youtube.com/watch?v=aaaaaaaaaa1']);
+        modal.close();
     });
 
     it('selects the clicked invalid entry range, including a later duplicate', async () => {

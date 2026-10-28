@@ -105,7 +105,7 @@ Leave the YouTube URL field empty and click `+` to open the bulk importer. Paste
 2. https://youtu.be/SZorAJ4I7xg
 ```
 
-Numbered-list support is intended for links copied using a mobile browser's multiple-tab sharing feature, which produces lines in the `1. URL` format: a number, a dot, then a space before the URL. Keep that space — `1.URL`, `2 URL`, and `1) URL` are not accepted. Plain URLs need no numbering.
+Numbered-list support is intended for links copied using a mobile browser's multiple-tab sharing feature, which produces lines in the `1. URL` format: a number, a dot, then a space before the URL. The space is optional — `1.URL` works too — but `2 URL` and `1) URL` are not accepted. Plain URLs need no numbering. Invalid entries are listed with a category and a **Select entry** button so you can fix them in place.
 
 Choose videos with **Add** / **Remove** or **Add all** / **Clear**, drag to reorder **Videos to add**, then click **Add videos**. Playlist parameters on a link are ignored — each link is treated as an individual video (to import a playlist itself, paste its link in the field normally). Videos already in the file and repeated links are grayed out and cannot be added again.
 

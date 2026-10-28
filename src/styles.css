@@ -1578,11 +1578,21 @@ button.youtnote-plugin__add-btn {
     padding: var(--size-4-1) 0;
 }
 
-.youtnote-plugin__playlist-invalid-text {
+.youtnote-plugin__playlist-invalid-content {
     flex: 1;
     min-width: 0;
+}
+
+.youtnote-plugin__playlist-invalid-text {
+    display: block;
     overflow-wrap: anywhere;
     white-space: pre-wrap;
+}
+
+.youtnote-plugin__playlist-invalid-reason {
+    font-size: var(--font-ui-smaller);
+    color: var(--text-muted);
+    margin-top: var(--size-4-1);
 }
 
 .youtnote-plugin__playlist-invalid-item > .youtnote-plugin__modal-button {
