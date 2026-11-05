@@ -2,8 +2,9 @@ import React, { useRef, useEffect } from 'react';
 import classNames from 'classnames';
 import { MarkdownRenderer, Component, Platform, setIcon, Menu } from 'obsidian';
 import { ObsidianEditor } from './ObsidianEditor';
-import { formatSecondsToDisplay, isSafeExternalUrl } from '../utils';
+import { extractYouTubeId, formatSecondsToDisplay, isSafeExternalUrl } from '../utils';
 import { ConfirmModal } from './MessageBoxes';
+import { showYoutnoteNotice } from '../notices';
 import { NoteListItemProps } from '../types';
 
 // Component for markdown rendering
@@ -73,6 +74,7 @@ export const NoteListItem: React.FC<NoteListItemProps> = React.memo(({
     app,
     view,
     note,
+    video,
     isExpanded,
     isActive,
     isEditing,
@@ -130,6 +132,33 @@ export const NoteListItem: React.FC<NoteListItemProps> = React.memo(({
         onStartEdit(note.id, note.bodyMarkdown);
     };
 
+    const copyNoteMarkdown = async () => {
+        try {
+            let text = note.bodyMarkdown;
+            if (video) {
+                if (isGeneral) {
+                    text = `[${video.title || video.url}](${video.url})\n\n${note.bodyMarkdown}`;
+                } else {
+                    const ytId = extractYouTubeId(video.url);
+                    const timestampUrl = ytId
+                        ? `https://youtu.be/${ytId}?t=${Math.floor(note.timestampSec)}`
+                        : video.url;
+                    text = `[${formatSecondsToDisplay(note.timestampSec, 0)}](${timestampUrl})\n${note.bodyMarkdown}`;
+                }
+            }
+            await navigator.clipboard.writeText(text);
+            showYoutnoteNotice('Note copied to the clipboard!', { duration: 2000 });
+        } catch (err) {
+            console.error('Failed to copy note:', err);
+            showYoutnoteNotice('Failed to copy note!', { severity: 'error' });
+        }
+    };
+
+    const handleCopyClick = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        void copyNoteMarkdown();
+    };
+
     const handleMobileSavePointerUp = (e: React.PointerEvent<HTMLButtonElement>) => {
         e.preventDefault();
         e.stopPropagation();
@@ -138,7 +167,7 @@ export const NoteListItem: React.FC<NoteListItemProps> = React.memo(({
 
     const handleContextMenu = (e: React.MouseEvent) => {
         // Disable context menu on mobile while the note is being edited
-        if (readOnly || (isEditingTimestamp) ||(Platform.isMobile && isEditing)) {
+        if (isEditingTimestamp || (Platform.isMobile && isEditing)) {
             return;
         }
 
@@ -150,44 +179,58 @@ export const NoteListItem: React.FC<NoteListItemProps> = React.memo(({
         
         const menu = new Menu();
         
+        if (!readOnly) {
+            menu.addItem((item) => {
+                item
+                    .setTitle('Edit note')
+                    .setIcon('pencil')
+                    .onClick(() => {
+                        onStartEdit(note.id, note.bodyMarkdown);
+                    });
+            });
+            
+            if (!isGeneral) {
+                menu.addItem((item) => {
+                    item
+                        .setTitle('Edit timestamp')
+                        .setIcon('clock')
+                        .onClick(() => {
+                            const formattedValue = formatSecondsToDisplay(note.timestampSec, maxDuration);
+                            onStartTimestampEdit(note.id, formattedValue);
+                        });
+                });
+            }
+        }
+        
         menu.addItem((item) => {
             item
-                .setTitle('Edit note')
-                .setIcon('pencil')
+                .setTitle('Copy note as Markdown')
+                .setIcon('copy')
                 .onClick(() => {
-                    onStartEdit(note.id, note.bodyMarkdown);
+                    void copyNoteMarkdown();
                 });
         });
         
-        if (!isGeneral) {
+        if (!readOnly) {
+            menu.addSeparator();
+            
             menu.addItem((item) => {
                 item
-                    .setTitle('Edit timestamp')
-                    .setIcon('clock')
+                    .setTitle('Delete note')
+                    .setIcon('trash')
+                    .setWarning(true)
                     .onClick(() => {
-                        const formattedValue = formatSecondsToDisplay(note.timestampSec, maxDuration);
-                        onStartTimestampEdit(note.id, formattedValue);
+                        confirmDeleteNote();
                     });
             });
         }
-        
-        menu.addSeparator();
-        
-        menu.addItem((item) => {
-            item
-                .setTitle('Delete note')
-                .setIcon('trash')
-                .setWarning(true)
-                .onClick(() => {
-                    confirmDeleteNote();
-                });
-        });
         
         menu.showAtMouseEvent(e.nativeEvent);
     };
 
     const chevronIconRef = useRef<HTMLSpanElement>(null);
     const editIconRef = useRef<HTMLButtonElement>(null);
+    const copyIconRef = useRef<HTMLButtonElement>(null);
     const deleteIconRef = useRef<HTMLButtonElement>(null);
     const mobileSaveIconRef = useRef<HTMLButtonElement>(null);
     const timestampEditRef = useRef<HTMLDivElement>(null);
@@ -205,6 +248,13 @@ export const NoteListItem: React.FC<NoteListItemProps> = React.memo(({
         if (editIconRef.current) {
             editIconRef.current.empty();
             setIcon(editIconRef.current, 'pencil');
+        }
+    }, [isExpanded, isEditing]);
+
+    useEffect(() => {
+        if (copyIconRef.current) {
+            copyIconRef.current.empty();
+            setIcon(copyIconRef.current, 'copy');
         }
     }, [isExpanded, isEditing]);
 
@@ -337,22 +387,33 @@ export const NoteListItem: React.FC<NoteListItemProps> = React.memo(({
                 />
             )}
 
-            {isExpanded && !readOnly && (
+            {isExpanded && (
                 <div className="youtnote-plugin__note-actions">
+                    {!readOnly && (
+                        <button 
+                            ref={editIconRef} 
+                            onClick={handleEditClick} 
+                            aria-label="Edit note"
+                            disabled={isEditing}
+                        >
+                        </button>
+                    )}
                     <button 
-                        ref={editIconRef} 
-                        onClick={handleEditClick} 
-                        aria-label="Edit note"
+                        ref={copyIconRef} 
+                        onClick={handleCopyClick} 
+                        aria-label="Copy note as Markdown"
                         disabled={isEditing}
                     >
                     </button>
-                    <button 
-                        ref={deleteIconRef} 
-                        onClick={handleDelete} 
-                        aria-label="Delete note"
-                        disabled={isEditing}
-                    >
-                    </button>
+                    {!readOnly && (
+                        <button 
+                            ref={deleteIconRef} 
+                            onClick={handleDelete} 
+                            aria-label="Delete note"
+                            disabled={isEditing}
+                        >
+                        </button>
+                    )}
                 </div>
             )}
         </div>

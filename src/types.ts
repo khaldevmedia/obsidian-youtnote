@@ -162,6 +162,7 @@ export interface NoteListItemProps {
     app: App;
     view: YoutnoteViewContext;
     note: Note;
+    video: Video | null;
     isExpanded: boolean;
     isActive: boolean;
     isEditing: boolean;
