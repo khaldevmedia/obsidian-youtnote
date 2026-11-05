@@ -198,6 +198,10 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
     
     // State for newly created note (to trigger scroll into view)
     const [newlyCreatedNoteId, setNewlyCreatedNoteId] = useState<NoteId | null>(null);
+
+    // Tracks the last quick-added note so repeat taps at the same timestamp
+    // can reuse it before the notes prop has propagated back.
+    const lastQuickAddNoteRef = useRef<{ videoId: VideoId; timestampSec: number; noteId: NoteId } | null>(null);
     
     // State for editing note
     const [editingNoteId, setEditingNoteId] = useState<NoteId | null>(null);
@@ -293,6 +297,15 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
             });
         }
     }, [settings.singleExpandMode, activeNoteId]);
+
+    // Forget the quick-add marker once its note is gone from props (e.g. after
+    // deletion) so a later tap at the same timestamp creates a new note.
+    useEffect(() => {
+        const last = lastQuickAddNoteRef.current;
+        if (last && !notes.some(n => n.id === last.noteId)) {
+            lastQuickAddNoteRef.current = null;
+        }
+    }, [notes]);
 
     // Use a ref for videos so we can access the latest state in the async onReady callback without adding it to dependencies
     const videosRef = useRef(videos);
@@ -677,9 +690,9 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
         await seekToTimestamp(timestampSec, 'note');
     };
 
-    const handleAddNote = async () => {
+    const createEmptyTimestampedNote = async (options?: { dedupeEmpty?: boolean }): Promise<NoteId | null> => {
         const guard = renderMutationGuard;
-        if (readOnly || !activeVideoId) return;
+        if (readOnly || !activeVideoId) return null;
 
         let currentTime = 0;
         const playerAdapter = playerAdapterRef.current;
@@ -690,40 +703,83 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
                 console.warn("Could not get current time from player adapter", err);
             }
         }
-        if (!guard()) return;
+        if (!guard()) return null;
 
-        const normalizedTimestamp = Math.floor(currentTime);
+        const timestampSec = Math.floor(currentTime);
+
+        const highlightNote = (noteId: NoteId) => {
+            // Clear search so the note is visible
+            setSearchQuery('');
+
+            // Scroll to the note — skipped for mobile quick-add where scrolling
+            // would push the player and header actions out of view
+            if (!(options?.dedupeEmpty && Platform.isMobile)) {
+                // Mark as newly created for scroll into view
+                setNewlyCreatedNoteId(noteId);
+            }
+
+            // Auto-expand the note
+            setExpandedNotes(prev => {
+                const next = new Set(prev);
+                if (settings.singleExpandMode) next.clear();
+                next.add(noteId);
+                return next;
+            });
+        };
+
+        if (options?.dedupeEmpty) {
+            const persisted = notes.find(n =>
+                n.videoId === activeVideoId &&
+                n.timestampSec === timestampSec &&
+                n.bodyMarkdown.trim() === '' &&
+                n.isGeneral !== true
+            );
+            const last = lastQuickAddNoteRef.current;
+            const existingId = persisted?.id
+                ?? (last && last.videoId === activeVideoId && last.timestampSec === timestampSec ? last.noteId : null);
+            if (existingId) {
+                highlightNote(existingId);
+                return existingId;
+            }
+        }
+
         const newNoteId = crypto.randomUUID() as NoteId;
         const newNote: Note = {
             id: newNoteId,
             videoId: activeVideoId,
-            timestampSec: normalizedTimestamp,
+            timestampSec,
             bodyMarkdown: '',
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
         };
 
-        const newNotes = [...notes, newNote].sort((a, b) => a.timestampSec - b.timestampSec);
-        onUpdateNotes(newNotes);
+        onUpdateNotes([...notes, newNote].sort(compareNotes));
+        highlightNote(newNoteId);
 
-        // Clear search so the new note is visible
-        setSearchQuery('');
+        if (options?.dedupeEmpty) {
+            lastQuickAddNoteRef.current = { videoId: activeVideoId, timestampSec, noteId: newNoteId };
+        }
+        return newNoteId;
+    };
 
-        // Mark as newly created for scroll into view
-        setNewlyCreatedNoteId(newNoteId);
-        
+    const handleAddNote = async () => {
+        const newNoteId = await createEmptyTimestampedNote();
+        if (!newNoteId) return;
+
         // Clear any previously selected note
         setActiveNoteId(null);
-        
-        // Auto-expand the new note
-        setExpandedNotes(prev => {
-            const next = new Set(prev);
-            if (settings.singleExpandMode) next.clear();
-            next.add(newNoteId);
-            return next;
-        });
         setEditingNoteId(newNoteId);
         setEditNoteBody('');
+    };
+
+    const handleAddEmptyNote = () => {
+        void createEmptyTimestampedNote({ dedupeEmpty: true }).then((newNoteId) => {
+            if (!newNoteId) return;
+            setActiveNoteId(newNoteId);
+            if (Platform.isMobile) {
+                showYoutnoteNotice('Empty note added');
+            }
+        });
     };
 
     const handleAddGeneralNote = () => {
@@ -1706,6 +1762,19 @@ export const YoutubePluginView: React.FC<YoutubePluginViewProps> = ({
                                                 aria-label="Show transcript"
                                             />
                                             {aiGenerateButton}
+                                            {!readOnly && (
+                                            <button
+                                                ref={(el) => {
+                                                    if (el) {
+                                                        el.empty();
+                                                        setIcon(el, 'file');
+                                                    }
+                                                }}
+                                                className="youtnote-plugin__small-btn"
+                                                onClick={handleAddEmptyNote}
+                                                aria-label="Add empty note at current time"
+                                            />
+                                            )}
                                             {!readOnly && (
                                             <button
                                                 ref={addGeneralNoteButtonRef}

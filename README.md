@@ -58,6 +58,7 @@ For more details on this issue, please **[read here](docs/error-153-ios.md)**.
 - **Playlist import**: Choose videos from a YouTube playlist and drag them into your preferred order before adding them.
 - **Bulk video import**: Paste a whole list of video links at once — numbered or plain — review them, and pick which ones to add.
 - **Timestamped note cards**: Click any note to seek the YouTube iframe to that second (with optional autoplay) or edit timestamps inline with validation.
+- **Quick-add timestamps**: Bookmark moments while watching by adding empty notes at the current playback position straight from the notes header, without opening the editor. Return later to add text. Repeated clicks/taps at the same timestamp reuse the existing empty note instead of creating duplicates.
 - **Native Obsidian Live Preview editor**: The note editor embeds Obsidian's own CM6 Live Preview, so hotkeys, themes, and plugins work exactly as you expect.
 - **Sticky player on phones**: Keep the video visible while scrolling through long note stacks thanks to the "pin on phone" option.
 - **Duplicate timestamp merging**: Clean up messy sessions by merging duplicate timestamps into a single consolidated note.
@@ -87,7 +88,7 @@ For more details on this issue, please **[read here](docs/error-153-ios.md)**.
 1. **Create a Youtnote file** via the ribbon icon or the `Youtnote: Create new file` command, which opens it in the current tab (use `Youtnote: Create new file in a new tab` to open it in a new tab instead). A file with `youtnote: true` and `youtnote-format-version: 2` frontmatter opens in the custom view.
 2. **Add videos** with the YouTube URL field. Paste a video or playlist URL. For playlists, use **Add** / **Remove** or **Add all** / **Clear** to choose videos, drag to reorder **Videos to add**, then click **Add videos**. If the link includes both a video and a playlist, choose which to add. Duplicates are prevented automatically. Private playlists and YouTube Mixes are not supported.
 3. **Select a video** to load it into the embedded iframe. Switching videos keeps the same player instance for smooth transitions.
-4. **Add notes** using the `+`: Youtnote auto-grabs the current playback time.
+4. **Add notes** using the `+` (opens the editor right away) or the file icon in the notes header to silently drop an empty note at the current playback time. This is ideal for marking moments while watching without interrupting playback. Tap the pencil on the note later to add text. Both capture the current playback time.
 5. **Edit in Live Preview** by double-clicking a note. Use the configured newline shortcut (`Enter` or `Shift+Enter`) to save.
 6. **Jump around** by clicking any timestamp: the player seeks (and optionally autoplays) to that moment.
 7. **Add a general note** using the note icon in the notes header, perfect for video summaries or context without a timestamp. One per video.

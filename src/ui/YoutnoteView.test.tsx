@@ -2,6 +2,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { Platform, setIcon } from 'obsidian';
 import type { Note, Video } from '../types';
 import { calculateTotalWords, calculateTotalCharacters } from '../utils';
+import { showYoutnoteNotice } from '../notices';
 
 vi.mock('react', async (importOriginal) => {
     const actual = await importOriginal<typeof import('react')>();
@@ -196,6 +197,22 @@ function renderView(props: ReturnType<typeof makeProps>['props']) {
 
 function renderMergeButtons(props: ReturnType<typeof makeProps>['props']) {
     return collectMergeButtons(renderView(props));
+}
+
+function collectByHandlerName(node: unknown, name: string, found: VNodeLike[] = []): VNodeLike[] {
+    if (Array.isArray(node)) {
+        node.forEach(child => collectByHandlerName(child, name, found));
+        return found;
+    }
+    if (!node || typeof node !== 'object') return found;
+    const vnode = node as VNodeLike;
+    const onClick = vnode.props?.onClick;
+    if (typeof onClick === 'function' && onClick.name === name) {
+        found.push(vnode);
+    }
+    const children = vnode.props?.children;
+    if (children !== undefined) collectByHandlerName(children, name, found);
+    return found;
 }
 
 function collectByClass(node: unknown, cls: string, found: VNodeLike[] = []): VNodeLike[] {
@@ -1518,5 +1535,128 @@ describe('read-only conversion banner placement', () => {
         [playerEl] = collectByClass(tree, PLAYER);
         expect(childIndexWithClass(containerEl, PLAYER)).toBe(stickyPlayerIdx);
         expect(directChildrenWithClass(playerEl, IFRAME)).toHaveLength(1);
+    });
+});
+
+describe('quick add empty note', () => {
+    beforeEach(() => {
+        resetTestState();
+        vi.mocked(showYoutnoteNotice).mockClear();
+    });
+
+    const HANDLER = 'handleAddEmptyNote';
+
+    function collectButtons(props: ReturnType<typeof makeProps>['props']) {
+        return collectByHandlerName(renderView(props), HANDLER);
+    }
+
+    it('renders in the note list header actions when editable', () => {
+        const { props } = makeProps({ notes: [] });
+        const [btn] = collectButtons(props);
+        expect(btn).toBeDefined();
+        expect(String(btn.props!.className)).toContain('youtnote-plugin__small-btn');
+    });
+
+    it('is hidden in read-only mode', () => {
+        const { props } = makeProps({ notes: [], readOnly: true });
+        expect(collectButtons(props)).toHaveLength(0);
+    });
+
+    it('adds an empty note at the current timestamp', async () => {
+        const existing = makeNote({ timestampSec: 30, bodyMarkdown: 'existing' });
+        const { props, onUpdateNotes } = makeProps({ notes: [existing] });
+        const [btn] = collectButtons(props);
+        expect(btn).toBeDefined();
+
+        await (btn.props!.onClick as () => Promise<void>)();
+
+        expect(onUpdateNotes).toHaveBeenCalledTimes(1);
+        const next = onUpdateNotes.mock.calls[0][0] as Note[];
+        expect(next).toHaveLength(2);
+        const added = next.find(n => n.id !== existing.id);
+        expect(added).toBeDefined();
+        expect(added!.videoId).toBe(VIDEO_ID);
+        expect(added!.timestampSec).toBe(0);
+        expect(added!.bodyMarkdown).toBe('');
+        expect(added!.isGeneral).toBeUndefined();
+    });
+
+    it('reuses an existing empty note at the same timestamp instead of duplicating', async () => {
+        const existing = makeNote({ timestampSec: 0, bodyMarkdown: '' });
+        const { props, onUpdateNotes } = makeProps({ notes: [existing] });
+        const [btn] = collectButtons(props);
+
+        await (btn.props!.onClick as () => Promise<void>)();
+
+        expect(onUpdateNotes).not.toHaveBeenCalled();
+    });
+
+    it('still adds a note when the same-timestamp note has content', async () => {
+        const existing = makeNote({ timestampSec: 0, bodyMarkdown: 'has content' });
+        const { props, onUpdateNotes } = makeProps({ notes: [existing] });
+        const [btn] = collectButtons(props);
+
+        await (btn.props!.onClick as () => Promise<void>)();
+
+        expect(onUpdateNotes).toHaveBeenCalledTimes(1);
+    });
+
+    it('dedupes against a note added in a previous render', async () => {
+        const { props, onUpdateNotes } = makeProps({ notes: [] });
+        const [btn1] = collectButtons(props);
+        await (btn1.props!.onClick as () => Promise<void>)();
+        expect(onUpdateNotes).toHaveBeenCalledTimes(1);
+
+        props.notes = onUpdateNotes.mock.calls[0][0] as Note[];
+        const [btn2] = collectButtons(props);
+        await (btn2.props!.onClick as () => Promise<void>)();
+
+        expect(onUpdateNotes).toHaveBeenCalledTimes(1);
+    });
+
+    it('dedupes rapid repeated clicks before props propagate', () => {
+        const { props, onUpdateNotes } = makeProps({ notes: [] });
+        const [btn] = collectButtons(props);
+        const onClick = btn.props!.onClick as () => void;
+
+        onClick();
+        onClick();
+
+        expect(onUpdateNotes).toHaveBeenCalledTimes(1);
+        const next = onUpdateNotes.mock.calls[0][0] as Note[];
+        expect(next).toHaveLength(1);
+        expect(next[0].bodyMarkdown).toBe('');
+    });
+
+    it('shows a notice on mobile instead of scrolling to the note', async () => {
+        Platform.isMobile = true;
+        const { props } = makeProps({ notes: [] });
+        const [btn] = collectButtons(props);
+
+        await (btn.props!.onClick as () => Promise<void>)();
+
+        expect(showYoutnoteNotice).toHaveBeenCalledTimes(1);
+    });
+
+    it('shows no notice on desktop', async () => {
+        const { props } = makeProps({ notes: [] });
+        const [btn] = collectButtons(props);
+
+        await (btn.props!.onClick as () => Promise<void>)();
+
+        expect(showYoutnoteNotice).not.toHaveBeenCalled();
+    });
+
+    it('the add-and-edit button still allows duplicate timestamps', () => {
+        const ADD_BTN = 'youtnote-plugin__add-note-btn';
+        const { props, onUpdateNotes } = makeProps({ notes: [] });
+        const [btn] = collectByClass(renderView(props), ADD_BTN);
+        expect(btn).toBeDefined();
+        const onClick = btn.props!.onClick as () => void;
+
+        onClick();
+        onClick();
+
+        expect(onUpdateNotes).toHaveBeenCalledTimes(2);
     });
 });
